@@ -7,12 +7,15 @@ interface EmailsModuleProps {
   emails: EmailDraft[];
   onApprove: (id: string) => void;
   onUpdateDraft: (id: string, newReply: string) => void;
+  /** Signature utilisée pour les brouillons Gmail (ex. « Bien cordialement, Alex »). */
+  signature?: string;
 }
 
 export const EmailsModule: React.FC<EmailsModuleProps> = ({
   emails,
   onApprove,
   onUpdateDraft,
+  signature = "",
 }) => {
   const [view, setView] = useState<"queue" | "gmail">("queue");
   const [selectedEmailId, setSelectedEmailId] = useState<string>(emails[0]?.id || "");
@@ -91,8 +94,8 @@ export const EmailsModule: React.FC<EmailsModuleProps> = ({
         <button
           onClick={() => setView("queue")}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${view === "queue"
-              ? "bg-white text-slate-900 shadow-sm"
-              : "text-slate-500 hover:text-slate-800"
+            ? "bg-white text-slate-900 shadow-sm"
+            : "text-slate-500 hover:text-slate-800"
             }`}
         >
           File d'attente ({emails.length})
@@ -100,8 +103,8 @@ export const EmailsModule: React.FC<EmailsModuleProps> = ({
         <button
           onClick={() => setView("gmail")}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${view === "gmail"
-              ? "bg-white text-slate-900 shadow-sm"
-              : "text-slate-500 hover:text-slate-800"
+            ? "bg-white text-slate-900 shadow-sm"
+            : "text-slate-500 hover:text-slate-800"
             }`}
         >
           Boîte Gmail réelle
@@ -109,7 +112,7 @@ export const EmailsModule: React.FC<EmailsModuleProps> = ({
       </div>
 
       {view === "gmail" ? (
-        <GmailInbox />
+        <GmailInbox signature={signature} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[520px]">
           {/* Email list */}
@@ -129,8 +132,8 @@ export const EmailsModule: React.FC<EmailsModuleProps> = ({
                       setIsEditing(false);
                     }}
                     className={`p-4 rounded-2xl border text-xs cursor-pointer transition-all ${isSelected
-                        ? "bg-white border-teal-500 shadow-md ring-2 ring-teal-50"
-                        : "bg-white/80 border-slate-200/70 hover:bg-white hover:border-slate-300"
+                      ? "bg-white border-teal-500 shadow-md ring-2 ring-teal-50"
+                      : "bg-white/80 border-slate-200/70 hover:bg-white hover:border-slate-300"
                       }`}
                   >
                     <div className="flex items-center justify-between mb-1.5">
@@ -153,8 +156,8 @@ export const EmailsModule: React.FC<EmailsModuleProps> = ({
                     <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100">
                       <span
                         className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold ${email.status === "approved"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-amber-100 text-amber-800"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-amber-100 text-amber-800"
                           }`}
                       >
                         {email.status === "approved" ? "✓ Envoyé avec succès" : "À valider"}

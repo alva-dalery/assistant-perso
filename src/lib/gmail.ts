@@ -23,6 +23,10 @@ const MAX_BODY_BYTES = 400_000;
 const MAX_TEXT_LENGTH = 20_000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Le "et" commercial est construit par concaténation pour éviter toute
+// confusion avec les entités HTML lors de l'édition de ce fichier.
+const AMP = String.fromCharCode(38);
+
 export function isGmailConfigured(): boolean {
     return Boolean(GMAIL_USER && GMAIL_APP_PASSWORD);
 }
@@ -84,7 +88,134 @@ async function withInbox<T>(
     }
 }
 
-export interface GmailMessageSummary {
+/* ------------------------------------------------------------------ */
+/* Tri des messages : à traiter ou diffusion                          */
+/* ------------------------------------------------------------------ */
+
+export type GmailCategory = "personnel" | "newsletter" | "promotion" | "notification";
+
+export interface GmailClassification {
+    category: GmailCategory;
+    needsReply: boolean;
+    reason: string;
+}
+
+/** En-têtes utiles pour reconnaître une diffusion de masse. */
+const HEADERS_TO_FETCH = [
+    "list-unsubscribe",
+    "list-id",
+    "list-post",
+    "precedence",
+    "auto-submitted",
+    "x-mailer",
+    "x-campaign",
+    "x-mailchimp",
+    "x-ses-outgoing",
+    "x-sg-eid",
+    "x-mailgun",
+    "x-feedback-id",
+    "x-klaviyo",
+];
+
+const PROMO_SUBJECT =
+    /(newsletter|promo|promotion|soldes|black friday|cyber monday|offre|bons? plans?|\d+\s*%|-\s*\d+\s*%|dernières (heures|chances)|webinaire|webinar|vente privée|essai gratuit|abonnement|désabonner|unsubscribe|digest|récapitulatif|nouveautés|lancement)/i;
+
+const NO_REPLY_LOCAL =
+    /^(no-?reply|do-?not-?reply|ne-?pas-?repondre|nepasrepondre|notifications?|notify|alerts?|newsletter|news|infolettre|promo|promotions?|marketing|mailer|mailing|bounce|bounces|system|automated?|robot|service-?client|support)([._-].*)?$/i;
+
+function headerValue(headers: string, name: string): string {
+    const regex = new RegExp(`^${name}:\\s*(.+)$`, "im");
+    const match = headers.match(regex);
+    return match ? match[1].trim() : "";
+}
+
+/**
+ * Classe un message sans IA : en-têtes de diffusion + forme de l'adresse + objet.
+ * Objectif : ne jamais proposer de réponse à une newsletter ou une publicité.
+ */
+export function classifyMessage(
+    fromEmail: string,
+    subject: string,
+    headers: string
+): GmailClassification {
+    const hasListHeaders =
+        Boolean(headerValue(headers, "list-unsubscribe")) ||
+        Boolean(headerValue(headers, "list-id")) ||
+        Boolean(headerValue(headers, "list-post"));
+
+    const precedence = headerValue(headers, "precedence").toLowerCase();
+    const isBulk = ["bulk", "list", "junk"].includes(precedence);
+    const isAuto = /auto-(generated|replied|notified)/i.test(
+        headerValue(headers, "auto-submitted")
+    );
+
+    const marketingHeaderNames = [
+        "x-campaign",
+        "x-mailchimp",
+        "x-ses-outgoing",
+        "x-sg-eid",
+        "x-mailgun",
+        "x-feedback-id",
+        "x-klaviyo",
+    ];
+    const isMarketing = marketingHeaderNames.some((name) => Boolean(headerValue(headers, name)));
+
+    const localPart = (fromEmail.split("@")[0] ?? "").toLowerCase();
+    const looksAutomated = NO_REPLY_LOCAL.test(localPart);
+    const promoSubject = PROMO_SUBJECT.test(subject);
+    const hasSeveralRecipients = /,/.test(headerValue(headers, "to"));
+
+    if (hasListHeaders || isMarketing || isBulk) {
+        if (promoSubject) {
+            return {
+                category: "promotion",
+                needsReply: false,
+                reason: "En-tête de diffusion + objet promotionnel",
+            };
+        }
+        return {
+            category: "newsletter",
+            needsReply: false,
+            reason: "En-tête de liste de diffusion (List-Unsubscribe / List-ID)",
+        };
+    }
+
+    if (promoSubject && (looksAutomated || isAuto)) {
+        return {
+            category: "promotion",
+            needsReply: false,
+            reason: "Expéditeur automatique + objet promotionnel",
+        };
+    }
+
+    if (looksAutomated || isAuto) {
+        return {
+            category: "notification",
+            needsReply: false,
+            reason: "Expéditeur automatique (notification, sans réponse attendue)",
+        };
+    }
+
+    if (promoSubject && hasSeveralRecipients) {
+        return {
+            category: "promotion",
+            needsReply: false,
+            reason: "Objet promotionnel envoyé à plusieurs destinataires",
+        };
+    }
+
+    return {
+        category: "personnel",
+        needsReply: true,
+        reason: "Message direct d'un expéditeur identifié",
+    };
+}
+
+/* ------------------------------------------------------------------ */
+/* Lecture de la boîte                                                */
+/* ------------------------------------------------------------------ */
+
+export interface GmailMessageSummary extends GmailClassification {
     uid: number;
     subject: string;
     fromName: string;
@@ -109,19 +240,26 @@ function addressList(list?: { name?: string; address?: string }[]): string {
         .join(", ");
 }
 
-function toSummary(message: FetchMessageObject): GmailMessageSummary {
+function toSummary(
+    message: FetchMessageObject,
+    headers = message.headers ? message.headers.toString("utf8") : ""
+): GmailMessageSummary {
     const envelope = message.envelope;
     const from = envelope?.from?.[0];
     const internalDate = (message as FetchMessageObject & { internalDate?: Date }).internalDate;
     const rawDate = internalDate ?? envelope?.date;
     const date = rawDate instanceof Date ? rawDate : new Date(rawDate ?? Date.now());
+    const subject = envelope?.subject?.trim() || "(sans objet)";
+    const fromEmail = from?.address ?? "";
+    const classification = classifyMessage(fromEmail, subject, headers);
     return {
         uid: message.uid,
-        subject: envelope?.subject?.trim() || "(sans objet)",
-        fromName: from?.name?.trim() || from?.address || "Expéditeur inconnu",
-        fromEmail: from?.address ?? "",
+        subject,
+        fromName: from?.name?.trim() || fromEmail || "Expéditeur inconnu",
+        fromEmail,
         date: Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString(),
         seen: message.flags ? message.flags.has("\\Seen") : false,
+        ...classification,
     };
 }
 
@@ -169,19 +307,32 @@ async function readLimited(stream: Readable, maxBytes: number): Promise<string> 
     return Buffer.concat(chunks).toString("utf8");
 }
 
+function decodeEntities(text: string): string {
+    const entities: Array<[string, string]> = [
+        [AMP + "nbsp;", " "],
+        [AMP + "amp;", AMP],
+        [AMP + "lt;", "<"],
+        [AMP + "gt;", ">"],
+        [AMP + "quot;", '"'],
+        [AMP + "#39;", "'"],
+    ];
+    let result = text;
+    for (const [entity, value] of entities) {
+        result = result.split(entity).join(value);
+        result = result.split(entity.toUpperCase()).join(value);
+    }
+    return result;
+}
+
 function htmlToText(html: string): string {
-    return html
-        .replace(/<style[\s\S]*?<\/style>/gi, " ")
-        .replace(/<script[\s\S]*?<\/script>/gi, " ")
-        .replace(/<br\s*\/?>/gi, "\n")
-        .replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/gi, " ")
-        .replace(/&/gi, "&")
-        .replace(/</gi, "<")
-        .replace(/>/gi, ">")
-        .replace(/"/gi, '"')
-        .replace(/'/gi, "'")
+    return decodeEntities(
+        html
+            .replace(/<style[\s\S]*?<\/style>/gi, " ")
+            .replace(/<script[\s\S]*?<\/script>/gi, " ")
+            .replace(/<br\s*\/?>/gi, "\n")
+            .replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
+            .replace(/<[^>]+>/g, " ")
+    )
         .replace(/[ \t]{2,}/g, " ")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
@@ -203,6 +354,7 @@ export async function listInbox(
             envelope: true,
             internalDate: true,
             flags: true,
+            headers: HEADERS_TO_FETCH,
         })) {
             messages.push(toSummary(message));
         }
@@ -222,7 +374,13 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
     return withInbox(async (client) => {
         const message = await client.fetchOne(
             String(uid),
-            { envelope: true, internalDate: true, flags: true, bodyStructure: true },
+            {
+                envelope: true,
+                internalDate: true,
+                flags: true,
+                bodyStructure: true,
+                headers: HEADERS_TO_FETCH,
+            },
             { uid: true }
         );
         if (!message) {
@@ -244,7 +402,7 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
         }
 
         return {
-            ...toSummary(message),
+            ...toSummary(message, message.headers?.toString("utf8") ?? ""),
             to: addressList(envelope?.to),
             cc: addressList(envelope?.cc),
             text: text.trim() || "(Ce message n'a pas de contenu texte lisible.)",
@@ -253,6 +411,93 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
         };
     });
 }
+
+/* ------------------------------------------------------------------ */
+/* Brouillon de réponse proposé, à valider avant envoi                */
+/* ------------------------------------------------------------------ */
+
+export interface ReplyDraft {
+    to: string;
+    subject: string;
+    body: string;
+    intent: string;
+    needsReply: boolean;
+}
+
+interface ReplyContext {
+    fromName: string;
+    fromEmail: string;
+    subject: string;
+    text: string;
+    needsReply: boolean;
+}
+
+function firstNameOf(fromName: string): string {
+    const candidate = fromName.split(/[\s,<]/)[0]?.trim() ?? "";
+    return /^[\p{L}][\p{L}'-]{1,}$/u.test(candidate) ? candidate : "";
+}
+
+/**
+ * Rédige une proposition de réponse à partir du sujet et du contenu.
+ * Volontairement factuelle : vous relisez, ajustez, puis validez l'envoi.
+ */
+export function buildReplyDraft(context: ReplyContext, signature = ""): ReplyDraft {
+    const haystack = `${context.subject}\n${context.text}`.slice(0, 6000).toLowerCase();
+    const name = firstNameOf(context.fromName);
+
+    let intent = "accusé de réception";
+    let core =
+        "Merci pour votre message, que j'ai bien reçu. Je reviens vers vous rapidement avec une réponse complète.";
+
+    if (/(facture|invoice|paiement|remboursement|prélèvement|virement|justificatif)/.test(haystack)) {
+        intent = "facturation";
+        core =
+            "Merci pour votre message. Je prends bonne note des éléments concernant la facturation et je reviens vers vous rapidement avec les pièces demandées.";
+    } else if (/(rendez-vous|rdv|disponibilit|créneau|horaire|planifier|réunion|agenda)/.test(haystack)) {
+        intent = "prise de rendez-vous";
+        core =
+            "Merci pour votre proposition. Je vérifie mes disponibilités et je vous confirme un créneau dans les meilleurs délais.";
+    } else if (/(devis|estimation|tarif|prix|proposition commerciale)/.test(haystack)) {
+        intent = "devis";
+        core =
+            "Merci pour votre message. Je prends connaissance de votre demande et je vous adresse une réponse détaillée très prochainement.";
+    } else if (/(relance|retard|impayé|échéance|rappel|en attente)/.test(haystack)) {
+        intent = "relance";
+        core =
+            "Merci pour votre relance. Je traite ce point en priorité et je vous tiens informé dès que la situation est régularisée.";
+    } else if (/(litige|réclamation|contestation|sinistre|mise en demeure|préjudice)/.test(haystack)) {
+        intent = "litige";
+        core =
+            "Merci pour votre message. J'ai bien pris connaissance de votre réclamation et je vous réponds de manière détaillée après vérification des éléments.";
+    } else if (/(\?|pourriez-vous|pouvez-vous|merci de (me|nous)|confirmer|valider|justificatif)/.test(haystack)) {
+        intent = "demande d'information";
+        core =
+            "Merci pour votre message. Je reviens vers vous avec une réponse complète dès que possible.";
+    }
+
+    const signatureText = signature.trim() || "Bien cordialement,";
+    const body = [
+        name ? `Bonjour ${name},` : "Bonjour,",
+        "",
+        core,
+        "",
+        "N'hésitez pas à me préciser si un élément complémentaire vous est utile.",
+        "",
+        signatureText,
+    ].join("\n");
+
+    return {
+        to: context.fromEmail,
+        subject: /^re\s*:/i.test(context.subject) ? context.subject : `Re: ${context.subject}`,
+        body,
+        intent,
+        needsReply: context.needsReply,
+    };
+}
+
+/* ------------------------------------------------------------------ */
+/* Envoi et brouillons                                                */
+/* ------------------------------------------------------------------ */
 
 export interface SendEmailInput {
     to: string;
@@ -337,6 +582,10 @@ export async function sendEmail(input: SendEmailInput) {
         transporter.close();
     }
 }
+
+/* ------------------------------------------------------------------ */
+/* Statut de la connexion                                             */
+/* ------------------------------------------------------------------ */
 
 export interface GmailStatus {
     configured: boolean;

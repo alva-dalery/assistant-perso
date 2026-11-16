@@ -261,6 +261,30 @@ En local, les mêmes lignes dans `.env.local` (fichier ignoré par Git), puis `n
 - Onglet **Paramètres → Synchronisation** : la carte Google affiche l'adresse réellement connectée
   et le nombre de messages, avec un bouton **Tester la connexion**.
 
+### Tri automatique et rédaction de réponse
+
+Chaque message est classé **sans IA**, à partir de trois familles d'indices :
+
+| Indice | Exemple | Résultat |
+| --- | --- | --- |
+| En-têtes de diffusion | `List-Unsubscribe`, `List-ID`, `Precedence: bulk`, `X-Mailchimp`, `X-SG-EID` | Newsletter / publicité |
+| Forme de l'adresse | `noreply@`, `newsletter@`, `notifications@`, `promo@` | Notification / publicité |
+| Objet | « -50 % », « soldes », « offre », « webinaire », « désabonner » | Publicité |
+
+Tout le reste est considéré comme **personnel** : réponse attendue.
+
+Dans le module, deux filtres affichent leur compteur :
+- **À traiter** → messages qui attendent une réponse (sélection par défaut) ;
+- **Newsletters & pubs** → aucun bouton de réponse mis en avant, pour éviter les réponses inutiles.
+
+Pour répondre : ouvrir le message → **Rédiger une réponse**. La proposition est construite à partir
+du sujet et du contenu (facturation, rendez-vous, devis, relance, litige, question), avec votre
+signature. Le texte reste **toujours éditable**, puis :
+- **Enregistrer en brouillon** → déposé dans *Brouillons* Gmail, rien n'est envoyé ;
+- **Envoyer maintenant** → confirmation explicite obligatoire.
+
+Aucun envoi automatique n'existe dans l'application.
+
 ### 4. Bonnes pratiques de sécurité
 
 - Le mot de passe d'application donne accès à toute la boîte : ne le mettez **jamais** dans le code

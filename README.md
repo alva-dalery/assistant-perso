@@ -83,6 +83,13 @@ d'application** suffit.
    en ligne dans les variables d'environnement Vercel).
 4. Redéployer, puis ouvrir **Secrétariat → Boîte Gmail réelle**.
 
+Le module trie automatiquement les messages : **À traiter** (réponse attendue) d'un côté,
+**Newsletters & pubs** de l'autre, grâce aux en-têtes de diffusion (`List-Unsubscribe`,
+`Precedence: bulk`…), à l'adresse de l'expéditeur et à l'objet. Un bouton
+**Rédiger une réponse** propose un texte adapté à l'intention détectée ; vous le relisez,
+le modifiez, puis choisissez **Enregistrer en brouillon** ou **Envoyer maintenant**.
+Aucun mail ne part sans votre validation.
+
 Détails et dépannage : [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 
 

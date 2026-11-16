@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
     AlertTriangle,
     ArrowLeft,
@@ -8,10 +8,13 @@ import {
     KeyRound,
     Loader2,
     Mail,
+    PenLine,
     RefreshCw,
     Save,
     Send,
 } from "lucide-react";
+
+type GmailCategory = "personnel" | "newsletter" | "promotion" | "notification";
 
 interface GmailStatus {
     configured: boolean;
@@ -29,6 +32,9 @@ interface InboxMessage {
     fromEmail: string;
     date: string;
     seen: boolean;
+    category: GmailCategory;
+    needsReply: boolean;
+    reason: string;
 }
 
 interface MessageDetail extends InboxMessage {
@@ -38,6 +44,29 @@ interface MessageDetail extends InboxMessage {
     messageId: string;
     inReplyTo: string;
 }
+
+interface ReplyDraftResponse {
+    to: string;
+    subject: string;
+    body: string;
+    intent: string;
+    needsReply: boolean;
+    error?: string;
+}
+
+const CATEGORY_LABEL: Record<GmailCategory, string> = {
+    personnel: "À traiter",
+    newsletter: "Newsletter",
+    promotion: "Publicité",
+    notification: "Notification",
+};
+
+const CATEGORY_STYLE: Record<GmailCategory, string> = {
+    personnel: "bg-teal-50 text-teal-700 border-teal-200",
+    newsletter: "bg-slate-100 text-slate-500 border-slate-200",
+    promotion: "bg-amber-50 text-amber-700 border-amber-200",
+    notification: "bg-sky-50 text-sky-700 border-sky-200",
+};
 
 function formatDate(iso: string): string {
     const date = new Date(iso);
@@ -49,24 +78,36 @@ function replySubject(subject: string): string {
     return /^re\s*:/i.test(subject) ? subject : `Re: ${subject}`;
 }
 
-export const GmailInbox: React.FC = () => {
+interface GmailInboxProps {
+    /** Ligne de signature utilisée dans les brouillons (ex. « Bien cordialement, Alex »). */
+    signature?: string;
+}
+
+export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [status, setStatus] = useState<GmailStatus | null>(null);
     const [messages, setMessages] = useState<InboxMessage[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<string | null>(null);
+    const [filter, setFilter] = useState<"todo" | "later" | "all">("todo");
 
     const [detail, setDetail] = useState<MessageDetail | null>(null);
     const [loadingDetail, setLoadingDetail] = useState(false);
     const [reply, setReply] = useState("");
+    const [draftSubject, setDraftSubject] = useState<string | null>(null);
+    const [draftIntent, setDraftIntent] = useState<string | null>(null);
+    const [drafting, setDrafting] = useState(false);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
 
     const load = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            const statusResponse = await fetch("/api/gmail/status", { cache: "no-store" });
+            const statusResponse = await fetch("/api/gmail/status", {
+                cache: "no-store",
+                credentials: "same-origin",
+            });
             const statusData = (await statusResponse.json()) as GmailStatus;
             setStatus(statusData);
 
@@ -80,8 +121,9 @@ export const GmailInbox: React.FC = () => {
                 return;
             }
 
-            const messagesResponse = await fetch("/api/gmail/messages?limit=15", {
+            const messagesResponse = await fetch("/api/gmail/messages?limit=20", {
                 cache: "no-store",
+                credentials: "same-origin",
             });
             const messagesData = (await messagesResponse.json()) as {
                 messages?: InboxMessage[];
@@ -107,27 +149,68 @@ export const GmailInbox: React.FC = () => {
 
     useEffect(() => {
         if (!feedback) return;
-        const timer = setTimeout(() => setFeedback(null), 4000);
+        const timer = setTimeout(() => setFeedback(null), 5000);
         return () => clearTimeout(timer);
     }, [feedback]);
+
+    const toReply = useMemo(() => messages.filter((message) => message.needsReply), [messages]);
+    const toIgnore = useMemo(() => messages.filter((message) => !message.needsReply), [messages]);
+
+    const visibleMessages =
+        filter === "todo" ? toReply : filter === "later" ? toIgnore : messages;
 
     const openMessage = async (uid: number) => {
         setLoadingDetail(true);
         setDetail(null);
         setReply("");
+        setDraftSubject(null);
+        setDraftIntent(null);
         try {
-            const response = await fetch(`/api/gmail/message?uid=${uid}`, { cache: "no-store" });
+            const response = await fetch(`/api/gmail/message?uid=${uid}`, {
+                cache: "no-store",
+                credentials: "same-origin",
+            });
             const data = (await response.json()) as MessageDetail & { error?: string };
             if (!response.ok) {
                 setError(data.error ?? "Impossible d'ouvrir ce message.");
                 return;
             }
             setDetail(data);
-            setReply("");
         } catch {
             setError("Impossible de charger le message.");
         } finally {
             setLoadingDetail(false);
+        }
+    };
+
+    const generateDraft = async () => {
+        if (!detail) return;
+        setDrafting(true);
+        setFeedback(null);
+        try {
+            const response = await fetch("/api/gmail/reply-draft", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({ uid: detail.uid, signature }),
+            });
+            const data = (await response.json()) as ReplyDraftResponse;
+            if (!response.ok) {
+                setFeedback(data.error ?? "Impossible de rédiger la réponse.");
+                return;
+            }
+            setReply(data.body);
+            setDraftSubject(data.subject);
+            setDraftIntent(data.intent);
+            setFeedback(
+                data.needsReply
+                    ? `Proposition de réponse prête (intention détectée : ${data.intent}). Relisez, modifiez, puis validez.`
+                    : `Ce message ressemble à une diffusion (${detail.reason}). Vérifiez avant d'envoyer.`
+            );
+        } catch {
+            setFeedback("Impossible de joindre le serveur.");
+        } finally {
+            setDrafting(false);
         }
     };
 
@@ -149,9 +232,10 @@ export const GmailInbox: React.FC = () => {
             const response = await fetch("/api/gmail/send", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
                 body: JSON.stringify({
                     to: detail.fromEmail,
-                    subject: replySubject(detail.subject),
+                    subject: draftSubject || replySubject(detail.subject),
                     text: reply,
                     inReplyTo: detail.messageId || undefined,
                     mode,
@@ -164,10 +248,13 @@ export const GmailInbox: React.FC = () => {
             }
             setFeedback(
                 mode === "draft"
-                    ? "Brouillon enregistré dans Gmail (dossier Brouillons)."
+                    ? "Brouillon enregistré dans Gmail (dossier Brouillons). Il reste à relire dans Gmail puis à envoyer."
                     : `Message envoyé à ${detail.fromEmail}.`
             );
             setReply("");
+            setDraftSubject(null);
+            setDraftIntent(null);
+            void load();
         } catch {
             setFeedback("Impossible de joindre le serveur.");
         } finally {
@@ -205,24 +292,25 @@ export const GmailInbox: React.FC = () => {
                         validation en deux étapes.
                     </li>
                     <li>
-                        Toujours dans Sécurité, ouvrez <span className="font-semibold">Mots de passe des applications</span>
-                        {" "}et générez-en un pour « Assistant perso » (16 caractères).
+                        Toujours dans Sécurité, ouvrez{" "}
+                        <span className="font-semibold">Mots de passe des applications</span> et générez-en un
+                        pour « Assistant perso » (16 caractères).
                     </li>
                     <li>
                         Sur Vercel : <span className="font-semibold">Settings → Environment Variables</span>, ajoutez
-                        <code className="mx-1 px-1.5 py-0.5 rounded bg-slate-100 font-mono">GMAIL_USER</code> (votre adresse Gmail)
-                        et
+                        <code className="mx-1 px-1.5 py-0.5 rounded bg-slate-100 font-mono">GMAIL_USER</code>
+                        (votre adresse Gmail) et
                         <code className="mx-1 px-1.5 py-0.5 rounded bg-slate-100 font-mono">GMAIL_APP_PASSWORD</code>
-                        (les 16 caractères, espaces compris ou non), pour <span className="font-semibold">Production</span>.
+                        (les 16 caractères), pour <span className="font-semibold">Production</span>.
                     </li>
                     <li>
-                        <span className="font-semibold">Deployments → … → Redeploy</span> (décocher le cache de build),
+                        <span className="font-semibold">Deployments → … → Redeploy</span> (cache de build décoché),
                         puis rechargez cette page.
                     </li>
                 </ol>
 
                 <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/60 text-[11px] text-slate-500">
-                    En local, ajoutez simplement ces deux lignes dans <code className="font-mono">.env.local</code>
+                    En local, ajoutez ces deux lignes dans <code className="font-mono">.env.local</code>
                     (fichier ignoré par Git) puis relancez <code className="font-mono">npm run dev</code>.
                 </div>
 
@@ -241,16 +329,17 @@ export const GmailInbox: React.FC = () => {
         <div className="space-y-4">
             {/* Barre d'état */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200/70 shadow-sm">
-                <div className="flex items-center gap-2.5 text-xs">
+                <div className="flex flex-wrap items-center gap-2.5 text-xs">
                     <Mail className="h-4 w-4 text-teal-600" />
                     <span className="font-bold text-slate-800">{status?.email}</span>
                     <span className="text-slate-400">•</span>
                     <span className="text-slate-500">{total} message{total > 1 ? "s" : ""} dans la boîte</span>
-                    {status?.imap === "ok" && status?.smtp === "ok" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
-                            IMAP + SMTP OK
-                        </span>
-                    )}
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200 font-bold">
+                        {toReply.length} à traiter
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 font-bold">
+                        {toIgnore.length} newsletters / pubs
+                    </span>
                 </div>
                 <button
                     onClick={() => void load()}
@@ -275,13 +364,42 @@ export const GmailInbox: React.FC = () => {
                 </div>
             )}
 
+            {/* Filtres */}
+            <div className="flex items-center gap-1.5 p-1.5 rounded-2xl bg-slate-100/80 border border-slate-200/60 w-fit">
+                <button
+                    onClick={() => setFilter("todo")}
+                    className={`px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all ${filter === "todo" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                        }`}
+                >
+                    À traiter ({toReply.length})
+                </button>
+                <button
+                    onClick={() => setFilter("later")}
+                    className={`px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all ${filter === "later" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                        }`}
+                >
+                    Newsletters & pubs ({toIgnore.length})
+                </button>
+                <button
+                    onClick={() => setFilter("all")}
+                    className={`px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all ${filter === "all" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                        }`}
+                >
+                    Tout ({messages.length})
+                </button>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
                 {/* Liste */}
                 <div className="lg:col-span-5 space-y-2">
-                    {messages.length === 0 && !error && (
-                        <p className="text-xs text-slate-500 p-4">Aucun message dans la boîte de réception.</p>
+                    {visibleMessages.length === 0 && !error && (
+                        <p className="text-xs text-slate-500 p-4">
+                            {filter === "todo"
+                                ? "Aucun message ne semble nécessiter de réponse parmi les derniers emails."
+                                : "Aucun message dans cette catégorie."}
+                        </p>
                     )}
-                    {messages.map((message) => (
+                    {visibleMessages.map((message) => (
                         <button
                             key={message.uid}
                             onClick={() => void openMessage(message.uid)}
@@ -300,6 +418,13 @@ export const GmailInbox: React.FC = () => {
                                 <span className="text-[10px] text-slate-400 shrink-0">{formatDate(message.date)}</span>
                             </div>
                             <p className="text-[11px] font-medium text-slate-600 truncate">{message.subject}</p>
+                            <div className="mt-1.5">
+                                <span
+                                    className={`text-[9px] px-2 py-0.5 rounded-full border font-bold ${CATEGORY_STYLE[message.category]}`}
+                                >
+                                    {CATEGORY_LABEL[message.category]}
+                                </span>
+                            </div>
                         </button>
                     ))}
                 </div>
@@ -323,27 +448,59 @@ export const GmailInbox: React.FC = () => {
                     {!loadingDetail && detail && (
                         <div className="rounded-2xl bg-white border border-slate-200/70 shadow-sm overflow-hidden">
                             <div className="p-4 border-b border-slate-100">
-                                <p className="text-sm font-extrabold text-slate-900 mb-1">{detail.subject}</p>
+                                <div className="flex items-start justify-between gap-3 mb-1">
+                                    <p className="text-sm font-extrabold text-slate-900">{detail.subject}</p>
+                                    <span
+                                        className={`text-[9px] px-2 py-0.5 rounded-full border font-bold shrink-0 ${CATEGORY_STYLE[detail.category]}`}
+                                    >
+                                        {CATEGORY_LABEL[detail.category]}
+                                    </span>
+                                </div>
                                 <p className="text-[11px] text-slate-500">
                                     De <span className="font-semibold text-slate-700">{detail.fromName}</span>
                                     {detail.fromEmail && ` <${detail.fromEmail}>`}
                                     {" · "}
                                     {formatDate(detail.date)}
                                 </p>
+                                <p className="text-[10px] text-slate-400 mt-1">Tri automatique : {detail.reason}</p>
                             </div>
 
-                            <div className="p-4 max-h-64 overflow-y-auto text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed">
+                            <div className="p-4 max-h-56 overflow-y-auto text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed">
                                 {detail.text}
                             </div>
 
                             <div className="p-4 border-t border-slate-100 space-y-3 bg-slate-50/40">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-[11px] font-bold text-slate-500">
+                                        {draftIntent ? `Réponse proposée · ${draftIntent}` : "Votre réponse"}
+                                    </span>
+                                    <button
+                                        onClick={() => void generateDraft()}
+                                        disabled={drafting}
+                                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 disabled:opacity-60 text-[11px] font-bold hover:bg-teal-100 transition-all"
+                                    >
+                                        {drafting ? (
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                            <PenLine className="h-3.5 w-3.5" />
+                                        )}
+                                        <span>{drafting ? "Rédaction…" : "Rédiger une réponse"}</span>
+                                    </button>
+                                </div>
+
                                 <textarea
                                     value={reply}
                                     onChange={(event) => setReply(event.target.value)}
-                                    rows={5}
-                                    placeholder={`Répondre à ${detail.fromName}…`}
+                                    rows={6}
+                                    placeholder="Écrivez ou générez une réponse, puis relisez avant d'envoyer."
                                     className="w-full bg-white border border-slate-200 rounded-2xl p-3 text-xs text-slate-800 focus:outline-none focus:border-teal-500 resize-y"
                                 />
+
+                                <p className="text-[10px] text-slate-500">
+                                    Rien n'est envoyé sans votre validation : « Enregistrer en brouillon » dépose le
+                                    texte dans Gmail, « Envoyer maintenant » demande une confirmation.
+                                </p>
+
                                 <div className="flex flex-wrap items-center gap-2">
                                     <button
                                         onClick={() => void submitReply("draft")}
@@ -373,6 +530,8 @@ export const GmailInbox: React.FC = () => {
                                         onClick={() => {
                                             setDetail(null);
                                             setReply("");
+                                            setDraftSubject(null);
+                                            setDraftIntent(null);
                                         }}
                                         className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-500 hover:text-slate-800 text-xs font-semibold"
                                     >
