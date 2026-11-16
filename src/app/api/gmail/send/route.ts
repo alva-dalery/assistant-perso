@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { describeGmailError, isGmailConfigured, sendEmail } from "@/lib/gmail";
+import {
+    describeGmailError,
+    isGmailConfigured,
+    markMessageAnswered,
+    sendEmail,
+} from "@/lib/gmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +16,8 @@ interface SendPayload {
     text?: string;
     inReplyTo?: string;
     mode?: "draft" | "send";
+    /** UID du message d'origine, pour le marquer comme répondu après envoi. */
+    uid?: number;
 }
 
 export async function POST(request: Request) {
@@ -32,16 +39,27 @@ export async function POST(request: Request) {
     }
 
     try {
+        const mode = payload.mode === "draft" ? "draft" : "send";
         const result = await sendEmail({
             to: payload.to ?? "",
             subject: payload.subject ?? "",
             text: payload.text ?? "",
             inReplyTo: payload.inReplyTo,
-            mode: payload.mode === "draft" ? "draft" : "send",
+            mode,
         });
-        return NextResponse.json(result, {
-            headers: { "Cache-Control": "no-store" },
-        });
+
+        // Après un envoi réel, le message d'origine reçoit le drapeau \Answered :
+        // il quitte ainsi la file « À traiter » au prochain rafraîchissement.
+        const uid = Number(payload.uid);
+        const markedAnswered =
+            mode === "send" && Number.isInteger(uid) && uid > 0
+                ? await markMessageAnswered(uid)
+                : false;
+
+        return NextResponse.json(
+            { ...result, markedAnswered },
+            { headers: { "Cache-Control": "no-store" } }
+        );
     } catch (error) {
         const message = error instanceof Error ? error.message : describeGmailError(error);
         const isValidationError = /invalide|vide|trop long/i.test(message);

@@ -97,6 +97,10 @@ et le **registre de l'expéditeur** (vouvoiement ou tutoiement), avec la signatu
 Vous relisez, modifiez, puis choisissez **Enregistrer en brouillon** ou **Envoyer maintenant**.
 Aucun mail ne part sans votre validation.
 
+Après un envoi réel, le message d'origine est marqué **« Répondu »** et sort de la file
+**À traiter**. Une barre **Ranger** permet ensuite de le déplacer dans n'importe quel libellé
+Gmail (ex. `Fitness Park`) ou de l'archiver.
+
 Détails et dépannage : [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 
 

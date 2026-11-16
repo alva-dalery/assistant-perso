@@ -301,6 +301,19 @@ Le texte reste **toujours éditable**, puis :
 
 Aucun envoi automatique n'existe dans l'application.
 
+### Marquer comme répondu et ranger dans un dossier Gmail
+
+- Après un envoi réel, l'application pose le drapeau `\Answered` sur le message d'origine :
+  il sort de **À traiter** et porte un badge **« Répondu »**.
+- Une barre **« Ranger »** sous le message permet de le déplacer vers n'importe quel
+  **libellé Gmail** (par exemple `Fitness Park`) ou de l'**Archiver** (déplacement vers
+  *Tous les messages*, donc retrait de la boîte de réception).
+- Les dossiers sont lus en direct sur votre compte : tout libellé créé dans Gmail apparaît
+  automatiquement dans la liste, sans configuration.
+
+Si vous répondez directement depuis Gmail, le drapeau est déjà posé : le message quittera
+aussi **À traiter** au prochain rafraîchissement.
+
 ### 4. Bonnes pratiques de sécurité
 
 - Le mot de passe d'application donne accès à toute la boîte : ne le mettez **jamais** dans le code

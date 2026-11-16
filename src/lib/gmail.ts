@@ -278,6 +278,7 @@ export interface GmailMessageSummary extends GmailClassification {
     fromEmail: string;
     date: string;
     seen: boolean;
+    answered: boolean;
 }
 
 export interface GmailMessageDetail extends GmailMessageSummary {
@@ -308,6 +309,14 @@ function toSummary(
     const subject = envelope?.subject?.trim() || "(sans objet)";
     const fromEmail = from?.address ?? "";
     const classification = classifyMessage(fromEmail, subject, headers);
+    const answered = message.flags ? message.flags.has("\\Answered") : false;
+    const finalClassification = answered
+        ? {
+              ...classification,
+              needsReply: false,
+              reason: `Déjà répondu — ${classification.reason}`,
+          }
+        : classification;
     return {
         uid: message.uid,
         subject,
@@ -315,7 +324,8 @@ function toSummary(
         fromEmail,
         date: Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString(),
         seen: message.flags ? message.flags.has("\\Seen") : false,
-        ...classification,
+        answered,
+        ...finalClassification,
     };
 }
 
@@ -699,6 +709,135 @@ export async function sendEmail(input: SendEmailInput) {
 /* ------------------------------------------------------------------ */
 /* Statut de la connexion                                             */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* Classement dans les dossiers Gmail                                 */
+/* ------------------------------------------------------------------ */
+
+export interface GmailFolder {
+    path: string;
+    label: string;
+    kind: "inbox" | "label" | "system";
+}
+
+const SPECIAL_FOLDER_LABELS: Record<string, string> = {
+    "\\Inbox": "Boîte de réception",
+    "\\All": "Tous les messages (archives)",
+    "\\Drafts": "Brouillons",
+    "\\Sent": "Messages envoyés",
+    "\\Trash": "Corbeille",
+    "\\Junk": "Indésirables",
+};
+
+export const ARCHIVE_PATH = "[Gmail]/All Mail";
+
+export async function listFolders(): Promise<GmailFolder[]> {
+    if (!isGmailConfigured()) {
+        throw new Error("Gmail n'est pas configuré.");
+    }
+
+    const client = createImapClient();
+    client.on("error", () => undefined);
+    await client.connect();
+    try {
+        const boxes = await client.list();
+        const folders: GmailFolder[] = [];
+
+        for (const box of boxes) {
+            if (box.flags?.has("\\Noselect")) continue;
+
+            if (box.path === "INBOX") {
+                folders.push({ path: box.path, label: "Boîte de réception", kind: "inbox" });
+                continue;
+            }
+
+            const specialLabel = box.specialUse ? SPECIAL_FOLDER_LABELS[box.specialUse] : undefined;
+            if (specialLabel) {
+                folders.push({ path: box.path, label: specialLabel, kind: "system" });
+                continue;
+            }
+
+            // Les dossiers système Gmail restants sont couverts par specialUse :
+            // on ignore les entrées techniques pour ne garder que vos libellés.
+            if (box.path.startsWith("[Gmail]/")) continue;
+
+            folders.push({ path: box.path, label: box.path, kind: "label" });
+        }
+
+        const rank = (folder: GmailFolder): number =>
+            folder.kind === "label" ? 0 : folder.kind === "inbox" ? -1 : 1;
+
+        folders.sort(
+            (a, b) =>
+                rank(a) - rank(b) ||
+                a.label.localeCompare(b.label, "fr", { sensitivity: "base" })
+        );
+
+        return folders;
+    } finally {
+        await client.logout().catch(() => undefined);
+    }
+}
+
+/** Déplace un message vers un dossier/libellé Gmail (ou vers les archives). */
+export async function moveMessage(
+    uid: number,
+    destination: string
+): Promise<{ moved: boolean; destination: string }> {
+    if (!isGmailConfigured()) {
+        throw new Error("Gmail n'est pas configuré.");
+    }
+    if (!Number.isInteger(uid) || uid <= 0) {
+        throw new Error("Identifiant de message invalide.");
+    }
+    if (!destination.trim()) {
+        throw new Error("Dossier de destination manquant.");
+    }
+
+    const client = createImapClient();
+    client.on("error", () => undefined);
+    await client.connect();
+
+    let lock: { release: () => void } | null = null;
+    try {
+        const boxes = await client.list();
+        const target = boxes.find((box) => box.path === destination);
+        if (!target) {
+            throw new Error("Dossier de destination inconnu dans Gmail.");
+        }
+
+        lock = await client.getMailboxLock("INBOX");
+        const result = await client.messageMove(String(uid), destination, { uid: true });
+        if (result === false) {
+            throw new Error("Gmail a refusé le déplacement de ce message.");
+        }
+        return { moved: true, destination };
+    } finally {
+        lock?.release();
+        await client.logout().catch(() => undefined);
+    }
+}
+
+/** Marque un message comme répondu (drapeau \Answered de Gmail). */
+export async function markMessageAnswered(uid: number): Promise<boolean> {
+    if (!isGmailConfigured() || !Number.isInteger(uid) || uid <= 0) return false;
+
+    const client = createImapClient();
+    client.on("error", () => undefined);
+    await client.connect();
+
+    let lock: { release: () => void } | null = null;
+    try {
+        lock = await client.getMailboxLock("INBOX");
+        await client.messageFlagsAdd(String(uid), ["\\Answered"], { uid: true });
+        return true;
+    } catch {
+        return false;
+    } finally {
+        lock?.release();
+        await client.logout().catch(() => undefined);
+    }
+}
 
 export interface GmailStatus {
     configured: boolean;

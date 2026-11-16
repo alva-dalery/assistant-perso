@@ -33,6 +33,7 @@ interface InboxMessage {
     fromEmail: string;
     date: string;
     seen: boolean;
+    answered: boolean;
     category: GmailCategory;
     needsReply: boolean;
     reason: string;
@@ -130,6 +131,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [drafting, setDrafting] = useState(false);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(false);
+    const [folders, setFolders] = useState<{ path: string; label: string; kind: string }[]>([]);
+    const [folderTarget, setFolderTarget] = useState("");
+    const [moving, setMoving] = useState(false);
 
     const load = useCallback(
         async (requestedLimit: number) => {
@@ -200,6 +204,28 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         return () => clearTimeout(timer);
     }, [feedback]);
 
+    useEffect(() => {
+        if (!status?.configured) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const response = await fetch("/api/gmail/folders", {
+                    cache: "no-store",
+                    credentials: "same-origin",
+                });
+                const data = (await response.json()) as {
+                    folders?: { path: string; label: string; kind: string }[];
+                };
+                if (!cancelled) setFolders(data.folders ?? []);
+            } catch {
+                if (!cancelled) setFolders([]);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [status?.configured]);
+
     const toReply = useMemo(() => messages.filter((message) => message.needsReply), [messages]);
     const important = useMemo(
         () => messages.filter((message) => message.category === "important"),
@@ -224,6 +250,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         setDetail(null);
         setExpanded(false);
         setForceReply(false);
+        setFolderTarget("");
         setReply("");
         setDraftSubject(null);
         setDraftIntent(null);
@@ -282,6 +309,40 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         }
     }
 
+    async function moveTo(destination: string) {
+        if (!detail) return;
+        const message = detail;
+        if (!destination) {
+            setFeedback("Choisissez d'abord un dossier de destination.");
+            return;
+        }
+        setMoving(true);
+        setFeedback(null);
+        try {
+            const response = await fetch("/api/gmail/move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({ uid: message.uid, destination }),
+            });
+            const data = (await response.json()) as { error?: string };
+            if (!response.ok) {
+                setFeedback(data.error ?? "Le déplacement a échoué.");
+                return;
+            }
+            const label =
+                folders.find((folder) => folder.path === destination)?.label ?? destination;
+            setMessages((previous) => previous.filter((item) => item.uid !== message.uid));
+            setTotal((previous) => Math.max(0, previous - 1));
+            setDetail(null);
+            setFeedback(`Message déplacé vers « ${label} ».`);
+        } catch {
+            setFeedback("Impossible de joindre le serveur.");
+        } finally {
+            setMoving(false);
+        }
+    }
+
     const submitReply = async (mode: "draft" | "send") => {
         if (!detail) return;
         if (!reply.trim()) {
@@ -302,6 +363,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
                 body: JSON.stringify({
+                    uid: detail.uid,
                     to: detail.fromEmail,
                     subject: draftSubject || replySubject(detail.subject),
                     text: reply,
@@ -309,15 +371,25 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                     mode,
                 }),
             });
-            const data = (await response.json()) as { error?: string };
+            const data = (await response.json()) as { error?: string; markedAnswered?: boolean };
             if (!response.ok) {
                 setFeedback(data.error ?? "L'envoi a échoué.");
                 return;
             }
+            if (mode === "send") {
+                setDetail((previous) =>
+                    previous
+                        ? { ...previous, answered: true, needsReply: false, reason: "Déjà répondu" }
+                        : previous
+                );
+            }
+            const sentMessage = `Message envoyé à ${detail.fromEmail}.${
+                data.markedAnswered ? " Marqué comme répondu dans Gmail." : ""
+            } Vous pouvez maintenant le ranger dans un dossier ci-dessous.`;
             setFeedback(
                 mode === "draft"
                     ? "Brouillon enregistré dans Gmail (dossier Brouillons). Il reste à relire dans Gmail puis à envoyer."
-                    : `Message envoyé à ${detail.fromEmail}.`
+                    : sentMessage
             );
             setReply("");
             setDraftSubject(null);
@@ -491,12 +563,17 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                 <span className="text-[10px] text-slate-400 shrink-0">{formatDate(message.date)}</span>
                             </div>
                             <p className="text-[11px] font-medium text-slate-600 truncate">{message.subject}</p>
-                            <div className="mt-1.5">
+                            <div className="mt-1.5 flex items-center gap-1.5">
                                 <span
                                     className={`text-[9px] px-2 py-0.5 rounded-full border font-bold ${CATEGORY_STYLE[message.category]}`}
                                 >
                                     {CATEGORY_LABEL[message.category]}
                                 </span>
+                                {message.answered && (
+                                    <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold">
+                                        Répondu
+                                    </span>
+                                )}
                             </div>
                         </button>
                     ))}
@@ -528,6 +605,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     >
                                         {CATEGORY_LABEL[detail.category]}
                                     </span>
+                                    {detail.answered && (
+                                        <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold shrink-0">
+                                            Répondu
+                                        </span>
+                                    )}
                                 </div>
                                 <p className="text-[11px] text-slate-500">
                                     De <span className="font-semibold text-slate-700">{detail.fromName}</span>
@@ -571,6 +653,45 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         </div>
                                     )}
                                 </div>
+                            </div>
+
+                            <div className="px-4 py-3 border-t border-slate-100 bg-white flex flex-wrap items-center gap-2">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                    Ranger
+                                </span>
+                                <select
+                                    value={folderTarget}
+                                    onChange={(event) => setFolderTarget(event.target.value)}
+                                    className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[11px] text-slate-700 focus:outline-none focus:border-teal-500"
+                                >
+                                    <option value="">Choisir un dossier Gmail…</option>
+                                    {folders
+                                        .filter((folder) => folder.kind === "label")
+                                        .map((folder) => (
+                                            <option key={folder.path} value={folder.path}>
+                                                {folder.label}
+                                            </option>
+                                        ))}
+                                </select>
+                                <button
+                                    onClick={() => void moveTo(folderTarget)}
+                                    disabled={moving || !folderTarget}
+                                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 text-[11px] font-bold transition-all"
+                                >
+                                    {moving ? "Déplacement…" : "Déplacer"}
+                                </button>
+                                <button
+                                    onClick={() => void moveTo("[Gmail]/All Mail")}
+                                    disabled={moving}
+                                    className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-[11px] font-bold transition-all"
+                                >
+                                    Archiver
+                                </button>
+                                {folders.length === 0 && (
+                                    <span className="text-[10px] text-slate-400">
+                                        Dossiers indisponibles pour le moment
+                                    </span>
+                                )}
                             </div>
 
                             {detail.needsReply || forceReply ? (
