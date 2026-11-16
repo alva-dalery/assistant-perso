@@ -56,23 +56,66 @@ Trois stratégies plus détaillées, de la plus simple à la plus étanche :
 
 ---
 
+## 📦 Mettre le code sur GitHub
+
+Le dépôt Git local est **déjà prêt** : `git init` est fait et le premier commit
+« Assistant perso — version initiale » contient les 31 fichiers utiles.
+`node_modules`, `.next`, les variables d'environnement et `Assistant perso.app` sont exclus
+par [`.gitignore`](.gitignore:1). Il ne reste qu'à créer le dépôt distant et à pousser.
+
+### Méthode 1 — Sans rien installer (site web GitHub)
+
+1. Créez un compte sur [github.com](https://github.com) si vous n'en avez pas.
+2. En haut à droite : **+** → **New repository**.
+3. Remplissez :
+   - **Repository name** : `assistant-perso`
+   - **Visibility** : **Private** ← le code reste privé
+   - Ne cochez **aucune** case (pas de README ni de `.gitignore` : ils existent déjà)
+4. Cliquez **Create repository**, puis dans le Terminal :
+
+   ```bash
+   cd "/Users/alvadalery/Projets IA/Antigravity projects/Assistant perso"
+   git remote add origin https://github.com/VOTRE_COMPTE/assistant-perso.git
+   git push -u origin main
+   ```
+
+5. GitHub demande vos identifiants. ⚠️ Le mot de passe du compte ne suffit pas :
+   il faut un **token**. Générez-le sur GitHub → **Settings → Developer settings →
+   Personal access tokens → Tokens (classic) → Generate new token**, cochez la case **repo**,
+   copiez la valeur et collez-la à la place du mot de passe (macOS la mémorise ensuite).
+
+> Alternative sans ligne de commande : installez **GitHub Desktop** (<https://desktop.github.com>),
+> puis **File → Add local repository** → ce dossier → **Publish repository**
+> (cochez *Keep this code private*).
+
+### Méthode 2 — Avec GitHub CLI
+
+```bash
+brew install gh
+gh auth login        # suivez les questions, connexion via le navigateur
+cd "/Users/alvadalery/Projets IA/Antigravity projects/Assistant perso"
+gh repo create assistant-perso --private --source=. --remote=origin --push
+```
+
+### À chaque modification ensuite
+
+```bash
+git add .
+git commit -m "Description de ma modification"
+git push
+```
+
+> L'identité Git locale est réglée sur `alvadalery <alvadalery@users.noreply.github.com>`.
+> Pour la changer : `git config user.name "..."` puis `git config user.email "..."`.
+
+---
+
 ## Option A — Vercel + mot de passe (recommandé pour démarrer)
 
 ### 1. Mettre le code sur GitHub (dépôt privé)
 
-```bash
-cd "/Users/alvadalery/Projets IA/Antigravity projects/Assistant perso"
-git init
-git add .
-git commit -m "Assistant perso — première version"
-git branch -M main
-# créez d'abord un dépôt privé "assistant-perso" sur github.com
-git remote add origin https://github.com/VOTRE_COMPTE/assistant-perso.git
-git push -u origin main
-```
-
-Le fichier [`.gitignore`](.gitignore:1) exclut déjà `node_modules`, `.next`, les variables d'environnement
-et le lanceur macOS `Assistant perso.app`.
+Voir la section **📦 Mettre le code sur GitHub** ci-dessus : le dépôt local est déjà initialisé,
+il ne reste que la création du dépôt distant et le `git push`.
 
 ### 2. Importer le projet sur Vercel
 
