@@ -122,6 +122,7 @@ interface PartInfo {
     filename: string;
     type: string;
     size: number | null;
+    inline: boolean;
 }
 
 interface FolderSuggestion {
@@ -745,47 +746,6 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     {formatDate(detail.date)} · {formatRelative(detail.date)}
                                 </p>
                                 <p className="text-[10px] text-slate-400 mt-1">Tri automatique : {detail.reason}</p>
-                                {detail.images && detail.images.length > 0 && (
-                                    <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                        {detail.images.map((image) => (
-                                            <a
-                                                key={image.part}
-                                                href={attachmentUrl(detail.uid, image)}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="block rounded-xl border border-slate-200 bg-white overflow-hidden hover:shadow-sm transition-shadow"
-                                            >
-                                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                <img
-                                                    src={attachmentUrl(detail.uid, image)}
-                                                    alt={image.filename}
-                                                    loading="lazy"
-                                                    className="w-full h-24 object-contain"
-                                                />
-                                            </a>
-                                        ))}
-                                    </div>
-                                )}
-                                {detail.attachmentParts &&
-                                    detail.attachmentParts.filter(
-                                        (file) => !file.type.startsWith("image/")
-                                    ).length > 0 && (
-                                        <div className="mt-2 flex flex-wrap gap-1.5">
-                                            {detail.attachmentParts
-                                                .filter((file) => !file.type.startsWith("image/"))
-                                                .map((file) => (
-                                                    <a
-                                                        key={file.part}
-                                                        href={attachmentUrl(detail.uid, file)}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="text-[10px] px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 transition-colors"
-                                                    >
-                                                        📎 {file.filename}
-                                                    </a>
-                                                ))}
-                                        </div>
-                                    )}
                                 {draftRegister && (
                                     <span className="inline-block mt-1.5 text-[9px] px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-600 font-bold">
                                         {draftRegister === "tutoiement" ? "Tutoiement détecté" : "Vouvoiement détecté"}
@@ -826,6 +786,27 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         <div className="max-h-72 overflow-y-auto text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed">
                                             {detail.text}
                                         </div>
+                                        {detail.images && detail.images.length > 0 && (
+                                            <div className="mt-3 space-y-2">
+                                                {detail.images.map((image) => (
+                                                    <a
+                                                        key={image.part}
+                                                        href={attachmentUrl(detail.uid, image)}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="block rounded-xl border border-slate-200 bg-white overflow-hidden"
+                                                    >
+                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                        <img
+                                                            src={attachmentUrl(detail.uid, image)}
+                                                            alt={image.filename}
+                                                            loading="lazy"
+                                                            className="w-full max-h-48 object-contain"
+                                                        />
+                                                    </a>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                     )}
                                 </div>

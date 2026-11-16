@@ -319,16 +319,16 @@ et affiche « Envoi de N pièce(s) jointe(s) : … » au lieu du message « cont
 
 ### Images et pièces jointes
 
-Les images du message (signatures, illustrations, visuels d'un email HTML) et les pièces jointes
-sont détectées et affichées sous l'en-tête du message :
+Seules les **images insérées dans le corps** du message sont chargées : signatures JPG, illustrations,
+visuels intégrés. Elles s'affichent **dans la zone du message**, à la suite du texte, lorsqu'on
+déplie l'email (clic sur l'image pour l'ouvrir en grand).
 
-- les **images s'affichent en vignettes** (clic pour ouvrir en grand) ;
-- les autres pièces jointes apparaissent sous forme de boutons `📎 nom-du-fichier` (PDF, documents…).
+Les **pièces jointes classiques** (PDF, documents) ne sont plus prévisualisées dans l'application :
+elles restent consultables dans Gmail, l'interface ne les liste plus.
 
-Elles sont servies par la route protégée `/api/gmail/attachment` (types sûrs uniquement : images et
-PDF affichés, tout le reste forcé en téléchargement, `nosniff`). Les images distantes référencées par
-une URL externe ne sont pas chargées automatiquement (protection contre le pistage) ; seules les
-images réellement contenues dans l'email sont récupérées.
+Les images passent par la route protégée `/api/gmail/attachment` (10 Mo max, types sûrs uniquement,
+`nosniff`). Les images référencées par une URL externe (pixels de pistage) ne sont pas chargées :
+seules les images réellement contenues dans l'email sont récupérées.
 
 ### Prise en compte du fil et mémoire de vos corrections
 

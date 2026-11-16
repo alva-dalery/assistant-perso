@@ -556,6 +556,8 @@ export interface GmailPartInfo {
     filename: string;
     type: string;
     size: number | null;
+    /** Image insérée dans le corps (et non simple pièce jointe). */
+    inline: boolean;
 }
 
 /** Recense les pièces jointes et images du message, avec leur numéro de partie IMAP. */
@@ -571,6 +573,8 @@ export function collectParts(structure: MessageStructureObject | undefined): Gma
                 typeof node.disposition === "string" ? node.disposition.toLowerCase() : "";
             const isAttachment = disposition.includes("attachment");
             const isImage = typeof node.type === "string" && node.type.startsWith("image/");
+            const isInline =
+                disposition.includes("inline") || (Boolean(node.id) && !isAttachment) || (isImage && !isAttachment);
 
             if ((filename || isAttachment || isImage) && node.type?.startsWith("image/") === true) {
                 found.push({
@@ -578,6 +582,7 @@ export function collectParts(structure: MessageStructureObject | undefined): Gma
                     filename: filename || "image",
                     type: node.type,
                     size: typeof node.size === "number" ? node.size : null,
+                    inline: isInline,
                 });
             } else if (filename || isAttachment) {
                 found.push({
@@ -585,6 +590,7 @@ export function collectParts(structure: MessageStructureObject | undefined): Gma
                     filename: filename || "pièce jointe",
                     type: node.type || "application/octet-stream",
                     size: typeof node.size === "number" ? node.size : null,
+                    inline: isInline,
                 });
             }
 
@@ -602,6 +608,7 @@ export function collectParts(structure: MessageStructureObject | undefined): Gma
                 filename,
                 type: structure.type || "application/octet-stream",
                 size: typeof structure.size === "number" ? structure.size : null,
+                inline: true,
             });
         }
     }
@@ -815,7 +822,9 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
 
         const envelope = message.envelope;
         const attachmentParts = collectParts(message.bodyStructure);
-        const images = attachmentParts.filter((item) => item.type.startsWith("image/"));
+        const images = attachmentParts.filter(
+            (item) => item.type.startsWith("image/") && item.inline
+        );
         const attachments = attachmentParts.map((item) => item.filename);
         const inlineImages = images.map((item) => item.filename);
         const part =

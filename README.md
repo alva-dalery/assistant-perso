@@ -108,8 +108,8 @@ Après un envoi réel, le message d'origine est marqué **« Répondu »** et so
 Gmail (ex. `Fitness Park`) ou de l'archiver.
 
 La date de réception est doublée d'un âge relatif (« aujourd'hui », « hier », « il y a 2 jours »).
-Les **images** du message s'affichent en vignettes et les **pièces jointes** en liens de
-téléchargement, directement sous l'en-tête.
+Les **images insérées dans le corps** (signatures, illustrations) sont chargées et affichées avec le
+message ; les pièces jointes classiques restent dans Gmail et ne sont plus prévisualisées ici.
 
 Le bloc **Résumé de l'email** rédige une synthèse de l'action du message
 (ex. *Envoi du formulaire de résiliation complété.*) au lieu d'en recopier le début,
