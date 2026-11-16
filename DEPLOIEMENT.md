@@ -275,7 +275,27 @@ Message de **GitHub**, pas de Vercel : la confirmation d'identité (« Confirm a
 ou annulée. Refaites l'action et complétez la fenêtre (mot de passe GitHub ou code à 6 chiffres /
 passkey). Le dépôt déjà poussé n'est pas affecté.
 
-### L'application s'affiche mais renvoie `503 Protection non configurée`
+### La page affiche `Protection non configurée : renseignez SITE_USER et SITE_PASSWORD`
 
-Les variables `SITE_USER` / `SITE_PASSWORD` manquent sur Vercel, ou ont été ajoutées après le build.
-**Settings → Environment Variables** puis **Deployments → `…` → Redeploy**.
+C'est le message de sécurité du middleware : **le déploiement en ligne n'a pas reçu les variables**.
+Quatre causes possibles, dans l'ordre de fréquence :
+
+1. **Variables ajoutées après le déploiement.** Le middleware lit les variables **au moment du build** :
+   il faut donc un **nouveau build**, pas simplement recharger la page.
+   → **Deployments → `…` sur le dernier déploiement → Redeploy**, en **décochant
+   « Use existing Build Cache »** (sinon l'ancien build, sans variables, est réutilisé).
+2. **Mauvais environnement coché.** Dans la fenêtre d'ajout, la variable doit être cochée pour
+   **Production** (pas seulement Preview / Development).
+3. **Nom mal orthographié.** Les clés doivent être exactement `SITE_USER` et `SITE_PASSWORD`
+   (majuscules, pas d'espace avant/après, pas de `.env` devant).
+4. **Variables saisies sur un autre projet.** Vérifiez dans **Settings → Domains** que le projet
+   ouvert est bien celui qui sert `assistant-perso.vercel.app`. Un import interrompu
+   (erreur « project already exists ») crée parfois un projet fantôme où les variables ont été perdues.
+
+Contrôle rapide après correction :
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://assistant-perso.vercel.app/
+```
+
+`503` = variables toujours absentes du build ; `401` = protection active et fonctionnelle.
