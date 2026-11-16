@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --canvas-bg: #f6f3eb;
+  --app-bg: #faf8f2;
+  --sidebar-bg: #121316;
+}
+
+body {
+  background-color: var(--canvas-bg);
+  color: #1e293b;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom fonts & decorative elements */
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+.font-logo {
+  font-family: 'Caveat', cursive, sans-serif;
+}
+
+.font-jakarta {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+/* Pastel Card Gradients and Colors from reference */
+.bg-pastel-yellow {
+  background-color: #f7da64;
+}
+
+.bg-pastel-pink {
+  background-color: #f7b5d5;
+}
+
+.bg-pastel-green {
+  background-color: #a8bf6f;
+}
+
+.bg-pastel-blue {
+  background-color: #99b7e3;
+}
+
+.bg-pastel-card-pink {
+  background-color: #fce4ec;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1ccbe;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #b8b2a2;
+}
