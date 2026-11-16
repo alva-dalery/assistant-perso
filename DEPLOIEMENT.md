@@ -241,10 +241,41 @@ Aucun port n'est ouvert sur votre box : le tunnel sort vers Cloudflare.
 
 ## ✅ Checklist de mise en ligne
 
-- [ ] `git init` + dépôt GitHub privé créé
+- [x] Dépôt GitHub privé créé (`alva-dalery/assistant-perso`)
 - [ ] Projet importé sur Vercel
 - [ ] `SITE_USER` et `SITE_PASSWORD` définis dans Vercel
 - [ ] Deploy effectué, ouverture de l'URL → fenêtre identifiant/mot de passe
 - [ ] Mauvais mot de passe testé → 401
 - [ ] (Optionnel) Domaine personnalisé branché, ou Cloudflare Access activé
 - [ ] Décision prise sur la persistance des données (`localStorage` ou base distante)
+
+---
+
+## 🩹 Erreurs fréquentes
+
+### `Project "assistant-perso" already exists, please use a new name.`
+
+Le **nom du projet Vercel** est déjà utilisé : soit par vous lors d'un essai précédent, soit par
+un autre compte (l'adresse `assistant-perso.vercel.app` est réservée globalement).
+Votre code n'est pas en cause.
+
+Deux solutions :
+
+1. **Réutiliser le projet existant** (le plus propre s'il vous appartient) : tableau de bord Vercel →
+   ouvrez `assistant-perso` → **Settings → Environment Variables** (ajoutez `SITE_USER` et
+   `SITE_PASSWORD`) → **Deployments → `…` → Redeploy**.
+2. **Choisir un autre nom** : dans le champ **Project Name** de l'écran d'import, mettez par exemple
+   `assistant-perso-app` ou `assistant-perso-alva`. Le dépôt GitHub peut garder son nom
+   `assistant-perso` : les deux sont indépendants. Le nom se change ensuite dans
+   **Settings → General → Project Name**.
+
+### `sudo mode challenge canceled`
+
+Message de **GitHub**, pas de Vercel : la confirmation d'identité (« Confirm access ») a été fermée
+ou annulée. Refaites l'action et complétez la fenêtre (mot de passe GitHub ou code à 6 chiffres /
+passkey). Le dépôt déjà poussé n'est pas affecté.
+
+### L'application s'affiche mais renvoie `503 Protection non configurée`
+
+Les variables `SITE_USER` / `SITE_PASSWORD` manquent sur Vercel, ou ont été ajoutées après le build.
+**Settings → Environment Variables** puis **Deployments → `…` → Redeploy**.
