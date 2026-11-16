@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 
-const EMPTY = { suggestion: null, scanned: 0, withSender: 0, withDomain: 0 };
+const EMPTY = { suggestions: [], scanned: 0, withSender: 0 };
 
 export async function GET(request: Request) {
     if (!isGmailConfigured()) {

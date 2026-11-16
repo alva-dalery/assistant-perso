@@ -198,12 +198,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [folderTarget, setFolderTarget] = useState("");
     const [moving, setMoving] = useState(false);
     const [styleSamples, setStyleSamples] = useState(0);
-    const [suggestedFolder, setSuggestedFolder] = useState<FolderSuggestion | null>(null);
+    const [suggestedFolders, setSuggestedFolders] = useState<FolderSuggestion[]>([]);
     const [suggesting, setSuggesting] = useState(false);
     const [suggestMeta, setSuggestMeta] = useState<{
         scanned: number;
         withSender: number;
-        withDomain: number;
     } | null>(null);
     const [suggestError, setSuggestError] = useState<string | null>(null);
 
@@ -422,7 +421,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
 
     async function suggestFolderFor(uid: number, refresh = false) {
         setSuggesting(true);
-        setSuggestedFolder(null);
+        setSuggestedFolders([]);
         setSuggestError(null);
         setSuggestMeta(null);
         try {
@@ -433,10 +432,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 credentials: "same-origin",
             });
             const data = (await response.json()) as {
-                suggestion?: FolderSuggestion | null;
+                suggestions?: FolderSuggestion[];
                 scanned?: number;
                 withSender?: number;
-                withDomain?: number;
                 error?: string;
             };
             if (!response.ok) {
@@ -446,11 +444,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             setSuggestMeta({
                 scanned: data.scanned ?? 0,
                 withSender: data.withSender ?? 0,
-                withDomain: data.withDomain ?? 0,
             });
-            if (data.suggestion) {
-                setSuggestedFolder(data.suggestion);
-                setFolderTarget((current) => current || data.suggestion!.path);
+            const suggestions = data.suggestions ?? [];
+            setSuggestedFolders(suggestions);
+            if (suggestions.length > 0) {
+                setFolderTarget((current) => current || suggestions[0].path);
             }
         } catch {
             setSuggestError("Impossible de joindre la recherche de dossier.");
@@ -960,18 +958,27 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         <span>Recherche d'un dossier habituel…</span>
                                     </p>
                                 )}
-                                {!suggesting && suggestedFolder && (
-                                    <p>
-                                        Suggestion :{" "}
-                                        <span className="font-bold text-teal-700">
-                                            {suggestedFolder.label}
-                                        </span>{" "}
-                                        <span className="text-slate-400">
-                                            ({suggestedFolder.reason})
-                                        </span>
-                                    </p>
+                                {!suggesting && suggestedFolders.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span>Suggestion{suggestedFolders.length > 1 ? "s" : ""} :</span>
+                                        {suggestedFolders.map((folder) => (
+                                            <button
+                                                key={folder.path}
+                                                onClick={() => setFolderTarget(folder.path)}
+                                                title={folder.reason}
+                                                className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold transition-colors ${
+                                                    folderTarget === folder.path
+                                                        ? "bg-teal-600 text-white border-teal-600"
+                                                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                                                }`}
+                                            >
+                                                {folder.label}
+                                                {folder.score > 10 ? ` (${folder.score - 10})` : ""}
+                                            </button>
+                                        ))}
+                                    </div>
                                 )}
-                                {!suggesting && !suggestedFolder && !suggestError && (
+                                {!suggesting && suggestedFolders.length === 0 && !suggestError && (
                                     <p>
                                         Aucun dossier existant ne contient déjà d'emails de cet
                                         expéditeur
