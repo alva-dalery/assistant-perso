@@ -58,10 +58,11 @@ Trois stratégies plus détaillées, de la plus simple à la plus étanche :
 
 ## 📦 Mettre le code sur GitHub
 
-Le dépôt Git local est **déjà prêt** : `git init` est fait et le premier commit
-« Assistant perso — version initiale » contient les 31 fichiers utiles.
+✅ **Déjà fait** : dépôt privé en ligne sur <https://github.com/alva-dalery/assistant-perso>,
+branche `main` poussée (commits `2b0e8ca` et `b52b614`).
+
 `node_modules`, `.next`, les variables d'environnement et `Assistant perso.app` sont exclus
-par [`.gitignore`](.gitignore:1). Il ne reste qu'à créer le dépôt distant et à pousser.
+par [`.gitignore`](.gitignore:1). Les instructions ci-dessous restent utiles pour un futur dépôt.
 
 ### Méthode 1 — Sans rien installer (site web GitHub)
 
@@ -112,29 +113,43 @@ git push
 
 ## Option A — Vercel + mot de passe (recommandé pour démarrer)
 
-### 1. Mettre le code sur GitHub (dépôt privé)
+### 1. Mettre le code sur GitHub
 
-Voir la section **📦 Mettre le code sur GitHub** ci-dessus : le dépôt local est déjà initialisé,
-il ne reste que la création du dépôt distant et le `git push`.
+✅ Déjà fait (voir ci-dessus).
 
 ### 2. Importer le projet sur Vercel
 
-1. [vercel.com](https://vercel.com) → **Add New… → Project** → importez le dépôt GitHub.
-2. Framework détecté automatiquement : **Next.js**. Ne changez rien aux commandes de build.
-3. Ouvrez **Environment Variables** et ajoutez :
-   - `SITE_USER` = par exemple `alex`
-   - `SITE_PASSWORD` = un mot de passe long, ASCII, généré ainsi :
+1. [vercel.com](https://vercel.com) → **Sign Up** → **Continue with GitHub**, puis autorisez Vercel.
+2. Tableau de bord → **Add New… → Project**.
+3. Si `assistant-perso` n'apparaît pas dans la liste : **Adjust GitHub App Permissions**
+   → cochez le dépôt privé `assistant-perso` → **Install / Save**.
+4. Cliquez **Import** en face de `assistant-perso`.
+5. Écran de configuration — gardez tout par défaut :
+   - **Project Name** : `assistant-perso`
+   - **Framework Preset** : `Next.js`
+   - **Root Directory** : `./`
+   - **Build Command** : `next build`
+   - **Output Directory** : `.next`
+6. **Avant de cliquer sur Deploy**, ouvrez **Environment Variables** et créez deux variables :
+   - `SITE_USER` → votre identifiant (ex. `alex`)
+   - `SITE_PASSWORD` → mot de passe long généré avec `openssl rand -base64 24`
+   - Laissez **Production** cochée (ajoutez **Preview** si vous voulez protéger aussi les aperçus).
+7. **Deploy** (1 à 2 minutes).
+8. Vercel affiche l'URL `https://assistant-perso-xxxx.vercel.app` : ouvrez-la,
+   le navigateur demande identifiant + mot de passe.
 
-```bash
-openssl rand -base64 24
-```
+> ⚠️ Le mot de passe doit rester en **ASCII** (lettres, chiffres, `!@#%^&*-_=+`).
+> Un accent casserait le décodage de l'authentification du navigateur.
+>
+> Si vous avez déployé avant de créer les variables : **Settings → Environment Variables**,
+> puis **Deployments → `…` → Redeploy**. Sans `SITE_PASSWORD`, le middleware renvoie
+> volontairement une erreur 503 : l'application échoue « fermée », jamais ouverte à tous.
 
-4. **Deploy**. L'URL `https://assistant-perso-xxxx.vercel.app` demande immédiatement
-   identifiant + mot de passe (fenêtre du navigateur).
+### 3. Vérifier la protection
 
-> ⚠️ Sans `SITE_PASSWORD`, le middleware renvoie volontairement une erreur 503 :
-> l'application échoue « fermée », jamais ouverte à tous.
-> Modifier le mot de passe = changer la variable puis **Redeploy**.
+- Ouvrez l'URL en **navigation privée** → la fenêtre de connexion doit apparaître.
+- Mauvais mot de passe → erreur 401 « Identifiants invalides ».
+- Bon mot de passe → l'application s'affiche normalement.
 
 ### 3. (Optionnel) Nom de domaine personnel
 
