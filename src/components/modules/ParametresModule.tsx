@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Settings,
   Sparkles,
@@ -56,9 +56,9 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
       id: "google",
       name: "Google (Gmail & Google Agenda)",
       category: "Secrétariat & Planning",
-      connected: true,
-      accountEmail: "alex.perso@gmail.com",
-      lastSync: "Il y a 4 minutes",
+      connected: false,
+      accountEmail: "Non configuré",
+      lastSync: "—",
       details: "Lecture des emails entrants pour les brouillons • Synchronisation agenda",
       syncing: false,
       iconBg: "bg-red-50 text-red-600 border-red-200",
@@ -102,6 +102,42 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
   const [activeModal, setActiveModal] = useState<"google" | "withings" | "apple_health" | "yuka" | null>(null);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
+
+  // Statut réel de la connexion Gmail (IMAP + SMTP, mot de passe d'application)
+  const [gmailStatus, setGmailStatus] = useState<{
+    configured: boolean;
+    email: string | null;
+    inboxCount: number | null;
+    error?: string;
+  } | null>(null);
+  const [gmailChecking, setGmailChecking] = useState(false);
+
+  const refreshGmailStatus = useCallback(async () => {
+    setGmailChecking(true);
+    try {
+      const response = await fetch("/api/gmail/status", { cache: "no-store" });
+      const data = (await response.json()) as {
+        configured: boolean;
+        email: string | null;
+        inboxCount: number | null;
+        error?: string;
+      };
+      setGmailStatus(data);
+    } catch {
+      setGmailStatus({
+        configured: false,
+        email: null,
+        inboxCount: null,
+        error: "Impossible de joindre l'API Gmail.",
+      });
+    } finally {
+      setGmailChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshGmailStatus();
+  }, [refreshGmailStatus]);
 
   // Trigger individual synchronization
   const handleSyncAccount = (id: string) => {
@@ -190,8 +226,8 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
           <button
             onClick={() => setActiveTab("sync")}
             className={`px-4 py-2 rounded-xl transition-all ${activeTab === "sync"
-                ? "bg-[#121316] text-white shadow-sm"
-                : "text-slate-600 hover:text-slate-900"
+              ? "bg-[#121316] text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900"
               }`}
           >
             Comptes Connectés (4)
@@ -199,8 +235,8 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
           <button
             onClick={() => setActiveTab("profile")}
             className={`px-4 py-2 rounded-xl transition-all ${activeTab === "profile"
-                ? "bg-[#121316] text-white shadow-sm"
-                : "text-slate-600 hover:text-slate-900"
+              ? "bg-[#121316] text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900"
               }`}
           >
             Profil & Plume IA
@@ -208,8 +244,8 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
           <button
             onClick={() => setActiveTab("api")}
             className={`px-4 py-2 rounded-xl transition-all ${activeTab === "api"
-                ? "bg-[#121316] text-white shadow-sm"
-                : "text-slate-600 hover:text-slate-900"
+              ? "bg-[#121316] text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900"
               }`}
           >
             Clés API & Sécurité
@@ -262,27 +298,44 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
                   </div>
 
                   <span
-                    className={`text-[10px] px-3 py-1 rounded-full font-bold border ${accounts.google.connected
+                    className={`text-[10px] px-3 py-1 rounded-full font-bold border ${gmailStatus?.configured && !gmailStatus?.error
                         ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                        : "bg-slate-100 text-slate-500 border-slate-200"
+                        : gmailStatus?.error
+                          ? "bg-rose-50 text-rose-700 border-rose-200"
+                          : "bg-slate-100 text-slate-500 border-slate-200"
                       }`}
                   >
-                    {accounts.google.connected ? "Connecté ✓" : "Non connecté"}
+                    {gmailStatus?.configured && !gmailStatus?.error
+                      ? "Connecté ✓"
+                      : gmailStatus?.error
+                        ? "Erreur de connexion"
+                        : "Non configuré"}
                   </span>
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/60 text-xs text-slate-600 space-y-1">
-                  <div className="flex justify-between font-medium">
-                    <span className="text-slate-400">Compte associé :</span>
-                    <span className="font-bold text-slate-800">{accounts.google.accountEmail}</span>
+                  <div className="flex justify-between font-medium gap-3">
+                    <span className="text-slate-400 shrink-0">Compte associé :</span>
+                    <span className="font-bold text-slate-800 truncate">{gmailStatus?.email ?? "Non configuré"}</span>
                   </div>
                   <div className="flex justify-between font-medium">
-                    <span className="text-slate-400">Dernière synchro :</span>
-                    <span className="text-slate-700 font-mono">{accounts.google.lastSync}</span>
+                    <span className="text-slate-400">Boîte de réception :</span>
+                    <span className="text-slate-700 font-mono">
+                      {gmailStatus?.configured
+                        ? gmailChecking
+                          ? "Vérification…"
+                          : `${gmailStatus.inboxCount ?? 0} messages`
+                        : "—"}
+                    </span>
                   </div>
                   <p className="text-[11px] text-slate-500 pt-1 border-t border-slate-200/50">
-                    {accounts.google.details}
+                    {gmailStatus?.configured
+                      ? "IMAP + SMTP via mot de passe d'application Google"
+                      : "Ajoutez GMAIL_USER et GMAIL_APP_PASSWORD dans les variables d'environnement."}
                   </p>
+                  {gmailStatus?.error && (
+                    <p className="text-[11px] text-rose-600 pt-1">{gmailStatus.error}</p>
+                  )}
                 </div>
               </div>
 
@@ -295,12 +348,12 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
                 </button>
 
                 <button
-                  onClick={() => handleSyncAccount("google")}
-                  disabled={accounts.google.syncing}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all"
+                  onClick={() => void refreshGmailStatus()}
+                  disabled={gmailChecking}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-800 text-xs font-bold transition-all"
                 >
-                  <RefreshCw className={`h-3.5 w-3.5 text-slate-600 ${accounts.google.syncing ? "animate-spin" : ""}`} />
-                  <span>{accounts.google.syncing ? "Synchro..." : "Synchroniser"}</span>
+                  <RefreshCw className={`h-3.5 w-3.5 text-slate-600 ${gmailChecking ? "animate-spin" : ""}`} />
+                  <span>{gmailChecking ? "Vérification..." : "Tester la connexion"}</span>
                 </button>
               </div>
             </div>
@@ -323,8 +376,8 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
 
                   <span
                     className={`text-[10px] px-3 py-1 rounded-full font-bold border ${accounts.withings.connected
-                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                        : "bg-slate-100 text-slate-500 border-slate-200"
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                      : "bg-slate-100 text-slate-500 border-slate-200"
                       }`}
                   >
                     {accounts.withings.connected ? "Connecté ✓" : "Non connecté"}
@@ -383,8 +436,8 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
 
                   <span
                     className={`text-[10px] px-3 py-1 rounded-full font-bold border ${accounts.apple_health.connected
-                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                        : "bg-slate-100 text-slate-500 border-slate-200"
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                      : "bg-slate-100 text-slate-500 border-slate-200"
                       }`}
                   >
                     {accounts.apple_health.connected ? "Connecté ✓" : "Non connecté"}
@@ -443,8 +496,8 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
 
                   <span
                     className={`text-[10px] px-3 py-1 rounded-full font-bold border ${accounts.yuka.connected
-                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                        : "bg-slate-100 text-slate-500 border-slate-200"
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                      : "bg-slate-100 text-slate-500 border-slate-200"
                       }`}
                   >
                     {accounts.yuka.connected ? "Abonnement Actif ✓" : "Inactif"}
@@ -629,46 +682,58 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
               </div>
               <div>
                 <h3 className="text-lg font-extrabold text-slate-900">
-                  Connexion Google Workspace
+                  Connexion Gmail (IMAP + SMTP)
                 </h3>
-                <p className="text-xs text-slate-500">Gmail & Google Agenda</p>
+                <p className="text-xs text-slate-500">Mot de passe d'application Google</p>
               </div>
             </div>
 
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/60 text-xs space-y-2">
-              <span className="font-bold text-slate-800 block">Autorisations accordées à Assistant perso :</span>
+              <span className="font-bold text-slate-800 block">Ce que fait la connexion :</span>
               <ul className="space-y-1.5 text-slate-600">
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-emerald-600 stroke-[3]" />
-                  <span>Lecture des nouveaux emails reçus (afin de préparer les brouillons)</span>
+                <li className="flex items-start gap-2">
+                  <Check className="h-3.5 w-3.5 text-emerald-600 stroke-[3] mt-0.5" />
+                  <span>Lecture des emails reçus (IMAP sécurisé, port 993)</span>
                 </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-emerald-600 stroke-[3]" />
-                  <span>Création de brouillons Gmail (aucun envoi sans votre clic)</span>
+                <li className="flex items-start gap-2">
+                  <Check className="h-3.5 w-3.5 text-emerald-600 stroke-[3] mt-0.5" />
+                  <span>Création de brouillons Gmail : aucun envoi sans votre validation</span>
                 </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-emerald-600 stroke-[3]" />
-                  <span>Accès à l'agenda pour planifier les routines et les rappels</span>
+                <li className="flex items-start gap-2">
+                  <Check className="h-3.5 w-3.5 text-emerald-600 stroke-[3] mt-0.5" />
+                  <span>Envoi de réponses via SMTP (port 465) uniquement après votre clic</span>
                 </li>
               </ul>
             </div>
 
+            <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/70 text-[11px] text-amber-900 space-y-1.5">
+              <span className="font-bold block">Mise en place, une seule fois</span>
+              <p>1. myaccount.google.com → Sécurité → activer la validation en deux étapes.</p>
+              <p>2. Sécurité → Mots de passe des applications → générer « Assistant perso ».</p>
+              <p>3. Vercel → Settings → Environment Variables : GMAIL_USER et GMAIL_APP_PASSWORD.</p>
+              <p>4. Deployments → … → Redeploy (cache de build décoché), puis revenez ici.</p>
+            </div>
+
+            {gmailStatus?.error && (
+              <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-[11px] text-rose-700">
+                {gmailStatus.error}
+              </div>
+            )}
+
             <div className="flex items-center justify-between pt-2 border-t border-slate-100">
               <button
-                onClick={() => handleToggleConnect("google")}
-                className="text-xs text-rose-600 hover:underline font-bold"
+                onClick={() => setActiveModal(null)}
+                className="text-xs text-slate-500 hover:text-slate-800 font-bold"
               >
-                {accounts.google.connected ? "Déconnecter ce compte" : "Annuler"}
+                Fermer
               </button>
 
               <button
-                onClick={() => {
-                  handleSyncAccount("google");
-                  setActiveModal(null);
-                }}
-                className="px-6 py-2.5 rounded-full bg-[#121316] hover:bg-slate-800 text-white font-bold text-xs shadow-md"
+                onClick={() => void refreshGmailStatus()}
+                disabled={gmailChecking}
+                className="px-6 py-2.5 rounded-full bg-[#121316] hover:bg-slate-800 disabled:opacity-60 text-white font-bold text-xs shadow-md"
               >
-                {accounts.google.connected ? "Valider & Synchroniser" : "Autoriser avec Google"}
+                {gmailChecking ? "Test en cours…" : "Tester la connexion"}
               </button>
             </div>
           </div>

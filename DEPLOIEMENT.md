@@ -225,6 +225,61 @@ Aucun port n'est ouvert sur votre box : le tunnel sort vers Cloudflare.
 
 ---
 
+## 📧 Connecter Gmail (IMAP + SMTP, sans validation Google)
+
+L'application lit et envoie vos emails via **IMAP / SMTP** avec un **mot de passe d'application**.
+Pas de projet Google Cloud, pas d'écran de consentement, pas de validation par Google.
+
+### 1. Créer le mot de passe d'application
+
+1. [myaccount.google.com](https://myaccount.google.com) → **Sécurité** → activer la **validation en deux étapes**
+   (obligatoire pour obtenir un mot de passe d'application).
+2. Toujours dans **Sécurité** → **Mots de passe des applications**.
+3. Nom : `Assistant perso` → **Créer**. Google affiche 16 caractères du type `abcd efgh ijkl mnop`.
+4. Notez-les : ils ne seront plus réaffichés.
+
+### 2. Renseigner les variables
+
+Sur Vercel → projet → **Settings → Environment Variables** :
+
+| Key | Value |
+| --- | --- |
+| `GMAIL_USER` | votre adresse Gmail complète |
+| `GMAIL_APP_PASSWORD` | les 16 caractères (avec ou sans espaces) |
+
+Environnements : **Production** (+ Preview). Puis **Deployments → `…` → Redeploy**
+en décochant le cache de build.
+
+En local, les mêmes lignes dans `.env.local` (fichier ignoré par Git), puis `npm run dev`.
+
+### 3. Utiliser
+
+- Onglet **Secrétariat** → bouton **Boîte Gmail réelle** : liste des derniers messages,
+  lecture du contenu, réponse avec deux options :
+  - **Enregistrer en brouillon** → le message arrive dans le dossier *Brouillons* de Gmail (rien n'est envoyé) ;
+  - **Envoyer maintenant** → confirmation obligatoire, puis envoi réel par SMTP.
+- Onglet **Paramètres → Synchronisation** : la carte Google affiche l'adresse réellement connectée
+  et le nombre de messages, avec un bouton **Tester la connexion**.
+
+### 4. Bonnes pratiques de sécurité
+
+- Le mot de passe d'application donne accès à toute la boîte : ne le mettez **jamais** dans le code
+  ni dans un fichier commité, uniquement dans les variables d'environnement.
+- Révocation immédiate possible : myaccount.google.com → Sécurité → Mots de passe des applications → Supprimer.
+- Les routes `/api/gmail/*` sont protégées par le middleware Basic Auth : elles ne sont pas publiques.
+- Les emails ne sont **pas stockés** : ils sont lus à la demande et transmis au navigateur à chaque affichage.
+
+### Dépannage
+
+| Symptôme | Cause probable |
+| --- | --- |
+| Carte « Non configuré » | `GMAIL_USER` / `GMAIL_APP_PASSWORD` absents, ou ajoutés sans Redeploy |
+| « Mot de passe refusé par Gmail » | mot de passe d'application révoqué, 2FA désactivée, ou mot de passe du compte utilisé à la place |
+| « Connexion aux serveurs Gmail impossible » | réseau bloquant IMAP/SMTP (port 993 / 465) |
+| Erreur au moment du Redeploy | vérifier que `imapflow` et `nodemailer` sont bien dans `package.json` |
+
+---
+
 ## 🔒 À savoir avant de publier
 
 - **Aucune donnée n'est persistée pour l'instant.** L'état est en mémoire React

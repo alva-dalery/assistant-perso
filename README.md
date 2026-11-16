@@ -68,4 +68,21 @@ Vous disposez de plusieurs façons ultra-simples de lancer votre assistant :
 npm run dev
 ```
 
+---
+
+## 📧 Connexion Gmail réelle (IMAP + SMTP)
+
+Le module **Secrétariat** contient un onglet **Boîte Gmail réelle** : il lit les messages
+de votre boîte de réception et permet d'enregistrer un brouillon ou d'envoyer une réponse
+(avec confirmation). Aucun projet Google Cloud n'est nécessaire : un **mot de passe
+d'application** suffit.
+
+1. Activer la validation en deux étapes sur `myaccount.google.com`.
+2. Sécurité → **Mots de passe des applications** → générer `Assistant perso`.
+3. Définir `GMAIL_USER` et `GMAIL_APP_PASSWORD` (localement dans `.env.local`,
+   en ligne dans les variables d'environnement Vercel).
+4. Redéployer, puis ouvrir **Secrétariat → Boîte Gmail réelle**.
+
+Détails et dépannage : [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
+
 
