@@ -1377,6 +1377,38 @@ export async function moveMessage(
     }
 }
 
+/** Envoie un message à la corbeille Gmail. */
+export async function deleteMessage(
+    uid: number
+): Promise<{ deleted: boolean; destination: string }> {
+    if (!isGmailConfigured()) throw new Error("Gmail n'est pas configuré.");
+    if (!Number.isInteger(uid) || uid <= 0) throw new Error("Identifiant de message invalide.");
+
+    const client = createImapClient();
+    client.on("error", () => undefined);
+    await client.connect();
+
+    let lock: { release: () => void } | null = null;
+    try {
+        const boxes = await client.list();
+        const trash =
+            boxes.find((box) => box.specialUse === "\\Trash") ??
+            boxes.find((box) => box.path === "[Gmail]/Trash");
+
+        if (!trash) throw new Error("Corbeille Gmail introuvable.");
+
+        lock = await client.getMailboxLock("INBOX");
+        const result = await client.messageMove(String(uid), trash.path, { uid: true });
+        if (result === false) {
+            throw new Error("Gmail a refusé la suppression de ce message.");
+        }
+        return { deleted: true, destination: trash.path };
+    } finally {
+        lock?.release();
+        await client.logout().catch(() => undefined);
+    }
+}
+
 /** Marque un message comme répondu (drapeau \Answered de Gmail). */
 export async function markMessageAnswered(uid: number): Promise<boolean> {
     if (!isGmailConfigured() || !Number.isInteger(uid) || uid <= 0) return false;

@@ -318,7 +318,7 @@ et affiche « Envoi de N pièce(s) jointe(s) : … » au lieu du message « cont
   La suggestion s'affiche sous la barre « Ranger » avec sa justification et est **présélectionnée**.
 - **Sélectionner** un dossier ne déplace rien : le choix est mémorisé. Le déplacement est appliqué
   **automatiquement après l'envoi** de la réponse (ou immédiatement avec « Déplacer maintenant »,
-  et « Archiver » reste disponible).
+  et « Supprimer maintenant » envoie le message dans la corbeille Gmail).
 - Sans choix de dossier (« Ne pas ranger automatiquement »), le message reste simplement marqué
   comme répondu.
 
@@ -385,8 +385,7 @@ Aucun envoi automatique n'existe dans l'application.
 - Après un envoi réel, l'application pose le drapeau `\Answered` sur le message d'origine :
   il sort de **À traiter** et porte un badge **« Répondu »**.
 - Une barre **« Ranger »** sous le message permet de le déplacer vers n'importe quel
-  **libellé Gmail** (par exemple `Fitness Park`) ou de l'**Archiver** (déplacement vers
-  *Tous les messages*, donc retrait de la boîte de réception).
+  **libellé Gmail** (par exemple `Fitness Park`) ou de le **supprimer** (déplacement vers la corbeille Gmail).
 - Les dossiers sont lus en direct sur votre compte : tout libellé créé dans Gmail apparaît
   automatiquement dans la liste, sans configuration.
 

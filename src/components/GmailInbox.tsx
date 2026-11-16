@@ -468,6 +468,37 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         }
     }
 
+    async function removeMessage() {
+        if (!detail) return;
+        if (!window.confirm("Supprimer ce message ? Il partira dans la corbeille Gmail.")) {
+            return;
+        }
+        const target = detail;
+        setMoving(true);
+        setFeedback(null);
+        try {
+            const response = await fetch("/api/gmail/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({ uid: target.uid }),
+            });
+            const data = (await response.json()) as { error?: string };
+            if (!response.ok) {
+                setFeedback(data.error ?? "La suppression a échoué.");
+                return;
+            }
+            setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
+            setTotal((previous) => Math.max(0, previous - 1));
+            setDetail(null);
+            setFeedback("Message déplacé dans la corbeille Gmail.");
+        } catch {
+            setFeedback("Impossible de joindre le serveur.");
+        } finally {
+            setMoving(false);
+        }
+    }
+
     const submitReply = async (mode: "draft" | "send") => {
         if (!detail) return;
         if (!reply.trim()) {
@@ -868,11 +899,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     {moving ? "Déplacement…" : "Déplacer maintenant"}
                                 </button>
                                 <button
-                                    onClick={() => void moveTo("[Gmail]/All Mail")}
-                                    disabled={moving}
-                                    className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-[11px] font-bold transition-all"
+                                    onClick={() => void removeMessage()}
+                                    disabled={moving || !detail}
+                                    className="px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 disabled:opacity-50 text-[11px] font-bold transition-all"
                                 >
-                                    Archiver
+                                    {moving ? "Suppression…" : "Supprimer"}
                                 </button>
                                 {folders.length === 0 && (
                                     <span className="text-[10px] text-slate-400">
