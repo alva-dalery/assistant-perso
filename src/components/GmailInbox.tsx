@@ -5,6 +5,7 @@ import {
     AlertTriangle,
     ArrowLeft,
     CheckCircle2,
+    ChevronDown,
     KeyRound,
     Loader2,
     Mail,
@@ -14,7 +15,7 @@ import {
     Send,
 } from "lucide-react";
 
-type GmailCategory = "personnel" | "newsletter" | "promotion" | "notification";
+type GmailCategory = "personnel" | "important" | "infos" | "newsletter" | "promotion";
 
 interface GmailStatus {
     configured: boolean;
@@ -57,17 +58,24 @@ interface ReplyDraftResponse {
 
 const CATEGORY_LABEL: Record<GmailCategory, string> = {
     personnel: "À traiter",
+    important: "Important",
+    infos: "Infos",
     newsletter: "Newsletter",
     promotion: "Publicité",
-    notification: "Notification",
 };
 
 const CATEGORY_STYLE: Record<GmailCategory, string> = {
     personnel: "bg-teal-50 text-teal-700 border-teal-200",
+    important: "bg-rose-50 text-rose-700 border-rose-200",
+    infos: "bg-sky-50 text-sky-700 border-sky-200",
     newsletter: "bg-slate-100 text-slate-500 border-slate-200",
     promotion: "bg-amber-50 text-amber-700 border-amber-200",
-    notification: "bg-sky-50 text-sky-700 border-sky-200",
 };
+
+type Filter = "todo" | "important" | "infos" | "later" | "all";
+
+const PAGE_SIZE = 50;
+const MAX_MESSAGES = 200;
 
 function formatDate(iso: string): string {
     const date = new Date(iso);
@@ -79,6 +87,23 @@ function replySubject(subject: string): string {
     return /^re\s*:/i.test(subject) ? subject : `Re: ${subject}`;
 }
 
+function isLater(category: GmailCategory): boolean {
+    return category === "newsletter" || category === "promotion";
+}
+
+/** Résumé court pour la lecture rapide, sans perdre la fin de phrase. */
+function summarize(text: string, max = 280): string {
+    const clean = text.replace(/\s+/g, " ").trim();
+    if (clean.length <= max) return clean;
+    const cut = clean.slice(0, max);
+    const lastStop = Math.max(
+        cut.lastIndexOf(". "),
+        cut.lastIndexOf("! "),
+        cut.lastIndexOf("? ")
+    );
+    return lastStop > 80 ? cut.slice(0, lastStop + 1) : `${cut.trimEnd()}…`;
+}
+
 interface GmailInboxProps {
     /** Ligne de signature utilisée dans les brouillons (ex. « Bien cordialement, Alva DALERY »). */
     signature?: string;
@@ -88,78 +113,86 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [status, setStatus] = useState<GmailStatus | null>(null);
     const [messages, setMessages] = useState<InboxMessage[]>([]);
     const [total, setTotal] = useState(0);
+    const [limit, setLimit] = useState(PAGE_SIZE);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<string | null>(null);
-    const [filter, setFilter] = useState<"todo" | "later" | "all">("todo");
+    const [filter, setFilter] = useState<Filter>("todo");
 
     const [detail, setDetail] = useState<MessageDetail | null>(null);
+    const [expanded, setExpanded] = useState(false);
     const [loadingDetail, setLoadingDetail] = useState(false);
     const [reply, setReply] = useState("");
+    const [forceReply, setForceReply] = useState(false);
     const [draftSubject, setDraftSubject] = useState<string | null>(null);
     const [draftIntent, setDraftIntent] = useState<string | null>(null);
-    const [drafting, setDrafting] = useState(false);
     const [draftRegister, setDraftRegister] = useState<"vouvoiement" | "tutoiement" | null>(null);
+    const [drafting, setDrafting] = useState(false);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(false);
 
-    const load = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const statusResponse = await fetch("/api/gmail/status", {
-                cache: "no-store",
-                credentials: "same-origin",
-            });
-            const statusData = (await statusResponse.json()) as GmailStatus;
-            setStatus(statusData);
+    const load = useCallback(
+        async (requestedLimit: number) => {
+            setLoading(true);
+            setError(null);
+            try {
+                const statusResponse = await fetch("/api/gmail/status", {
+                    cache: "no-store",
+                    credentials: "same-origin",
+                });
+                const statusData = (await statusResponse.json()) as GmailStatus;
+                setStatus(statusData);
 
-            if (!statusData.configured) {
-                setMessages([]);
-                setTotal(0);
-                return;
-            }
-            if (statusData.error) {
-                setError(statusData.error);
-                return;
-            }
-
-            const messagesResponse = await fetch("/api/gmail/messages?limit=20", {
-                cache: "no-store",
-                credentials: "same-origin",
-            });
-            const messagesData = (await messagesResponse.json()) as {
-                messages?: InboxMessage[];
-                total?: number;
-                error?: string;
-            };
-            if (!messagesResponse.ok) {
-                setError(messagesData.error ?? "Impossible de lire la boîte de réception.");
-                return;
-            }
-            const incoming = messagesData.messages ?? [];
-            setMessages(incoming);
-            setTotal(messagesData.total ?? 0);
-
-            // Première ouverture : on sélectionne directement le premier email
-            // qui attend une réponse, et la proposition est rédigée aussitôt.
-            if (!autoOpenedRef.current) {
-                const firstToReply = incoming.find((message) => message.needsReply);
-                if (firstToReply) {
-                    autoOpenedRef.current = true;
-                    void openMessage(firstToReply.uid);
+                if (!statusData.configured) {
+                    setMessages([]);
+                    setTotal(0);
+                    return;
                 }
+                if (statusData.error) {
+                    setError(statusData.error);
+                    return;
+                }
+
+                const messagesResponse = await fetch(`/api/gmail/messages?limit=${requestedLimit}`, {
+                    cache: "no-store",
+                    credentials: "same-origin",
+                });
+                const messagesData = (await messagesResponse.json()) as {
+                    messages?: InboxMessage[];
+                    total?: number;
+                    error?: string;
+                };
+                if (!messagesResponse.ok) {
+                    setError(messagesData.error ?? "Impossible de lire la boîte de réception.");
+                    return;
+                }
+                const incoming = messagesData.messages ?? [];
+                setMessages(incoming);
+                setTotal(messagesData.total ?? 0);
+
+                // Première ouverture : on sélectionne directement le premier email
+                // qui attend une réponse, et la proposition est rédigée aussitôt.
+                if (!autoOpenedRef.current) {
+                    const firstToReply = incoming.find((message) => message.needsReply);
+                    if (firstToReply) {
+                        autoOpenedRef.current = true;
+                        void openMessage(firstToReply.uid);
+                    }
+                }
+            } catch {
+                setError("Connexion à l'API impossible. Vérifiez votre connexion réseau.");
+            } finally {
+                setLoading(false);
             }
-        } catch {
-            setError("Connexion à l'API impossible. Vérifiez votre connexion réseau.");
-        } finally {
-            setLoading(false);
-        }
-    }, []);
+        },
+        []
+    );
 
     useEffect(() => {
-        void load();
-    }, [load]);
+        void load(limit);
+        // Le chargement initial suffit : « Charger plus » relance explicitement.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     useEffect(() => {
         if (!feedback) return;
@@ -168,14 +201,29 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     }, [feedback]);
 
     const toReply = useMemo(() => messages.filter((message) => message.needsReply), [messages]);
-    const toIgnore = useMemo(() => messages.filter((message) => !message.needsReply), [messages]);
+    const important = useMemo(
+        () => messages.filter((message) => message.category === "important"),
+        [messages]
+    );
+    const infos = useMemo(() => messages.filter((message) => message.category === "infos"), [messages]);
+    const later = useMemo(() => messages.filter((message) => isLater(message.category)), [messages]);
 
     const visibleMessages =
-        filter === "todo" ? toReply : filter === "later" ? toIgnore : messages;
+        filter === "todo"
+            ? toReply
+            : filter === "important"
+                ? important
+                : filter === "infos"
+                    ? infos
+                    : filter === "later"
+                        ? later
+                        : messages;
 
     async function openMessage(uid: number) {
         setLoadingDetail(true);
         setDetail(null);
+        setExpanded(false);
+        setForceReply(false);
         setReply("");
         setDraftSubject(null);
         setDraftIntent(null);
@@ -275,7 +323,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             setDraftSubject(null);
             setDraftIntent(null);
             setDraftRegister(null);
-            void load();
+            void load(limit);
         } catch {
             setFeedback("Impossible de joindre le serveur.");
         } finally {
@@ -283,7 +331,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         }
     };
 
-    if (loading) {
+    if (loading && messages.length === 0 && !status) {
         return (
             <div className="p-10 rounded-[2.2rem] bg-white border border-slate-200/70 shadow-sm flex items-center gap-3 text-sm text-slate-600">
                 <Loader2 className="h-4 w-4 animate-spin text-teal-600" />
@@ -330,13 +378,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                     </li>
                 </ol>
 
-                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/60 text-[11px] text-slate-500">
-                    En local, ajoutez ces deux lignes dans <code className="font-mono">.env.local</code>
-                    (fichier ignoré par Git) puis relancez <code className="font-mono">npm run dev</code>.
-                </div>
-
                 <button
-                    onClick={() => void load()}
+                    onClick={() => void load(limit)}
                     className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-all"
                 >
                     <RefreshCw className="h-3.5 w-3.5" />
@@ -350,25 +393,35 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         <div className="space-y-4">
             {/* Barre d'état */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200/70 shadow-sm">
-                <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
                     <Mail className="h-4 w-4 text-teal-600" />
                     <span className="font-bold text-slate-800">{status?.email}</span>
                     <span className="text-slate-400">•</span>
-                    <span className="text-slate-500">{total} message{total > 1 ? "s" : ""} dans la boîte</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200 font-bold">
-                        {toReply.length} à traiter
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 font-bold">
-                        {toIgnore.length} newsletters / pubs
+                    <span className="text-slate-500">
+                        {messages.length} sur {total} message{total > 1 ? "s" : ""} analysés
                     </span>
                 </div>
-                <button
-                    onClick={() => void load()}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all"
-                >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    <span>Rafraîchir</span>
-                </button>
+                <div className="flex items-center gap-2">
+                    {messages.length < Math.min(total, MAX_MESSAGES) && (
+                        <button
+                            onClick={() => {
+                                const next = Math.min(limit + PAGE_SIZE, MAX_MESSAGES);
+                                setLimit(next);
+                                void load(next);
+                            }}
+                            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 text-xs font-bold hover:bg-teal-100 transition-all"
+                        >
+                            <span>Charger plus</span>
+                        </button>
+                    )}
+                    <button
+                        onClick={() => void load(limit)}
+                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all"
+                    >
+                        <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                        <span>Rafraîchir</span>
+                    </button>
+                </div>
             </div>
 
             {error && (
@@ -386,28 +439,27 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             )}
 
             {/* Filtres */}
-            <div className="flex items-center gap-1.5 p-1.5 rounded-2xl bg-slate-100/80 border border-slate-200/60 w-fit">
-                <button
-                    onClick={() => setFilter("todo")}
-                    className={`px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all ${filter === "todo" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
-                        }`}
-                >
-                    À traiter ({toReply.length})
-                </button>
-                <button
-                    onClick={() => setFilter("later")}
-                    className={`px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all ${filter === "later" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
-                        }`}
-                >
-                    Newsletters & pubs ({toIgnore.length})
-                </button>
-                <button
-                    onClick={() => setFilter("all")}
-                    className={`px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all ${filter === "all" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
-                        }`}
-                >
-                    Tout ({messages.length})
-                </button>
+            <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-slate-100/80 border border-slate-200/60 w-fit">
+                {(
+                    [
+                        ["todo", `À traiter (${toReply.length})`],
+                        ["important", `Important (${important.length})`],
+                        ["infos", `Infos (${infos.length})`],
+                        ["later", `Newsletters & pubs (${later.length})`],
+                        ["all", `Tout (${messages.length})`],
+                    ] as [Filter, string][]
+                ).map(([value, label]) => (
+                    <button
+                        key={value}
+                        onClick={() => setFilter(value)}
+                        className={`px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all ${filter === value
+                                ? "bg-white text-slate-900 shadow-sm"
+                                : "text-slate-500 hover:text-slate-800"
+                            }`}
+                    >
+                        {label}
+                    </button>
+                ))}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -416,7 +468,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                     {visibleMessages.length === 0 && !error && (
                         <p className="text-xs text-slate-500 p-4">
                             {filter === "todo"
-                                ? "Aucun message ne semble nécessiter de réponse parmi les derniers emails."
+                                ? "Aucun message ne nécessite de réponse parmi les emails chargés."
                                 : "Aucun message dans cette catégorie."}
                         </p>
                     )}
@@ -425,8 +477,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                             key={message.uid}
                             onClick={() => void openMessage(message.uid)}
                             className={`w-full text-left p-3.5 rounded-2xl border transition-all ${detail?.uid === message.uid
-                                ? "bg-white border-teal-500 shadow-md ring-2 ring-teal-50"
-                                : "bg-white/80 border-slate-200/70 hover:bg-white hover:border-slate-300"
+                                    ? "bg-white border-teal-500 shadow-md ring-2 ring-teal-50"
+                                    : "bg-white/80 border-slate-200/70 hover:bg-white hover:border-slate-300"
                                 }`}
                         >
                             <div className="flex items-center justify-between gap-2 mb-1">
@@ -462,7 +514,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                     {!loadingDetail && !detail && (
                         <div className="h-full min-h-[220px] rounded-2xl bg-white border border-dashed border-slate-300/80 flex flex-col items-center justify-center gap-2 text-xs text-slate-400 p-6 text-center">
                             <Mail className="h-6 w-6 text-slate-300" />
-                            <span>Sélectionnez un message pour le lire et y répondre.</span>
+                            <span>Sélectionnez un message pour le lire.</span>
                         </div>
                     )}
 
@@ -489,85 +541,143 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         {draftRegister === "tutoiement" ? "Tutoiement détecté" : "Vouvoiement détecté"}
                                     </span>
                                 )}
-                            </div>
 
-                            <div className="p-4 max-h-56 overflow-y-auto text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed">
-                                {detail.text}
-                            </div>
-
-                            <div className="p-4 border-t border-slate-100 space-y-3 bg-slate-50/40">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <span className="text-[11px] font-bold text-slate-500">
-                                        {draftIntent ? `Réponse proposée · ${draftIntent}` : "Votre réponse"}
-                                    </span>
+                                {/* Résumé + accordéon vers le message complet */}
+                                <div className="mt-3 rounded-2xl bg-slate-50 border border-slate-200/60 overflow-hidden">
                                     <button
-                                        onClick={() => void generateDraft()}
-                                        disabled={drafting}
-                                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 disabled:opacity-60 text-[11px] font-bold hover:bg-teal-100 transition-all"
+                                        onClick={() => setExpanded((value) => !value)}
+                                        aria-expanded={expanded}
+                                        className="w-full flex items-start justify-between gap-3 p-3 text-left hover:bg-slate-100/60 transition-colors"
                                     >
-                                        {drafting ? (
-                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        ) : (
-                                            <PenLine className="h-3.5 w-3.5" />
-                                        )}
-                                        <span>
-                                            {drafting ? "Rédaction…" : reply ? "Régénérer la réponse" : "Rédiger une réponse"}
+                                        <span className="min-w-0">
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">
+                                                Résumé de la demande
+                                            </span>
+                                            <span className="text-[11px] text-slate-600 block">
+                                                {expanded ? "Message complet affiché ci-dessous." : summarize(detail.text)}
+                                            </span>
+                                            <span className="text-[10px] text-teal-700 font-bold block mt-1">
+                                                {expanded ? "Replier le message" : "Déplier le message complet"}
+                                            </span>
                                         </span>
+                                        <ChevronDown
+                                            className={`h-4 w-4 text-slate-400 shrink-0 transition-transform ${expanded ? "rotate-180" : ""
+                                                }`}
+                                        />
                                     </button>
+                                    {expanded && (
+                                        <div className="px-3 pb-3 pt-2 border-t border-slate-200/60 max-h-72 overflow-y-auto text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed">
+                                            {detail.text}
+                                        </div>
+                                    )}
                                 </div>
+                            </div>
 
-                                <textarea
-                                    value={reply}
-                                    onChange={(event) => setReply(event.target.value)}
-                                    rows={6}
-                                    placeholder="Écrivez ou générez une réponse, puis relisez avant d'envoyer."
-                                    className="w-full bg-white border border-slate-200 rounded-2xl p-3 text-xs text-slate-800 focus:outline-none focus:border-teal-500 resize-y"
-                                />
+                            {detail.needsReply || forceReply ? (
+                                <div className="p-4 space-y-3 bg-slate-50/40">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <span className="text-[11px] font-bold text-slate-500">
+                                            {draftIntent ? `Réponse proposée · ${draftIntent}` : "Votre réponse"}
+                                        </span>
+                                        <button
+                                            onClick={() => void generateDraft()}
+                                            disabled={drafting}
+                                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 disabled:opacity-60 text-[11px] font-bold hover:bg-teal-100 transition-all"
+                                        >
+                                            {drafting ? (
+                                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            ) : (
+                                                <PenLine className="h-3.5 w-3.5" />
+                                            )}
+                                            <span>
+                                                {drafting ? "Rédaction…" : reply ? "Régénérer la réponse" : "Rédiger une réponse"}
+                                            </span>
+                                        </button>
+                                    </div>
 
-                                <p className="text-[10px] text-slate-500">
-                                    Rien n'est envoyé sans votre validation : « Enregistrer en brouillon » dépose le
-                                    texte dans Gmail, « Envoyer maintenant » demande une confirmation.
-                                </p>
+                                    <textarea
+                                        value={reply}
+                                        onChange={(event) => setReply(event.target.value)}
+                                        rows={6}
+                                        placeholder="Écrivez ou générez une réponse, puis relisez avant d'envoyer."
+                                        className="w-full bg-white border border-slate-200 rounded-2xl p-3 text-xs text-slate-800 focus:outline-none focus:border-teal-500 resize-y"
+                                    />
 
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <button
-                                        onClick={() => void submitReply("draft")}
-                                        disabled={sending !== null}
-                                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 text-xs font-bold transition-all"
-                                    >
-                                        {sending === "draft" ? (
-                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        ) : (
-                                            <Save className="h-3.5 w-3.5" />
+                                    <p className="text-[10px] text-slate-500">
+                                        Rien n'est envoyé sans votre validation : « Enregistrer en brouillon » dépose le
+                                        texte dans Gmail, « Envoyer maintenant » demande une confirmation.
+                                    </p>
+
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            onClick={() => void submitReply("draft")}
+                                            disabled={sending !== null}
+                                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 text-xs font-bold transition-all"
+                                        >
+                                            {sending === "draft" ? (
+                                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            ) : (
+                                                <Save className="h-3.5 w-3.5" />
+                                            )}
+                                            <span>Enregistrer en brouillon</span>
+                                        </button>
+                                        <button
+                                            onClick={() => void submitReply("send")}
+                                            disabled={sending !== null}
+                                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-bold transition-all"
+                                        >
+                                            {sending === "send" ? (
+                                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            ) : (
+                                                <Send className="h-3.5 w-3.5" />
+                                            )}
+                                            <span>Envoyer maintenant</span>
+                                        </button>
+                                        {forceReply && !detail.needsReply && (
+                                            <button
+                                                onClick={() => {
+                                                    setForceReply(false);
+                                                    setReply("");
+                                                    setDraftSubject(null);
+                                                    setDraftIntent(null);
+                                                    setDraftRegister(null);
+                                                }}
+                                                className="px-3 py-2 rounded-xl text-slate-500 hover:text-slate-800 text-xs font-semibold"
+                                            >
+                                                Annuler la réponse
+                                            </button>
                                         )}
-                                        <span>Enregistrer en brouillon</span>
-                                    </button>
-                                    <button
-                                        onClick={() => void submitReply("send")}
-                                        disabled={sending !== null}
-                                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-bold transition-all"
-                                    >
-                                        {sending === "send" ? (
-                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        ) : (
-                                            <Send className="h-3.5 w-3.5" />
-                                        )}
-                                        <span>Envoyer maintenant</span>
-                                    </button>
+                                        <button
+                                            onClick={() => {
+                                                setDetail(null);
+                                                setExpanded(false);
+                                            }}
+                                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-500 hover:text-slate-800 text-xs font-semibold"
+                                        >
+                                            <ArrowLeft className="h-3.5 w-3.5" />
+                                            <span>Fermer</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="p-4 border-t border-slate-100 bg-slate-50/40 flex flex-wrap items-center justify-between gap-3">
+                                    <p className="text-[11px] text-slate-500">
+                                        {detail.category === "important"
+                                            ? "Action à prévoir (paiement, échéance) mais aucune réponse nécessaire."
+                                            : "Information à lire : aucune réponse attendue."}
+                                    </p>
                                     <button
                                         onClick={() => {
-                                            setDetail(null);
-                                            setReply("");
-                                            setDraftSubject(null);
-                                            setDraftIntent(null);
+                                            setForceReply(true);
+                                            void generateDraft(detail);
                                         }}
-                                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-500 hover:text-slate-800 text-xs font-semibold"
+                                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-[11px] font-bold hover:bg-slate-100 transition-all"
                                     >
-                                        <ArrowLeft className="h-3.5 w-3.5" />
-                                        <span>Fermer</span>
+                                        <PenLine className="h-3.5 w-3.5" />
+                                        <span>Répondre quand même</span>
                                     </button>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     )}
                 </div>

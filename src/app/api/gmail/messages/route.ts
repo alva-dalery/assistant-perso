@@ -13,10 +13,12 @@ export async function GET(request: Request) {
         );
     }
 
-    const requested = Number(new URL(request.url).searchParams.get("limit") ?? "12");
+    // Toute la boîte de réception : on autorise jusqu'à 200 en-têtes
+    // (seuls les en-têtes sont récupérés, pas les corps des messages).
+    const requested = Number(new URL(request.url).searchParams.get("limit") ?? "50");
     const limit = Number.isFinite(requested)
-        ? Math.min(Math.max(Math.trunc(requested), 1), 30)
-        : 12;
+        ? Math.min(Math.max(Math.trunc(requested), 1), 200)
+        : 50;
 
     try {
         const data = await listInbox(limit);

@@ -263,19 +263,25 @@ En local, les mêmes lignes dans `.env.local` (fichier ignoré par Git), puis `n
 
 ### Tri automatique et rédaction de réponse
 
-Chaque message est classé **sans IA**, à partir de trois familles d'indices :
+Chaque message est classé **sans IA**, à partir de trois familles d'indices (en-têtes de diffusion,
+forme de l'adresse, objet), puis rangé dans **quatre filtres** avec leur compteur :
 
-| Indice | Exemple | Résultat |
+| Filtre | Contenu | Réponse attendue |
 | --- | --- | --- |
-| En-têtes de diffusion | `List-Unsubscribe`, `List-ID`, `Precedence: bulk`, `X-Mailchimp`, `X-SG-EID` | Newsletter / publicité |
-| Forme de l'adresse | `noreply@`, `newsletter@`, `notifications@`, `promo@` | Notification / publicité |
-| Objet | « -50 % », « soldes », « offre », « webinaire », « désabonner » | Publicité |
+| **À traiter** | questions directes, demandes d'une personne | oui, proposition rédigée |
+| **Important** | factures, impôts, RUAMM / CPS, cotisations, amendes, échéances, assurances | non, mais action à prévoir |
+| **Infos** | abonnements qui se renouvellent ou se terminent, réunions, confirmations, livraisons | non, lecture seule |
+| **Newsletters & pubs** | `List-Unsubscribe`, `List-ID`, `Precedence: bulk`, `X-Mailchimp`, objets promotionnels | aucune |
 
-Tout le reste est considéré comme **personnel** : réponse attendue.
+Une **question** reconnue (sujet contenant « ? » ou commençant par « question », « demande »,
+« pouvez-vous », « merci de me »…) reste toujours dans **À traiter**, même si elle parle de facture.
 
-Dans le module, deux filtres affichent leur compteur :
-- **À traiter** → messages qui attendent une réponse (sélection par défaut) ;
-- **Newsletters & pubs** → aucun bouton de réponse mis en avant, pour éviter les réponses inutiles.
+**Toute la boîte de réception est prise en compte** : 50 messages analysés au chargement, puis le
+bouton **Charger plus** étend l'analyse par tranches de 50 jusqu'à 200 messages. Seuls les en-têtes
+sont récupérés (rapide) ; le corps n'est lu qu'à l'ouverture d'un message.
+
+Le message ouvert affiche un bloc **« Résumé de la demande »** avec un chevron (accordéon) :
+un clic déplie le texte intégral, un second le replie.
 
 Pour répondre, aucune action n'est nécessaire : **dès qu'un email « À traiter » est ouvert, la
 proposition de réponse est rédigée** (et à la première ouverture du module, le premier email en

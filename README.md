@@ -83,9 +83,13 @@ d'application** suffit.
    en ligne dans les variables d'environnement Vercel).
 4. Redéployer, puis ouvrir **Secrétariat → Boîte Gmail réelle**.
 
-Le module trie automatiquement les messages : **À traiter** (réponse attendue) d'un côté,
-**Newsletters & pubs** de l'autre, grâce aux en-têtes de diffusion (`List-Unsubscribe`,
-`Precedence: bulk`…), à l'adresse de l'expéditeur et à l'objet.
+Le module trie automatiquement **toute la boîte de réception** dans quatre filtres comptés :
+**À traiter** (question d'une personne → réponse), **Important** (factures, impôts, RUAMM, échéances →
+action à prévoir), **Infos** (abonnements, réunions, confirmations → lecture seule) et
+**Newsletters & pubs** (diffusion de masse). Le tri s'appuie sur les en-têtes (`List-Unsubscribe`,
+`Precedence: bulk`…), l'adresse de l'expéditeur et l'objet. Le bouton **Charger plus** étend
+l'analyse jusqu'à 200 messages, et un accordéon « Résumé de la demande » permet de déplier
+le texte complet.
 
 Dès qu'un email à traiter est ouvert, une **proposition de réponse est rédigée immédiatement** :
 elle respecte l'intention détectée (facturation, rendez-vous, devis, relance, litige, question)

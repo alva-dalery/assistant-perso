@@ -92,7 +92,12 @@ async function withInbox<T>(
 /* Tri des messages : à traiter ou diffusion                          */
 /* ------------------------------------------------------------------ */
 
-export type GmailCategory = "personnel" | "newsletter" | "promotion" | "notification";
+export type GmailCategory =
+    | "personnel"
+    | "important"
+    | "infos"
+    | "newsletter"
+    | "promotion";
 
 export interface GmailClassification {
     category: GmailCategory;
@@ -118,7 +123,15 @@ const HEADERS_TO_FETCH = [
 ];
 
 const PROMO_SUBJECT =
-    /(newsletter|promo|promotion|soldes|black friday|cyber monday|offre|bons? plans?|\d+\s*%|-\s*\d+\s*%|dernières (heures|chances)|webinaire|webinar|vente privée|essai gratuit|abonnement|désabonner|unsubscribe|digest|récapitulatif|nouveautés|lancement)/i;
+    /(newsletter|promo|promotion|soldes|black friday|cyber monday|offre|bons? plans?|\d+\s*%|-\s*\d+\s*%|dernières (heures|chances)|webinaire|webinar|vente privée|essai gratuit|désabonner|unsubscribe|digest|récapitulatif|nouveautés|lancement)/i;
+
+/** À lire et à régler : factures, impôts, cotisations, échéances. */
+const IMPORTANT_SUBJECT =
+    /(facture|avis d.échéance|échéance|impôt|impots|imposition|fiscal|déclaration|taxe|tva|ruamm|cps|cotisation|amende|majoration|mise en demeure|huissier|prélèvement|paiement|payer|régler|solde dû|rappel de paiement|assurance|sinistre|convocation|remboursement)/i;
+
+/** À lire sans réponse attendue : abonnements, réunions, confirmations. */
+const INFO_SUBJECT =
+    /(abonnement|renouvellement|renouvelé|expire|expiration|prend fin|fin de contrat|résiliation|réunion|compte rendu|confirmation|confirmée?|réservation|commande|livraison|expédition|embarquement|billet|invitation|planning|agenda|information)/i;
 
 const NO_REPLY_LOCAL =
     /^(no-?reply|do-?not-?reply|ne-?pas-?repondre|nepasrepondre|notifications?|notify|alerts?|newsletter|news|infolettre|promo|promotions?|marketing|mailer|mailing|bounce|bounces|system|automated?|robot|service-?client|support)([._-].*)?$/i;
@@ -131,7 +144,8 @@ function headerValue(headers: string, name: string): string {
 
 /**
  * Classe un message sans IA : en-têtes de diffusion + forme de l'adresse + objet.
- * Objectif : ne jamais proposer de réponse à une newsletter ou une publicité.
+ * Quatre familles : à traiter (réponse), important (à régler), infos (à lire),
+ * newsletters/pubs (à ignorer).
  */
 export function classifyMessage(
     fromEmail: string,
@@ -164,7 +178,13 @@ export function classifyMessage(
     const looksAutomated = NO_REPLY_LOCAL.test(localPart);
     const promoSubject = PROMO_SUBJECT.test(subject);
     const hasSeveralRecipients = /,/.test(headerValue(headers, "to"));
+    const isQuestion =
+        subject.includes("?") ||
+        /^(question|demande|renseignements?|peux-tu|pouvez-vous|pourriez-vous|merci de|besoin de|confirmer|valider)\b/i.test(
+            subject.trim()
+        );
 
+    // 1. Diffusion de masse : jamais de réponse attendue.
     if (hasListHeaders || isMarketing || isBulk) {
         if (promoSubject) {
             return {
@@ -188,11 +208,39 @@ export function classifyMessage(
         };
     }
 
+    // 2. Une vraie question posée par une personne : réponse attendue.
+    if (isQuestion && !looksAutomated && !isAuto) {
+        return {
+            category: "personnel",
+            needsReply: true,
+            reason: "Question posée directement, réponse attendue",
+        };
+    }
+
+    // 3. À lire et à régler (argent, échéance, administration).
+    if (IMPORTANT_SUBJECT.test(subject)) {
+        return {
+            category: "important",
+            needsReply: false,
+            reason: "Échéance ou montant à traiter (action requise, sans réponse)",
+        };
+    }
+
+    // 4. À lire sans réponse : abonnements, réunions, confirmations.
+    if (INFO_SUBJECT.test(subject)) {
+        return {
+            category: "infos",
+            needsReply: false,
+            reason: "Information à lire (aucune réponse attendue)",
+        };
+    }
+
+    // 5. Notifications techniques.
     if (looksAutomated || isAuto) {
         return {
-            category: "notification",
+            category: "infos",
             needsReply: false,
-            reason: "Expéditeur automatique (notification, sans réponse attendue)",
+            reason: "Notification automatique (aucune réponse attendue)",
         };
     }
 
@@ -201,6 +249,14 @@ export function classifyMessage(
             category: "promotion",
             needsReply: false,
             reason: "Objet promotionnel envoyé à plusieurs destinataires",
+        };
+    }
+
+    if (hasSeveralRecipients) {
+        return {
+            category: "infos",
+            needsReply: false,
+            reason: "Message envoyé à plusieurs destinataires",
         };
     }
 
