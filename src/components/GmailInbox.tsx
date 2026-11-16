@@ -67,7 +67,7 @@ interface ReplyDraftResponse {
 }
 
 const CATEGORY_LABEL: Record<GmailCategory, string> = {
-    personnel: "À traiter",
+    personnel: "Répondre",
     important: "Important",
     infos: "Infos",
     newsletter: "Newsletter",
@@ -297,7 +297,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         setStyleSamples(loadSamples().length);
     }, []);
 
-    const toReply = useMemo(() => messages.filter((message) => message.needsReply), [messages]);
+    // « À traiter » = tout ce qui demande un coup d'œil : répondre, important ou infos,
+    // en excluant les newsletters/publicités et les messages déjà traités.
+    const toReview = useMemo(
+        () =>
+            messages.filter(
+                (message) => !isLater(message.category) && !message.answered
+            ),
+        [messages]
+    );
     const important = useMemo(
         () => messages.filter((message) => message.category === "important"),
         [messages]
@@ -307,7 +315,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
 
     const visibleMessages =
         filter === "todo"
-            ? toReply
+            ? toReview
             : filter === "important"
                 ? important
                 : filter === "infos"
@@ -387,13 +395,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         }
     }
 
-    async function suggestFolderFor(uid: number) {
+    async function suggestFolderFor(uid: number, refresh = false) {
         setSuggesting(true);
         setSuggestedFolder(null);
         setSuggestError(null);
         setSuggestMeta(null);
         try {
-            const response = await fetch(`/api/gmail/suggest-folder?uid=${uid}`, {
+            const response = await fetch(
+                `/api/gmail/suggest-folder?uid=${uid}${refresh ? "&refresh=1" : ""}`,
+                {
                 cache: "no-store",
                 credentials: "same-origin",
             });
@@ -657,7 +667,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-slate-100/80 border border-slate-200/60 w-fit">
                 {(
                     [
-                        ["todo", `À traiter (${toReply.length})`],
+                        ["todo", `À traiter (${toReview.length})`],
                         ["important", `Important (${important.length})`],
                         ["infos", `Infos (${infos.length})`],
                         ["later", `Newsletters & pubs (${later.length})`],
@@ -871,7 +881,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                 )}
                             </div>
                             <div className="px-4 pb-3 bg-white text-[10px] text-slate-500 space-y-0.5">
-                                {suggesting && <p>Recherche d'un dossier habituel…</p>}
+                                {suggesting && (
+                                    <p className="flex items-center gap-1.5">
+                                        <Loader2 className="h-3 w-3 animate-spin text-teal-600" />
+                                        <span>Recherche d'un dossier habituel…</span>
+                                    </p>
+                                )}
                                 {!suggesting && suggestedFolder && (
                                     <p>
                                         Suggestion :{" "}
@@ -898,7 +913,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                 </p>
                                 {detail && (
                                     <button
-                                        onClick={() => void suggestFolderFor(detail.uid)}
+                                        onClick={() => void suggestFolderFor(detail.uid, true)}
                                         className="text-[10px] text-teal-700 font-bold hover:underline"
                                     >
                                         Relancer la recherche de dossier

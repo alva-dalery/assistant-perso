@@ -266,12 +266,17 @@ En local, les mêmes lignes dans `.env.local` (fichier ignoré par Git), puis `n
 Chaque message est classé **sans IA**, à partir de trois familles d'indices (en-têtes de diffusion,
 forme de l'adresse, objet), puis rangé dans **quatre filtres** avec leur compteur :
 
-| Filtre | Contenu | Réponse attendue |
+| Filtre | Contenu | Étiquette affichée |
 | --- | --- | --- |
-| **À traiter** | questions directes, demandes d'une personne | oui, proposition rédigée |
-| **Important** | factures, impôts, RUAMM / CPS, cotisations, amendes, échéances, assurances | non, mais action à prévoir |
-| **Infos** | abonnements qui se renouvellent ou se terminent, réunions, confirmations, livraisons | non, lecture seule |
-| **Newsletters & pubs** | `List-Unsubscribe`, `List-ID`, `Precedence: bulk`, `X-Mailchimp`, objets promotionnels | aucune |
+| **À traiter** | **tout ce qui demande votre attention** : emails à qui répondre, importants et infos | `Répondre`, `Important`, `Infos` |
+| **Important** | factures, impôts, RUAMM / CPS, cotisations, amendes, échéances, assurances | `Important` |
+| **Infos** | abonnements qui se renouvellent ou se terminent, réunions, confirmations, livraisons | `Infos` |
+| **Newsletters & pubs** | `List-Unsubscribe`, `List-ID`, `Precedence: bulk`, `X-Mailchimp`, objets promotionnels | `Newsletter`, `Publicité` |
+
+L'onglet **À traiter** est la vue de travail par défaut : il rassemble tous les emails qui
+nécessitent un coup d'œil (réponse, action ou simple lecture utile), sans les newsletters et
+publicités, et sans les messages déjà répondus. Chaque ligne porte une **étiquette colorée** :
+`Répondre` (proposition de réponse rédigée automatiquement), `Important` ou `Infos`.
 
 Une **question** reconnue (sujet contenant « ? » ou commençant par « question », « demande »,
 « pouvez-vous », « merci de me »…) reste toujours dans **À traiter**, même si elle parle de facture.

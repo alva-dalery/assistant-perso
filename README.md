@@ -86,7 +86,8 @@ d'application** suffit.
 Le module trie automatiquement **toute la boîte de réception** dans quatre filtres comptés :
 **À traiter** (question d'une personne → réponse), **Important** (factures, impôts, RUAMM, échéances →
 action à prévoir), **Infos** (abonnements, réunions, confirmations → lecture seule) et
-**Newsletters & pubs** (diffusion de masse). Le tri s'appuie sur les en-têtes (`List-Unsubscribe`,
+**Newsletters & pubs** (diffusion de masse). La vue **À traiter** rassemble tout ce qui demande un
+coup d'œil (étiquettes `Répondre`, `Important`, `Infos`), hors newsletters et messages déjà traités. Le tri s'appuie sur les en-têtes (`List-Unsubscribe`,
 `Precedence: bulk`…), l'adresse de l'expéditeur et l'objet. Le bouton **Charger plus** étend
 l'analyse jusqu'à 200 messages, et un accordéon « Résumé de la demande » permet de déplier
 le texte complet.

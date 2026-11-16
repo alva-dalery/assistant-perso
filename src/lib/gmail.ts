@@ -1534,16 +1534,17 @@ const SUGGESTION_TTL_MS = 10 * 60 * 1000;
  * (et sur son domaine en second recours). Aucun échantillonnage : les anciens
  * emails sont donc vus aussi.
  */
-export async function suggestFolderForMessage(input: {
-    senderEmail: string;
-    senderName: string;
-    subject: string;
-}): Promise<FolderSuggestionResult> {
+export async function suggestFolderForMessage(
+    input: { senderEmail: string; senderName: string; subject: string },
+    options?: { refresh?: boolean }
+): Promise<FolderSuggestionResult> {
     if (!isGmailConfigured()) throw new Error("Gmail n'est pas configuré.");
 
     const cacheKey = `${input.senderEmail.toLowerCase()}|${input.subject}`;
     const cached = suggestionCache.get(cacheKey);
-    if (cached && Date.now() - cached.at < SUGGESTION_TTL_MS) return cached.value;
+    if (!options?.refresh && cached && Date.now() - cached.at < SUGGESTION_TTL_MS) {
+        return cached.value;
+    }
 
     const folders = (await listFolders())
         .filter((folder) => folder.kind === "label")
