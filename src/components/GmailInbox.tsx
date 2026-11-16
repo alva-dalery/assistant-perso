@@ -49,6 +49,8 @@ interface MessageDetail extends InboxMessage {
     historyText: string;
     exchanges: number;
     attachments: string[];
+    attachmentParts: PartInfo[];
+    images: PartInfo[];
     messageId: string;
     inReplyTo: string;
 }
@@ -89,6 +91,47 @@ function formatDate(iso: string): string {
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return "";
     return date.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+}
+
+/** « aujourd'hui », « hier », « il y a 2 jours »… */
+function formatRelative(iso: string): string {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return "";
+
+    const startOfDay = (value: Date) =>
+        new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+    const days = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86_400_000);
+
+    if (days <= 0) return "aujourd'hui";
+    if (days === 1) return "hier";
+    if (days < 7) return `il y a ${days} jours`;
+    if (days < 31) {
+        const weeks = Math.floor(days / 7);
+        return `il y a ${weeks} semaine${weeks > 1 ? "s" : ""}`;
+    }
+    if (days < 365) {
+        const months = Math.floor(days / 30);
+        return `il y a ${months} mois`;
+    }
+    const years = Math.floor(days / 365);
+    return `il y a ${years} an${years > 1 ? "s" : ""}`;
+}
+
+interface PartInfo {
+    part: string;
+    filename: string;
+    type: string;
+    size: number | null;
+}
+
+function attachmentUrl(uid: number, file: PartInfo): string {
+    const params = new URLSearchParams({
+        uid: String(uid),
+        part: file.part,
+        type: file.type,
+        name: file.filename,
+    });
+    return `/api/gmail/attachment?${params.toString()}`;
 }
 
 function replySubject(subject: string): string {
@@ -581,7 +624,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     )}
                                     {message.fromName}
                                 </span>
-                                <span className="text-[10px] text-slate-400 shrink-0">{formatDate(message.date)}</span>
+                                <span className="text-[10px] text-slate-400 shrink-0 text-right">
+                                            {formatDate(message.date)}
+                                            <span className="block text-[9px] text-slate-400/80">
+                                                {formatRelative(message.date)}
+                                            </span>
+                                        </span>
                             </div>
                             <p className="text-[11px] font-medium text-slate-600 truncate">{message.subject}</p>
                             <div className="mt-1.5 flex items-center gap-1.5">
@@ -636,14 +684,50 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     De <span className="font-semibold text-slate-700">{detail.fromName}</span>
                                     {detail.fromEmail && ` <${detail.fromEmail}>`}
                                     {" · "}
-                                    {formatDate(detail.date)}
+                                    {formatDate(detail.date)} · {formatRelative(detail.date)}
                                 </p>
                                 <p className="text-[10px] text-slate-400 mt-1">Tri automatique : {detail.reason}</p>
-                                {detail.attachments && detail.attachments.length > 0 && (
-                                    <p className="text-[10px] text-slate-500 mt-1">
-                                        Pièces jointes : {detail.attachments.join(", ")}
-                                    </p>
+                                {detail.images && detail.images.length > 0 && (
+                                    <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {detail.images.map((image) => (
+                                            <a
+                                                key={image.part}
+                                                href={attachmentUrl(detail.uid, image)}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="block rounded-xl border border-slate-200 bg-white overflow-hidden hover:shadow-sm transition-shadow"
+                                            >
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img
+                                                    src={attachmentUrl(detail.uid, image)}
+                                                    alt={image.filename}
+                                                    loading="lazy"
+                                                    className="w-full h-24 object-contain"
+                                                />
+                                            </a>
+                                        ))}
+                                    </div>
                                 )}
+                                {detail.attachmentParts &&
+                                    detail.attachmentParts.filter(
+                                        (file) => !file.type.startsWith("image/")
+                                    ).length > 0 && (
+                                        <div className="mt-2 flex flex-wrap gap-1.5">
+                                            {detail.attachmentParts
+                                                .filter((file) => !file.type.startsWith("image/"))
+                                                .map((file) => (
+                                                    <a
+                                                        key={file.part}
+                                                        href={attachmentUrl(detail.uid, file)}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="text-[10px] px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 transition-colors"
+                                                    >
+                                                        📎 {file.filename}
+                                                    </a>
+                                                ))}
+                                        </div>
+                                    )}
                                 {draftRegister && (
                                     <span className="inline-block mt-1.5 text-[9px] px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-600 font-bold">
                                         {draftRegister === "tutoiement" ? "Tutoiement détecté" : "Vouvoiement détecté"}

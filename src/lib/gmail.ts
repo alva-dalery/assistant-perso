@@ -297,6 +297,10 @@ export interface GmailMessageDetail extends GmailMessageSummary {
     attachments: string[];
     /** Noms des images du corps (signatures, logos). */
     inlineImages: string[];
+    /** Pièces jointes avec leur numéro de partie IMAP (téléchargement). */
+    attachmentParts: GmailPartInfo[];
+    /** Images affichables (inline ou jointes). */
+    images: GmailPartInfo[];
     messageId: string;
     inReplyTo: string;
 }
@@ -384,6 +388,13 @@ const DOCUMENT_WORDS: Array<[RegExp, string]> = [
 const POLITENESS =
     /^(bonjour|salut|madame|monsieur|cordialement|bien cordialement|bien à vous|nous restons|je reste|n'hésitez pas|merci d'avance|merci pour votre retour|bonne journée|belle journée|cdt)/i;
 
+/** Formules creuses qui ne disent rien du contenu du message. */
+const FLUFF =
+    /(souhait\w* (une|de) (agr[ée]able|bonne) (lecture|journ[ée]e)|nous vous en souhaitons|restons [àa] (votre )?disposition|restons disponibles|merci (de|pour) votre confiance|merci pour votre fid[ée]lit[ée]|bonne lecture|excellente journ[ée]e|belle journ[ée]e|[àa] tr[èe]s bient[ôo]t|nous vous remercions|nous sommes ravis|au plaisir de vous lire|bienvenue chez|toute l'[ée]quipe vous)/i;
+
+const INFO_KEYWORDS =
+    /(nouveau|nouvelle|nouveaux|changement|augmentation|baisse|hausse|taux|tarif|mise [àa] jour|[àa] partir du|d[ée]sormais|obligatoire|rappel|annonce|information|important|attention|fermeture|[ée]ch[ée]ance|date limite|renouvellement|contr[ôo]le|entretien|travaux|coupure)/i;
+
 function articleFor(word: string): string {
     if (/^(attestation|ordonnance|convocation)/.test(word)) return "de l'";
     if (/^(facture)/.test(word)) return "de la ";
@@ -420,8 +431,12 @@ export function summarizeMessage(text: string, subject: string): string {
         );
     const document = DOCUMENT_WORDS.find(([regex]) => regex.test(flat));
 
+    // Une vraie information (taux, date, montant) prime sur le simple envoi
+    // d'une pièce jointe : c'est elle qui intéresse le lecteur.
+    const hasMajorInfo = INFO_KEYWORDS.test(flat) && /\d/.test(cleaned);
+
     // 1. Envoi d'un document (le cas le plus fréquent).
-    if (isEnvoi && document) {
+    if (isEnvoi && document && !hasMajorInfo) {
         const word = document[1];
         let phrase = `Envoi ${articleFor(word)}${word}`;
         if (word === "formulaire" && /résiliation|resiliation/.test(flat)) {
@@ -483,22 +498,95 @@ export function summarizeMessage(text: string, subject: string): string {
 
     if (sentences.length === 0) return subject ? `Objet : ${subject}` : "Message court sans demande identifiable.";
 
-    const keywords =
+    const action =
         /(demande|merci de|pouvez-vous|pourriez-vous|peux-tu|besoin|facture|devis|rendez-vous|réunion|échéance|paiement|payer|justificatif|problème|urgent|confirmer|valider|remboursement)/i;
 
-    const best = sentences
-        .map((sentence, index) => ({
-            sentence,
-            index,
-            score:
-                (keywords.test(sentence) ? 3 : 0) +
-                (sentence.length <= 200 ? 1 : 0) +
-                (index > 0 ? 1 : 0),
-        }))
+    // Écarter les formules de politesse et les phrases purement décoratives.
+    const useful = sentences.filter((sentence) => !FLUFF.test(sentence));
+    const pool = useful.length > 0 ? useful : sentences;
+
+    const best = pool
+        .map((sentence, index) => {
+            let score = 0;
+            if (action.test(sentence)) score += 4;
+            if (INFO_KEYWORDS.test(sentence)) score += 3;
+            if (/\d/.test(sentence)) score += 3;
+            if (/(€|%|xfp|cfp|\b\d{1,2}\s*(h|heures?)\b)/i.test(sentence)) score += 2;
+            if (/(avons le plaisir de vous informer|vous informer que)/i.test(sentence)) score -= 2;
+            if (sentence.length <= 220) score += 1;
+            if (index === pool.length - 1) score -= 1; // souvent la conclusion
+            if (/!/.test(sentence) && !/\d/.test(sentence)) score -= 2;
+            return { sentence, index, score };
+        })
         .sort((a, b) => b.score - a.score)[0];
 
-    const summary = best.sentence;
-    return summary.length > 200 ? `${summary.slice(0, 197).trimEnd()}…` : summary;
+    let summary = best.sentence.replace(/\s+/g, " ").trim();
+
+    if (/\?$/.test(summary)) {
+        summary = `Demande : ${summary}`;
+    } else if (INFO_KEYWORDS.test(summary) && !action.test(summary)) {
+        summary = `Information : ${summary}`;
+    }
+
+    return summary.length > 220 ? `${summary.slice(0, 217).trimEnd()}…` : summary;
+}
+
+export interface GmailPartInfo {
+    part: string;
+    filename: string;
+    type: string;
+    size: number | null;
+}
+
+/** Recense les pièces jointes et images du message, avec leur numéro de partie IMAP. */
+export function collectParts(structure: MessageStructureObject | undefined): GmailPartInfo[] {
+    if (!structure) return [];
+    const found: GmailPartInfo[] = [];
+
+    const walk = (nodes: MessageStructureObject[]) => {
+        for (const node of nodes) {
+            const filename =
+                node.dispositionParameters?.filename || node.parameters?.name || "";
+            const disposition =
+                typeof node.disposition === "string" ? node.disposition.toLowerCase() : "";
+            const isAttachment = disposition.includes("attachment");
+            const isImage = typeof node.type === "string" && node.type.startsWith("image/");
+
+            if ((filename || isAttachment || isImage) && node.type?.startsWith("image/") === true) {
+                found.push({
+                    part: node.part ?? "1",
+                    filename: filename || "image",
+                    type: node.type,
+                    size: typeof node.size === "number" ? node.size : null,
+                });
+            } else if (filename || isAttachment) {
+                found.push({
+                    part: node.part ?? "1",
+                    filename: filename || "pièce jointe",
+                    type: node.type || "application/octet-stream",
+                    size: typeof node.size === "number" ? node.size : null,
+                });
+            }
+
+            if (node.childNodes?.length) walk(node.childNodes);
+        }
+    };
+
+    if (structure.childNodes?.length) walk(structure.childNodes);
+    else {
+        const filename =
+            structure.dispositionParameters?.filename || structure.parameters?.name || "";
+        if (filename) {
+            found.push({
+                part: structure.part ?? "1",
+                filename,
+                type: structure.type || "application/octet-stream",
+                size: typeof structure.size === "number" ? structure.size : null,
+            });
+        }
+    }
+
+    return found;
 }
 
 function collectAttachments(
@@ -706,8 +794,10 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
         }
 
         const envelope = message.envelope;
-        const attachments = collectAttachments(message.bodyStructure);
-        const inlineImages = collectInlineImages(message.bodyStructure);
+        const attachmentParts = collectParts(message.bodyStructure);
+        const images = attachmentParts.filter((item) => item.type.startsWith("image/"));
+        const attachments = attachmentParts.map((item) => item.filename);
+        const inlineImages = images.map((item) => item.filename);
         const part =
             findPart(message.bodyStructure, "text/plain") ??
             findPart(message.bodyStructure, "text/html");
@@ -758,6 +848,8 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             exchanges: breakdown.exchanges,
             attachments,
             inlineImages,
+            attachmentParts,
+            images,
             messageId: envelope?.messageId ?? "",
             inReplyTo: envelope?.inReplyTo ?? "",
         };
@@ -1271,6 +1363,62 @@ export async function markMessageAnswered(uid: number): Promise<boolean> {
         return true;
     } catch {
         return false;
+    } finally {
+        lock?.release();
+        await client.logout().catch(() => undefined);
+    }
+}
+
+/** Télécharge une partie IMAP (image, PDF…) pour affichage ou téléchargement. */
+export async function downloadPart(
+    uid: number,
+    part: string
+): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
+    if (!isGmailConfigured()) throw new Error("Gmail n'est pas configuré.");
+    if (!Number.isInteger(uid) || uid <= 0) throw new Error("Identifiant de message invalide.");
+    if (!/^\d+(\.\d+)*$/.test(part)) throw new Error("Numéro de partie invalide.");
+
+    const client = createImapClient();
+    client.on("error", () => undefined);
+    await client.connect();
+
+    let lock: { release: () => void } | null = null;
+    try {
+        lock = await client.getMailboxLock("INBOX", { readOnly: true });
+
+        const message = await client.fetchOne(
+            String(uid),
+            { bodyStructure: true },
+            { uid: true }
+        );
+        const info =
+            message && message.bodyStructure
+                ? collectParts(message.bodyStructure).find((item) => item.part === part)
+                : undefined;
+
+        const download = await client.download(String(uid), part, { uid: true });
+        if (!download || !download.content) {
+            throw new Error("Pièce jointe introuvable dans ce message.");
+        }
+
+        const chunks: Buffer[] = [];
+        let size = 0;
+        const MAX = 10 * 1024 * 1024;
+        for await (const chunk of download.content as AsyncIterable<Buffer | string>) {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            const remaining = MAX - size;
+            if (remaining <= 0) break;
+            chunks.push(buffer.subarray(0, remaining));
+            size += Math.min(buffer.length, remaining);
+            if (size >= MAX) break;
+        }
+        download.content.destroy();
+
+        return {
+            buffer: Buffer.concat(chunks),
+            contentType: info?.type || "application/octet-stream",
+            filename: info?.filename || `piece-${part}`,
+        };
     } finally {
         lock?.release();
         await client.logout().catch(() => undefined);

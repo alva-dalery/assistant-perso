@@ -280,6 +280,9 @@ Une **question** reconnue (sujet contenant « ? » ou commençant par « questio
 bouton **Charger plus** étend l'analyse par tranches de 50 jusqu'à 200 messages. Seuls les en-têtes
 sont récupérés (rapide) ; le corps n'est lu qu'à l'ouverture d'un message.
 
+La date de chaque email est accompagnée d'un **âge relatif** : « aujourd'hui », « hier »,
+« il y a 2 jours », « il y a 3 semaines », calculé à partir de la date de réception.
+
 Le message ouvert affiche un bloc **« Résumé de l'email »** : une **synthèse rédigée**, pas un
 extrait du texte. L'application identifie l'action du message et la reformule :
 
@@ -290,12 +293,28 @@ extrait du texte. L'application identifie l'action du message et la reformule :
 | « Je vous confirme la réunion projet jeudi 21 novembre à 14h » | *Rendez-vous : jeudi 21 novembre à 14h en salle B.* |
 | « Pouvez-vous me confirmer le montant et le délai ? » | *Demande : Pouvez-vous me confirmer le montant et le délai ?* |
 
-Les formules de politesse, la signature et l'historique cité sont ignorés. Le chevron déplie le
+Les formules creuses (« Nous vous en souhaitons une agréable lecture ! », « Nous restons à votre
+disposition ») sont écartées, et une information chiffrée (taux, montant, date, pourcentage) est
+préférée à une phrase de politesse. Une phrase d'information est préfixée par « Information : »,
+une question par « Demande : ». Le chevron déplie le
 texte intégral, un second clic le replie.
 
 Si un email n'a pas de partie texte exploitable (HTML atypique ou message réduit à des pièces
 jointes), l'application tente de récupérer le corps complet, liste les **pièces jointes** détectées
 et affiche « Envoi de N pièce(s) jointe(s) : … » au lieu du message « contenu illisible ».
+
+### Images et pièces jointes
+
+Les images du message (signatures, illustrations, visuels d'un email HTML) et les pièces jointes
+sont détectées et affichées sous l'en-tête du message :
+
+- les **images s'affichent en vignettes** (clic pour ouvrir en grand) ;
+- les autres pièces jointes apparaissent sous forme de boutons `📎 nom-du-fichier` (PDF, documents…).
+
+Elles sont servies par la route protégée `/api/gmail/attachment` (types sûrs uniquement : images et
+PDF affichés, tout le reste forcé en téléchargement, `nosniff`). Les images distantes référencées par
+une URL externe ne sont pas chargées automatiquement (protection contre le pistage) ; seules les
+images réellement contenues dans l'email sont récupérées.
 
 ### Prise en compte du fil et mémoire de vos corrections
 
