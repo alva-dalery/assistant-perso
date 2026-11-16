@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
     buildReplyDraft,
     describeGmailError,
+    extractFirstName,
     getMessage,
     isGmailConfigured,
 } from "@/lib/gmail";
@@ -75,6 +76,12 @@ export async function POST(request: Request) {
         const message = await getMessage(uid);
         const signature = typeof payload.signature === "string" ? payload.signature : "";
         const style = sanitizeStyle(payload.style);
+        const firstName = extractFirstName({
+            senderName: message.fromName,
+            senderEmail: message.fromEmail,
+            bodyText: `${message.currentText || message.text}\n${message.historyText}`,
+            imageNames: message.inlineImages,
+        });
         const draft = buildReplyDraft(
             {
                 fromName: message.fromName,
@@ -82,6 +89,7 @@ export async function POST(request: Request) {
                 subject: message.subject,
                 text: message.currentText || message.text,
                 history: message.historyText,
+                firstName,
                 needsReply: message.needsReply,
                 exchanges: message.exchanges,
             },

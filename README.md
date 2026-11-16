@@ -94,6 +94,8 @@ le texte complet.
 Dès qu'un email à traiter est ouvert, une **proposition de réponse est rédigée immédiatement** :
 elle respecte l'intention détectée (facturation, rendez-vous, devis, relance, litige, question)
 et le **registre de l'expéditeur** (vouvoiement ou tutoiement), avec la signature `Alva DALERY`.
+La salutation utilise le prénom réel de votre interlocuteur (signature, adresse e-mail) et se limite
+à « Bonjour, » lorsqu'il s'agit d'une société comme Fitness Park.
 Vous relisez, modifiez, puis choisissez **Enregistrer en brouillon** ou **Envoyer maintenant**.
 Aucun mail ne part sans votre validation.
 

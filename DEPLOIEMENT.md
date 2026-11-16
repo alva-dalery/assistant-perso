@@ -323,6 +323,15 @@ relancer la proposition après avoir modifié le contexte.
 La proposition est construite à partir du sujet et du contenu (facturation, rendez-vous, devis,
 relance, litige, question), avec votre signature — ici `Alva DALERY`.
 
+**Le prénom est détecté avant la salutation**, dans cet ordre : signature du message
+(« Cordialement, Mélanie »), nom affiché de l'expéditeur s'il s'agit d'une personne, adresse e-mail
+(`melanie.dupont@…`) puis nom de fichier d'une signature image (`signature-melanie.png`).
+Le prénom doit appartenir à une liste de prénoms reconnus et ne pas être une raison sociale :
+« Fitness Park Les Quais » ou « La Patrimoniale » ne produisent donc pas « Bonjour La, » — si aucun
+prénom fiable n'existe, la réponse commence simplement par « Bonjour, ».
+Limite : une signature uniquement composée d'une image sans nom dans le fichier n'est pas lue
+(pas d'OCR sans modèle de langage).
+
 **Le registre est détecté automatiquement** : si l'expéditeur vouvoie (`vous`, `votre`, `pouvez-vous`…),
 la réponse est au vouvoiement ; s'il tutoie (`tu`, `ton`, `peux-tu`…), la réponse est au tutoiement.
 Un badge « Vouvoiement détecté » / « Tutoiement détecté » l'indique à côté du message.

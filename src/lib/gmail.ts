@@ -295,6 +295,8 @@ export interface GmailMessageDetail extends GmailMessageSummary {
     exchanges: number;
     /** Noms des pièces jointes détectées. */
     attachments: string[];
+    /** Noms des images du corps (signatures, logos). */
+    inlineImages: string[];
     messageId: string;
     inReplyTo: string;
 }
@@ -527,6 +529,26 @@ function collectAttachments(
     return found;
 }
 
+function collectInlineImages(structure: MessageStructureObject | undefined): string[] {
+    if (!structure) return [];
+    const found: string[] = [];
+    const walk = (nodes: MessageStructureObject[]) => {
+        for (const node of nodes) {
+            const filename =
+                node.dispositionParameters?.filename || node.parameters?.name || "";
+            if (node.type?.startsWith("image/") && filename) found.push(filename);
+            if (node.childNodes?.length) walk(node.childNodes);
+        }
+    };
+    if (structure.childNodes?.length) walk(structure.childNodes);
+    else {
+        const filename =
+            structure.dispositionParameters?.filename || structure.parameters?.name || "";
+        if (structure.type?.startsWith("image/") && filename) found.push(filename);
+    }
+    return found;
+}
+
 function toSummary(
     message: FetchMessageObject,
     headers = message.headers ? message.headers.toString("utf8") : ""
@@ -685,6 +707,7 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
 
         const envelope = message.envelope;
         const attachments = collectAttachments(message.bodyStructure);
+        const inlineImages = collectInlineImages(message.bodyStructure);
         const part =
             findPart(message.bodyStructure, "text/plain") ??
             findPart(message.bodyStructure, "text/html");
@@ -734,6 +757,7 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             historyText: breakdown.historyText,
             exchanges: breakdown.exchanges,
             attachments,
+            inlineImages,
             messageId: envelope?.messageId ?? "",
             inReplyTo: envelope?.inReplyTo ?? "",
         };
@@ -764,6 +788,8 @@ interface ReplyContext {
     text: string;
     /** Échanges précédents, utilisés pour comprendre le contexte. */
     history?: string;
+    /** Prénom fiable détecté côté serveur (vide si inconnu). */
+    firstName?: string;
     needsReply: boolean;
     exchanges?: number;
 }
@@ -794,9 +820,118 @@ export function detectRegister(text: string): Register {
     return tuSignals > vousSignals ? "tutoiement" : "vouvoiement";
 }
 
-function firstNameOf(fromName: string): string {
-    const candidate = fromName.split(/[\s,<]/)[0]?.trim() ?? "";
-    return /^[\p{L}][\p{L}'-]{1,}$/u.test(candidate) ? candidate : "";
+const NOT_FIRST_NAMES =
+    /^(la|le|les|de|du|des|et|fitness|park|quais|patrimoniale|banque|assurance|assurances|mutuelle|conseil|conseils|immobilier|immo|groupe|societe|service|services|client|clients|accueil|contact|contacts|info|infos|commercial|commerciaux|direction|support|admin|equipe|lequipe|agence|cabinet|boutique|magasin|centre|club|salle|sas|sarl|sci|sa|eurl|snc|energie|telecom|ventes|marketing|newsletter|bonjour|cordialement|merci|signature|logo|image|photo|img|banner|facebook|linkedin|instagram|www|http|mail|email|courriel|votre|notre|conseiller|conseillere|charge|chargee|gestionnaire|assistant|assistante|directeur|directrice|responsable|paris|lyon|marseille|noumea|bordeaux|lille|toulouse|nice|nantes|rennes|strasbourg|montpellier|toulon|grenoble|dijon|angers|reims|limoges|tours|nancy|metz|brest|perpignan|besancon|orleans|rouen|caen|cedex|france)$/i;
+
+const GENERIC_FILE_WORDS =
+    /^(signature|logo|image|photo|img|banner|icon|avatar|facebook|linkedin|instagram|file|piece|pj|doc|document|scan|png|jpe?g|gif|webp)$/i;
+
+/** Liste des prénoms reconnus (normalisés : sans accent, minuscules). */
+const KNOWN_FIRST_NAMES = new Set(
+    `aicha alessandro alex alexandra alexandre ali alice alva amandine amel amelie amina ana anais andre andrea anna anne anne-sophie antoine arnaud audrey aurelie auriane axel baptiste beatrice benjamin bernard bertrand bilal brigitte bruno camille carine carla carlo carmen caroline catherine cecile celine charles charlotte chiara chloe christelle christian christine christophe cindy claire clara clemence clement clotilde corinne cyril damien daniel david davide delphine denis diane didier dominique edouard elena elias elise elodie elsa emilie emma emmanuel eric estelle etienne eva fabien fabrice fanny fatima federico florence florian franck francois francoise frederic gabriel gaelle gerard gilbert gilles giovanni giulia gregory guillaume guy hassan heiata heirani helene henri herve hina hiro hugo ibrahima ines iriti isabelle ismael jacques jade jean jean-marc jean-paul jeanne jeremy jerome jessica joel jonathan jose josee joseph julie julien juliette justine kalani kanoa karen karim keanu kelly kevin laetitia laura laure laurence laurent laurie lea leila leo leonie lila linda lionel lison lola lorraine lou louis louise luc luca lucas lucia lucie ludovic madeleine maeva magali mala mamadou mano manon manutea marc marcel marco mareva margaux maria marianne marie marie-claire marine marion marjorie martine mathieu mathilde matteo maud maurice maxime melanie melissa michel michele michelle mila moana mohamed mohammed monique morgane moussa muriel myriam nadia nadir nathalie nicolas nicole nina noah noel noemie olivier omar ophelie ousmane paolo pascal patricia patrick paul paula pauline philippe pierre pierre-yves poerava rachid rachida raihere raphael rayane raymond regine remi renaud richard robert roger romain romane romy rosa rose sabine sabrina samia samuel sana sandra sandrine sarah sebastien serge severine simon simone sofia sofiane sonia sophie stephane stephanie sylvain sylvie tau tavita teiva terii teva thibault thierry thomas tiffany tiphanie tom vaea vaitea vaitiare valentin valerie vanessa veronique victoire victor vincent virginie viviane xavier yanis yann yasmina yasmine yves zoe`.split(/\s+/)
+);
+
+function normalizeName(value: string): string {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/['’-]/g, "");
+}
+
+function isKnownFirstName(token: string): boolean {
+    return KNOWN_FIRST_NAMES.has(normalizeName(token));
+}
+
+function capitalizeFirst(value: string): string {
+    return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+}
+
+/** Nettoie un candidat prénom : lettres uniquement, pas de société, pas de sigle. */
+/** Valide un prénom : forme correcte, pas une société, et connu sauf mention explicite. */
+function cleanFirstName(raw: string, allowUnknown = false): string {
+    const token = raw.normalize("NFC").replace(/[^\p{L}'-]/gu, "").trim();
+    if (!/^[\p{L}][\p{L}'-]{1,19}$/u.test(token)) return "";
+    const normalized = token.toLowerCase().replace(/['’-]/g, "");
+    if (NOT_FIRST_NAMES.test(normalized)) return "";
+    if (token === token.toUpperCase() && token.length > 3) return "";
+    if (!allowUnknown && !isKnownFirstName(token)) return "";
+    return capitalizeFirst(token);
+}
+
+/** Lignes de signature probables (après une formule de politesse + fin du message). */
+function signatureLines(body: string): string[] {
+    const lines = body
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+    const closingIndex = lines.findIndex((line) =>
+        /^(cordialement|bien cordialement|bien à vous|sincèrement|sincerement|bonne journée|bonne fin de journée|à bientôt|a bientot|merci,?)$/i.test(
+            line
+        )
+    );
+
+    const afterClosing =
+        closingIndex >= 0 ? lines.slice(closingIndex + 1, closingIndex + 4) : [];
+    return [...afterClosing, ...lines.slice(-6)];
+}
+
+/**
+ * Détermine le prénom de la personne à qui répondre.
+ * Ordre : signature du message → nom affiché (filtré des raisons sociales) →
+ * adresse e-mail → nom de fichier d'une signature image.
+ * Renvoie une chaîne vide si aucun prénom fiable n'est trouvé.
+ */
+export function extractFirstName(input: {
+    senderName: string;
+    senderEmail: string;
+    bodyText: string;
+    imageNames?: string[];
+}): string {
+    // 1. Corps du message : « je m'appelle X », « Cordialement, Mélanie », etc.
+    for (const line of signatureLines(input.bodyText)) {
+        const explicit = line.match(/(?:je m'appelle|je me nomme|je suis|c'est)\s+([\p{L}'-]{2,20})/iu);
+        if (explicit) {
+            const cleaned = cleanFirstName(explicit[1], true);
+            if (cleaned) return cleaned;
+        }
+
+        const words = line.split(/[\s,–—-]+/).filter(Boolean);
+        if (words.length === 0 || words.length > 4 || /\d/.test(line)) continue;
+
+        const candidate = cleanFirstName(words[0]);
+        if (candidate) return candidate;
+    }
+
+    // 2. Nom affiché de l'expéditeur, s'il ressemble à une personne.
+    const displayWords = input.senderName.trim().split(/\s+/).filter(Boolean);
+    if (displayWords.length > 0 && displayWords.length <= 3) {
+        const candidate = cleanFirstName(displayWords[0]);
+        if (candidate) return candidate;
+    }
+
+    // 3. Adresse e-mail : prenom.nom@..., prenom_nom@..., prenom+tag@...
+    const localPart = input.senderEmail.split("@")[0] ?? "";
+    if (/[._+-]/.test(localPart)) {
+        const segment = localPart.split(/[._+-]/)[0];
+        if (segment.length >= 3) {
+            const candidate = cleanFirstName(segment);
+            if (candidate) return candidate;
+        }
+    }
+
+    // 4. Signature en image : le nom est parfois dans le nom du fichier
+    //    (ex. signature-melanie.png). L'image elle-même n'est pas analysée.
+    for (const filename of input.imageNames ?? []) {
+        for (const part of filename.split(/[_\-\s.]+/)) {
+            if (part.length < 3 || GENERIC_FILE_WORDS.test(part)) continue;
+            const candidate = cleanFirstName(part);
+            if (candidate) return candidate;
+        }
+    }
+
+    return "";
 }
 
 type Phrase = { vous: string; tu: string };
@@ -852,7 +987,14 @@ export function buildReplyDraft(
     const haystack = `${context.subject}\n${currentText}\n${history}`
         .slice(0, 8000)
         .toLowerCase();
-    const name = firstNameOf(context.fromName);
+    const name =
+        context.firstName !== undefined
+            ? context.firstName
+            : extractFirstName({
+                  senderName: context.fromName,
+                  senderEmail: context.fromEmail,
+                  bodyText: currentText,
+              });
     const register = detectRegister(currentText || context.subject);
 
     let intent = "accusé de réception";
