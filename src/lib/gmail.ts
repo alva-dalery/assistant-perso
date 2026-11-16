@@ -1489,21 +1489,6 @@ export interface FolderSuggestion {
     reason: string;
 }
 
-const STOP_TOKENS = new Set([
-    "votre", "pour", "avec", "dans", "cette", "nous", "vous", "mail", "email",
-    "info", "infos", "service", "client", "clients", "contact", "gmail", "hotmail",
-    "outlook", "yahoo", "l'equipe", "lequipe", "equipe", "message", "courriel",
-]);
-
-function normalizeTokens(value: string): string[] {
-    return value
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter((token) => token.length >= 4 && !STOP_TOKENS.has(token));
-}
-
 /** Classe les dossiers candidats à partir de ce qu'ils contiennent déjà. */
 export function rankFolderCandidates(
     input: { senderEmail: string; senderName: string; subject: string },
@@ -1511,50 +1496,31 @@ export function rankFolderCandidates(
 ): FolderSuggestion | null {
     const senderEmail = input.senderEmail.toLowerCase();
     const domain = senderEmail.split("@")[1] ?? "";
-    const domainRoot = domain.split(".")[0] ?? "";
-    const tokens = new Set([
-        ...normalizeTokens(input.senderName),
-        ...normalizeTokens(input.subject),
-    ]);
 
     let best: FolderSuggestion | null = null;
 
     for (const scan of scans) {
-        let score = 0;
-        const reasons: string[] = [];
         const emails = scan.emails.map((value) => value.toLowerCase());
+        const sameSender = emails.filter((value) => value === senderEmail).length;
+        const sameDomain = domain
+            ? scan.domains.filter((value) => value.toLowerCase() === domain).length
+            : 0;
 
-        if (emails.includes(senderEmail)) {
-            score += 12;
-            reasons.push("cet expéditeur y est déjà rangé");
-        } else if (domain && scan.domains.includes(domain)) {
-            score += 5;
-            reasons.push("même domaine d'expéditeur");
-        }
+        if (sameSender === 0 && sameDomain === 0) continue;
 
-        const folderTokens = normalizeTokens(scan.label);
-        const overlap = folderTokens.filter((token) => tokens.has(token));
-        if (overlap.length > 0) {
-            score += Math.min(overlap.length * 3, 9);
-            reasons.push(`nom proche (${overlap.slice(0, 2).join(", ")})`);
-        }
+        // L'adresse exacte pèse bien plus qu'un simple domaine commun.
+        const score = sameSender > 0 ? 12 + Math.min(sameSender, 3) : 5 + Math.min(sameDomain, 2);
+        const reason =
+            sameSender > 0
+                ? `cet expéditeur figure déjà ${sameSender} fois dans ce dossier`
+                : `des emails de ce domaine (${domain}) sont déjà rangés ici`;
 
-        if (domainRoot.length >= 4 && scan.label.toLowerCase().includes(domainRoot)) {
-            score += 4;
-            reasons.push("nom du dossier proche du domaine");
-        }
-
-        if (score > 0 && (!best || score > best.score)) {
-            best = {
-                path: scan.path,
-                label: scan.label,
-                score,
-                reason: reasons.join(" · "),
-            };
+        if (!best || score > best.score) {
+            best = { path: scan.path, label: scan.label, score, reason };
         }
     }
 
-    return best && best.score >= 3 ? best : null;
+    return best;
 }
 
 const suggestionCache = new Map<string, { at: number; value: FolderSuggestion | null }>();
