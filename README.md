@@ -83,7 +83,7 @@ d'application** suffit.
    en ligne dans les variables d'environnement Vercel).
 4. Redéployer, puis ouvrir **Secrétariat → Boîte Gmail réelle**.
 
-Le module trie automatiquement **toute la boîte de réception** dans quatre filtres comptés :
+Le module trie automatiquement **toute la boîte de réception** dans des onglets comptés :
 **À traiter** (question d'une personne → réponse), **Important** (factures, impôts, RUAMM, échéances →
 action à prévoir), **Infos** (abonnements, réunions, confirmations → lecture seule) et
 **Newsletters & pubs** (diffusion de masse). La vue **À traiter** rassemble tout ce qui demande un

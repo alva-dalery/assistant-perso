@@ -6,6 +6,7 @@ import {
     ArrowLeft,
     CheckCircle2,
     ChevronDown,
+    FolderInput,
     KeyRound,
     Loader2,
     Mail,
@@ -13,10 +14,11 @@ import {
     RefreshCw,
     Save,
     Send,
+    Trash2,
 } from "lucide-react";
 import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
 
-type GmailCategory = "personnel" | "important" | "infos" | "newsletter" | "promotion";
+type GmailCategory = "personnel" | "important" | "factures" | "infos" | "newsletter" | "promotion";
 
 interface GmailStatus {
     configured: boolean;
@@ -69,6 +71,7 @@ interface ReplyDraftResponse {
 const CATEGORY_LABEL: Record<GmailCategory, string> = {
     personnel: "Répondre",
     important: "Important",
+    factures: "Factures",
     infos: "Infos",
     newsletter: "Newsletter",
     promotion: "Publicité",
@@ -77,12 +80,13 @@ const CATEGORY_LABEL: Record<GmailCategory, string> = {
 const CATEGORY_STYLE: Record<GmailCategory, string> = {
     personnel: "bg-teal-50 text-teal-700 border-teal-200",
     important: "bg-rose-50 text-rose-700 border-rose-200",
+    factures: "bg-indigo-50 text-indigo-700 border-indigo-200",
     infos: "bg-sky-50 text-sky-700 border-sky-200",
     newsletter: "bg-slate-100 text-slate-500 border-slate-200",
     promotion: "bg-amber-50 text-amber-700 border-amber-200",
 };
 
-type Filter = "todo" | "important" | "infos" | "later" | "all";
+type Filter = "todo" | "reply" | "important" | "factures" | "infos" | "later" | "all";
 
 const PAGE_SIZE = 500;
 const MAX_MESSAGES = 2000;
@@ -318,8 +322,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             ),
         [messages]
     );
+    const toReply = useMemo(() => messages.filter((message) => message.needsReply), [messages]);
     const important = useMemo(
         () => messages.filter((message) => message.category === "important"),
+        [messages]
+    );
+    const factures = useMemo(
+        () => messages.filter((message) => message.category === "factures"),
         [messages]
     );
     const infos = useMemo(() => messages.filter((message) => message.category === "infos"), [messages]);
@@ -328,13 +337,17 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const visibleMessages =
         filter === "todo"
             ? toReview
-            : filter === "important"
-                ? important
-                : filter === "infos"
-                    ? infos
-                    : filter === "later"
-                        ? later
-                        : messages;
+            : filter === "reply"
+                ? toReply
+                : filter === "important"
+                    ? important
+                    : filter === "factures"
+                        ? factures
+                        : filter === "infos"
+                            ? infos
+                            : filter === "later"
+                                ? later
+                                : messages;
 
     async function openMessage(uid: number) {
         setLoadingDetail(true);
@@ -714,10 +727,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 {(
                     [
                         ["todo", `À traiter (${toReview.length})`],
+                        ["reply", `Répondre (${toReply.length})`],
                         ["important", `Important (${important.length})`],
+                        ["factures", `Factures (${factures.length})`],
                         ["infos", `Infos (${infos.length})`],
-                        ["later", `Newsletters & pubs (${later.length})`],
-                        ["all", `Tout (${messages.length})`],
+                        ["later", `Newsletter/pubs (${later.length})`],
+                        ["all", `Tous (${messages.length})`],
                     ] as [Filter, string][]
                 ).map(([value, label]) => (
                     <button
@@ -909,16 +924,28 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                 <button
                                     onClick={() => void moveTo(folderTarget)}
                                     disabled={moving || !folderTarget}
-                                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 text-[11px] font-bold transition-all"
+                                    title="Déplacer maintenant"
+                                    aria-label="Déplacer maintenant"
+                                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 transition-all"
                                 >
-                                    {moving ? "Déplacement…" : "Déplacer maintenant"}
+                                    {moving ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <FolderInput className="h-4 w-4" />
+                                    )}
                                 </button>
                                 <button
                                     onClick={() => void removeMessage()}
                                     disabled={moving || !detail}
-                                    className="px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 disabled:opacity-50 text-[11px] font-bold transition-all"
+                                    title="Supprimer (corbeille)"
+                                    aria-label="Supprimer"
+                                    className="p-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition-all"
                                 >
-                                    {moving ? "Suppression…" : "Supprimer"}
+                                    {moving ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Trash2 className="h-4 w-4" />
+                                    )}
                                 </button>
                                 {folders.length === 0 && (
                                     <span className="text-[10px] text-slate-400">

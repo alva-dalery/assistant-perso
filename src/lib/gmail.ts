@@ -95,6 +95,7 @@ async function withInbox<T>(
 export type GmailCategory =
     | "personnel"
     | "important"
+    | "factures"
     | "infos"
     | "newsletter"
     | "promotion";
@@ -125,9 +126,13 @@ const HEADERS_TO_FETCH = [
 const PROMO_SUBJECT =
     /(newsletter|promo|promotion|soldes|black friday|cyber monday|offre|bons? plans?|\d+\s*%|-\s*\d+\s*%|dernières (heures|chances)|webinaire|webinar|vente privée|essai gratuit|désabonner|unsubscribe|digest|récapitulatif|nouveautés|lancement)/i;
 
-/** À lire et à régler : factures, impôts, cotisations, échéances. */
+/** Factures et paiements à régler. */
+const FACTURE_SUBJECT =
+    /(facture|avis d.échéance|échéance|prélèvement|paiement|payer|régler|solde dû|rappel de paiement|remboursement|quittance)/i;
+
+/** Administratif important : impôts, cotisations, assurances, convocations. */
 const IMPORTANT_SUBJECT =
-    /(facture|avis d.échéance|échéance|impôt|impots|imposition|fiscal|déclaration|taxe|tva|ruamm|cps|cotisation|amende|majoration|mise en demeure|huissier|prélèvement|paiement|payer|régler|solde dû|rappel de paiement|assurance|sinistre|convocation|remboursement)/i;
+    /(impôt|impots|imposition|fiscal|déclaration|taxe|tva|ruamm|cps|cotisation|amende|majoration|mise en demeure|huissier|assurance|sinistre|convocation)/i;
 
 /** À lire sans réponse attendue : abonnements, réunions, confirmations. */
 const INFO_SUBJECT =
@@ -217,12 +222,21 @@ export function classifyMessage(
         };
     }
 
-    // 3. À lire et à régler (argent, échéance, administration).
+    // 3. Factures et paiements.
+    if (FACTURE_SUBJECT.test(subject)) {
+        return {
+            category: "factures",
+            needsReply: false,
+            reason: "Facture ou paiement à régler (aucune réponse attendue)",
+        };
+    }
+
+    // 4. Administratif important (impôts, cotisations, assurances…).
     if (IMPORTANT_SUBJECT.test(subject)) {
         return {
             category: "important",
             needsReply: false,
-            reason: "Échéance ou montant à traiter (action requise, sans réponse)",
+            reason: "Démarche administrative importante (aucune réponse attendue)",
         };
     }
 
