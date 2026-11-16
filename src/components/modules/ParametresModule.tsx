@@ -111,11 +111,25 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
     error?: string;
   } | null>(null);
   const [gmailChecking, setGmailChecking] = useState(false);
+  const [gmailCheckedAt, setGmailCheckedAt] = useState<string | null>(null);
 
   const refreshGmailStatus = useCallback(async () => {
     setGmailChecking(true);
     try {
-      const response = await fetch("/api/gmail/status", { cache: "no-store" });
+      const response = await fetch("/api/gmail/status", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      if (response.status === 401) {
+        setGmailStatus({
+          configured: false,
+          email: null,
+          inboxCount: null,
+          error:
+            "Authentification du site expirée : rechargez la page, reconnectez-vous, puis relancez le test.",
+        });
+        return;
+      }
       const data = (await response.json()) as {
         configured: boolean;
         email: string | null;
@@ -123,12 +137,16 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
         error?: string;
       };
       setGmailStatus(data);
+      setGmailCheckedAt(
+        new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+      );
     } catch {
       setGmailStatus({
         configured: false,
         email: null,
         inboxCount: null,
-        error: "Impossible de joindre l'API Gmail.",
+        error:
+          "Impossible de joindre /api/gmail/status. Vérifiez que le déploiement est à jour, puis rechargez la page.",
       });
     } finally {
       setGmailChecking(false);
@@ -299,10 +317,10 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
 
                   <span
                     className={`text-[10px] px-3 py-1 rounded-full font-bold border ${gmailStatus?.configured && !gmailStatus?.error
-                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                        : gmailStatus?.error
-                          ? "bg-rose-50 text-rose-700 border-rose-200"
-                          : "bg-slate-100 text-slate-500 border-slate-200"
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                      : gmailStatus?.error
+                        ? "bg-rose-50 text-rose-700 border-rose-200"
+                        : "bg-slate-100 text-slate-500 border-slate-200"
                       }`}
                   >
                     {gmailStatus?.configured && !gmailStatus?.error
@@ -714,11 +732,30 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
               <p>4. Deployments → … → Redeploy (cache de build décoché), puis revenez ici.</p>
             </div>
 
-            {gmailStatus?.error && (
-              <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-[11px] text-rose-700">
-                {gmailStatus.error}
-              </div>
-            )}
+            <div
+              className={`p-4 rounded-2xl border text-[11px] space-y-1 ${gmailStatus?.configured && !gmailStatus?.error
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  : gmailStatus?.error
+                    ? "bg-rose-50 border-rose-200 text-rose-700"
+                    : "bg-slate-50 border-slate-200 text-slate-600"
+                }`}
+            >
+              <span className="font-bold block">
+                {gmailStatus?.configured && !gmailStatus?.error
+                  ? "Connexion réussie"
+                  : gmailStatus?.error
+                    ? "Échec de la connexion"
+                    : "Variables absentes de ce déploiement"}
+              </span>
+              <p>
+                {gmailStatus?.configured && !gmailStatus?.error
+                  ? `${gmailStatus.inboxCount ?? 0} message(s) dans la boîte de réception · IMAP et SMTP opérationnels.`
+                  : gmailStatus?.error
+                    ? gmailStatus.error
+                    : "GMAIL_USER et GMAIL_APP_PASSWORD ne sont pas visibles pour ce build. Ajoutez-les dans Settings → Environment Variables (Production), puis Deployments → … → Redeploy en décochant le cache de build."}
+              </p>
+              {gmailCheckedAt && <p className="opacity-70">Dernier test : {gmailCheckedAt}</p>}
+            </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-slate-100">
               <button
@@ -731,9 +768,10 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
               <button
                 onClick={() => void refreshGmailStatus()}
                 disabled={gmailChecking}
-                className="px-6 py-2.5 rounded-full bg-[#121316] hover:bg-slate-800 disabled:opacity-60 text-white font-bold text-xs shadow-md"
+                className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#121316] hover:bg-slate-800 disabled:opacity-60 text-white font-bold text-xs shadow-md"
               >
-                {gmailChecking ? "Test en cours…" : "Tester la connexion"}
+                <RefreshCw className={`h-3.5 w-3.5 ${gmailChecking ? "animate-spin" : ""}`} />
+                <span>{gmailChecking ? "Test en cours…" : "Tester la connexion"}</span>
               </button>
             </div>
           </div>
