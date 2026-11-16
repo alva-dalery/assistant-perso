@@ -293,6 +293,8 @@ export interface GmailMessageDetail extends GmailMessageSummary {
     historyText: string;
     /** Nombre de messages dans le fil (1 = premier message). */
     exchanges: number;
+    /** Noms des pièces jointes détectées. */
+    attachments: string[];
     messageId: string;
     inReplyTo: string;
 }
@@ -361,43 +363,168 @@ function cleanForSummary(text: string): string {
  * Résumé extractif : garde les phrases les plus informatives du message courant
  * (demande, montant, échéance…), sans recopier l'email entier ni l'historique.
  */
+const DOCUMENT_WORDS: Array<[RegExp, string]> = [
+    [/formulaire/i, "formulaire"],
+    [/facture/i, "facture"],
+    [/devis/i, "devis"],
+    [/contrat/i, "contrat"],
+    [/attestation/i, "attestation"],
+    [/justificatif/i, "justificatif"],
+    [/re[çc]u/i, "reçu"],
+    [/ordonnance/i, "ordonnance"],
+    [/convocation/i, "convocation"],
+    [/relev[ée]/i, "relevé"],
+    [/certificat/i, "certificat"],
+    [/bulletin/i, "bulletin"],
+    [/dossier/i, "dossier"],
+];
+
+const POLITENESS =
+    /^(bonjour|salut|madame|monsieur|cordialement|bien cordialement|bien à vous|nous restons|je reste|n'hésitez pas|merci d'avance|merci pour votre retour|bonne journée|belle journée|cdt)/i;
+
+function articleFor(word: string): string {
+    if (/^(attestation|ordonnance|convocation)/.test(word)) return "de l'";
+    if (/^(facture)/.test(word)) return "de la ";
+    return "du ";
+}
+
+function qualifierOf(text: string): string {
+    const flat = text.toLowerCase();
+    if (/(complété|complete|rempli|renseigné)/.test(flat)) return " complété";
+    if (/(signé)/.test(flat)) return " signé";
+    if (/(corrigé|rectifi)/.test(flat)) return " corrigé";
+    return "";
+}
+
+function amountOf(text: string): string | null {
+    const match = text.match(/(\d[\d\s.,]*)\s*(€|euros?|xfp|cfp)/i);
+    return match ? `${match[1].trim()} ${match[2]}` : null;
+}
+
+/**
+ * Synthèse courte de l'email : on décrit l'action et l'objet du message
+ * (« Envoi du formulaire de résiliation complété. ») au lieu de recopier
+ * le début du texte. Purement déterministe, sans modèle de langage.
+ */
 export function summarizeMessage(text: string, subject: string): string {
     const cleaned = cleanForSummary(text);
-    if (!cleaned) return subject || "Aucun contenu texte.";
+    const flat = cleaned.toLowerCase();
 
+    if (!cleaned) return subject ? `Objet : ${subject}` : "Message sans contenu texte.";
+
+    const isEnvoi =
+        /(ci-joint|ci joint|pièce jointe|pièces jointes|vous trouverez|veuillez trouver|je vous (envoie|transmets)|nous vous (envoyons|transmettons)|envoi de)/.test(
+            flat
+        );
+    const document = DOCUMENT_WORDS.find(([regex]) => regex.test(flat));
+
+    // 1. Envoi d'un document (le cas le plus fréquent).
+    if (isEnvoi && document) {
+        const word = document[1];
+        let phrase = `Envoi ${articleFor(word)}${word}`;
+        if (word === "formulaire" && /résiliation|resiliation/.test(flat)) {
+            phrase += " de résiliation";
+        }
+        if (word === "justificatif" && /domicile/.test(flat)) {
+            phrase += " de domicile";
+        }
+        if (word === "facture") {
+            const amount = amountOf(cleaned);
+            if (amount) phrase += ` de ${amount}`;
+        }
+        phrase += qualifierOf(cleaned);
+        return `${phrase}.`;
+    }
+
+    // 2. Paiement / échéance.
+    if (/(à payer|a payer|régler|regler|prélèvement|prelevement|échéance|echeance|impayé)/.test(flat)) {
+        const amount = amountOf(cleaned);
+        const deadline = cleaned.match(/avant le ([^.,;\n]+)/i);
+        return `Paiement à effectuer${amount ? ` : ${amount}` : ""}${
+            deadline ? ` avant le ${deadline[1].trim()}` : ""
+        }.`;
+    }
+
+    // 3. Rendez-vous / réunion.
+    if (/(rendez-vous|réunion|reunion|convocation)/.test(flat)) {
+        const when = cleaned.match(
+            /((?:le|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)[^.\n]{0,40})/i
+        );
+        return `Rendez-vous${when ? ` : ${when[1].trim()}` : " à confirmer"}.`;
+    }
+
+    // 4. Abonnement / contrat.
+    if (/(abonnement|renouvellement|expire|prend fin|résiliation|resiliation|fin de contrat)/.test(flat)) {
+        if (/(renouvel|prélèvement|prelevement)/.test(flat)) return "Renouvellement d'abonnement à venir.";
+        return "Information sur un abonnement ou un contrat.";
+    }
+
+    // 5. Demande / question.
+    if (/\?/.test(cleaned) || /(pouvez-vous|pourriez-vous|peux-tu|merci de me|besoin d)/.test(flat)) {
+        const ask = cleaned
+            .split(/(?<=[.!?])\s+|\n+/)
+            .map((sentence) => sentence.replace(/\s+/g, " ").trim())
+            .filter((sentence) => sentence.length >= 12 && !POLITENESS.test(sentence))
+            .find(
+                (sentence) =>
+                    /\?/.test(sentence) ||
+                    /(pouvez-vous|pourriez-vous|peux-tu|merci de me|besoin d)/i.test(sentence)
+            );
+        if (ask) return `Demande : ${ask.replace(/\s+/g, " ").slice(0, 180)}`;
+    }
+
+    // 6. Repli : phrase la plus porteuse d'information (jamais le début brut).
     const sentences = cleaned
         .split(/(?<=[.!?])\s+|\n+/)
         .map((sentence) => sentence.replace(/\s+/g, " ").trim())
-        .filter(
-            (sentence) =>
-                sentence.length >= 25 &&
-                !/^(bonjour|salut|cordialement|bien cordialement|bien à vous|merci d'avance)/i.test(
-                    sentence
-                )
-        );
+        .filter((sentence) => sentence.length >= 25 && !POLITENESS.test(sentence));
 
-    if (sentences.length === 0) {
-        return cleaned.slice(0, 220).trimEnd();
-    }
+    if (sentences.length === 0) return subject ? `Objet : ${subject}` : "Message court sans demande identifiable.";
 
     const keywords =
         /(demande|merci de|pouvez-vous|pourriez-vous|peux-tu|besoin|facture|devis|rendez-vous|réunion|échéance|paiement|payer|justificatif|problème|urgent|confirmer|valider|remboursement)/i;
 
-    const ranked = sentences
-        .map((sentence, index) => {
-            let score = 0;
-            if (index < 3) score += 3;
-            if (keywords.test(sentence)) score += 3;
-            if (sentence.length <= 200) score += 1;
-            return { sentence, index, score };
-        })
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 2)
-        .sort((a, b) => a.index - b.index);
+    const best = sentences
+        .map((sentence, index) => ({
+            sentence,
+            index,
+            score:
+                (keywords.test(sentence) ? 3 : 0) +
+                (sentence.length <= 200 ? 1 : 0) +
+                (index > 0 ? 1 : 0),
+        }))
+        .sort((a, b) => b.score - a.score)[0];
 
-    let summary = ranked.map((item) => item.sentence).join(" ");
-    if (summary.length > 320) summary = `${summary.slice(0, 317).trimEnd()}…`;
-    return summary || sentences[0];
+    const summary = best.sentence;
+    return summary.length > 200 ? `${summary.slice(0, 197).trimEnd()}…` : summary;
+}
+
+function collectAttachments(
+    structure: MessageStructureObject | undefined
+): string[] {
+    if (!structure) return [];
+    const found: string[] = [];
+    const walk = (nodes: MessageStructureObject[]) => {
+        for (const node of nodes) {
+            const disposition =
+                typeof node.disposition === "string" ? node.disposition.toLowerCase() : "";
+            const filename =
+                node.dispositionParameters?.filename ||
+                node.parameters?.name ||
+                "";
+            if (filename || disposition.includes("attachment")) {
+                found.push(filename || "pièce jointe");
+            }
+            if (node.childNodes?.length) walk(node.childNodes);
+        }
+    };
+    if (structure.childNodes?.length) walk(structure.childNodes);
+    else {
+        const filename =
+            structure.dispositionParameters?.filename || structure.parameters?.name || "";
+        if (filename) found.push(filename);
+    }
+    return found;
 }
 
 function toSummary(
@@ -445,7 +572,7 @@ function findPart(
             const isAttachment =
                 typeof node.disposition === "string" &&
                 node.disposition.toLowerCase().includes("attachment");
-            if (node.type === type && !isAttachment && node.part) return node;
+            if (node.type === type && !isAttachment) return node;
             if (node.childNodes?.length) {
                 const found = walk(node.childNodes);
                 if (found) return found;
@@ -557,26 +684,45 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
         }
 
         const envelope = message.envelope;
+        const attachments = collectAttachments(message.bodyStructure);
         const part =
             findPart(message.bodyStructure, "text/plain") ??
             findPart(message.bodyStructure, "text/html");
 
         let text = "";
-        if (part?.part) {
-            const download = await client.download(String(uid), part.part, { uid: true });
+        if (part) {
+            const download = await client.download(String(uid), part.part ?? "1", { uid: true });
             if (download && download.content) {
                 text = await readLimited(download.content, MAX_BODY_BYTES);
                 if (part.type === "text/html") text = htmlToText(text);
             }
         }
 
+        // Certains messages n'ont pas de partie texte exploitable (HTML atypique,
+        // message composé uniquement de pièces jointes) : on tente le corps complet.
+        if (!text.trim()) {
+            try {
+                const fallback = await client.download(String(uid), "TEXT", { uid: true });
+                if (fallback && fallback.content) {
+                    const raw = await readLimited(fallback.content, MAX_BODY_BYTES);
+                    text = /<html|<body|<div/i.test(raw) ? htmlToText(raw) : raw;
+                }
+            } catch {
+                // on conserve le repli explicite plus bas
+            }
+        }
+
         const fullText = text.trim();
         const breakdown = splitThread(fullText);
-        const visibleText = fullText || "(Ce message n'a pas de contenu texte lisible.)";
-        const summary = summarizeMessage(
-            breakdown.currentText || visibleText,
-            envelope?.subject ?? ""
-        );
+        const attachmentsLabel = attachments.length
+            ? `(Message sans texte — ${attachments.length} pièce(s) jointe(s) : ${attachments.join(", ")})`
+            : "(Ce message ne contient pas de texte lisible.)";
+        const visibleText = fullText || attachmentsLabel;
+        const summary = fullText
+            ? summarizeMessage(breakdown.currentText || fullText, envelope?.subject ?? "")
+            : attachments.length
+              ? `Envoi de ${attachments.length} pièce(s) jointe(s) : ${attachments.join(", ")}.`
+              : "Message sans contenu texte.";
 
         return {
             ...toSummary(message, message.headers?.toString("utf8") ?? ""),
@@ -587,6 +733,7 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             currentText: breakdown.currentText || visibleText,
             historyText: breakdown.historyText,
             exchanges: breakdown.exchanges,
+            attachments,
             messageId: envelope?.messageId ?? "",
             inReplyTo: envelope?.inReplyTo ?? "",
         };

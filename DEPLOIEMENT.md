@@ -280,9 +280,22 @@ Une **question** reconnue (sujet contenant « ? » ou commençant par « questio
 bouton **Charger plus** étend l'analyse par tranches de 50 jusqu'à 200 messages. Seuls les en-têtes
 sont récupérés (rapide) ; le corps n'est lu qu'à l'ouverture d'un message.
 
-Le message ouvert affiche un bloc **« Résumé de l'email »** : un résumé extractif de 1 à 2 phrases,
-construit à partir des phrases porteuses de la demande (hors salutations, signature et historique
-cité). Le chevron déplie le texte intégral, un second clic le replie.
+Le message ouvert affiche un bloc **« Résumé de l'email »** : une **synthèse rédigée**, pas un
+extrait du texte. L'application identifie l'action du message et la reformule :
+
+| Email reçu | Résumé produit |
+| --- | --- |
+| « Vous trouverez ci-joint votre formulaire de résiliation complété » | *Envoi du formulaire de résiliation complété.* |
+| « Votre facture d'électricité de 148,90 € est à régler avant le 30 novembre » | *Paiement à effectuer : 148,90 € avant le 30 novembre.* |
+| « Je vous confirme la réunion projet jeudi 21 novembre à 14h » | *Rendez-vous : jeudi 21 novembre à 14h en salle B.* |
+| « Pouvez-vous me confirmer le montant et le délai ? » | *Demande : Pouvez-vous me confirmer le montant et le délai ?* |
+
+Les formules de politesse, la signature et l'historique cité sont ignorés. Le chevron déplie le
+texte intégral, un second clic le replie.
+
+Si un email n'a pas de partie texte exploitable (HTML atypique ou message réduit à des pièces
+jointes), l'application tente de récupérer le corps complet, liste les **pièces jointes** détectées
+et affiche « Envoi de N pièce(s) jointe(s) : … » au lieu du message « contenu illisible ».
 
 ### Prise en compte du fil et mémoire de vos corrections
 

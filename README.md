@@ -101,7 +101,8 @@ Après un envoi réel, le message d'origine est marqué **« Répondu »** et so
 **À traiter**. Une barre **Ranger** permet ensuite de le déplacer dans n'importe quel libellé
 Gmail (ex. `Fitness Park`) ou de l'archiver.
 
-Le bloc **Résumé de l'email** condense la demande en une ou deux phrases (et non l'email entier),
+Le bloc **Résumé de l'email** rédige une synthèse de l'action du message
+(ex. *Envoi du formulaire de résiliation complété.*) au lieu d'en recopier le début,
 l'accordéon donnant accès au texte complet. Les échanges précédents du fil sont analysés pour
 rédiger la réponse, et vos corrections sont mémorisées localement pour rapprocher les propositions
 suivantes de votre style (salutation, phrase de clôture, signature), sans jamais mélanger

@@ -48,6 +48,7 @@ interface MessageDetail extends InboxMessage {
     currentText: string;
     historyText: string;
     exchanges: number;
+    attachments: string[];
     messageId: string;
     inReplyTo: string;
 }
@@ -638,6 +639,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     {formatDate(detail.date)}
                                 </p>
                                 <p className="text-[10px] text-slate-400 mt-1">Tri automatique : {detail.reason}</p>
+                                {detail.attachments && detail.attachments.length > 0 && (
+                                    <p className="text-[10px] text-slate-500 mt-1">
+                                        Pièces jointes : {detail.attachments.join(", ")}
+                                    </p>
+                                )}
                                 {draftRegister && (
                                     <span className="inline-block mt-1.5 text-[9px] px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-600 font-bold">
                                         {draftRegister === "tutoiement" ? "Tutoiement détecté" : "Vouvoiement détecté"}
