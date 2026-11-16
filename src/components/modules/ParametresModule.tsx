@@ -79,7 +79,7 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
       name: "Apple Santé (HealthKit)",
       category: "Biomarqueurs & Activité iPhone/Watch",
       connected: true,
-      accountEmail: "iPhone 15 Pro d'Alex",
+      accountEmail: "iPhone 15 Pro d'Alva",
       lastSync: "Il y a 12 minutes",
       details: "Via Raccourci iOS automatique (webhook sécurisé) • 8 450 pas & VFC",
       syncing: false,
@@ -641,7 +641,7 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
                 className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-medium leading-relaxed focus:outline-none focus:bg-white focus:border-slate-400 resize-none font-sans shadow-inner"
               />
               <p className="text-[11px] text-slate-400 mt-2">
-                💡 Exemple : « Chaleureux, direct, professionnel sans lourdeur académique. Jamais de "J'espère que ce mail vous trouve en bonne santé". Signature cordiale : Alex. »
+                💡 Exemple : « Chaleureux, direct, professionnel sans lourdeur académique. Jamais de "J'espère que ce mail vous trouve en bonne santé". Signature cordiale : Alva DALERY. »
               </p>
             </div>
           </div>

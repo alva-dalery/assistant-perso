@@ -227,7 +227,7 @@ export const SportModule: React.FC<SportModuleProps> = ({
                   Séance terminée avec succès ! 🎉
                 </h3>
                 <p className="text-sm text-slate-500 mt-2 max-w-md mx-auto">
-                  Bravo Alex ! Vous avez pris soin de votre corps et de votre système nerveux. 
+                  Bravo Alva ! Vous avez pris soin de votre corps et de votre système nerveux. 
                   Une belle dose d'endorphines et de clarté mentale validée.
                 </p>
               </div>

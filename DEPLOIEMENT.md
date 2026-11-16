@@ -277,9 +277,19 @@ Dans le module, deux filtres affichent leur compteur :
 - **À traiter** → messages qui attendent une réponse (sélection par défaut) ;
 - **Newsletters & pubs** → aucun bouton de réponse mis en avant, pour éviter les réponses inutiles.
 
-Pour répondre : ouvrir le message → **Rédiger une réponse**. La proposition est construite à partir
-du sujet et du contenu (facturation, rendez-vous, devis, relance, litige, question), avec votre
-signature. Le texte reste **toujours éditable**, puis :
+Pour répondre, aucune action n'est nécessaire : **dès qu'un email « À traiter » est ouvert, la
+proposition de réponse est rédigée** (et à la première ouverture du module, le premier email en
+attente est sélectionné et rédigé automatiquement). Le bouton **Régénérer la réponse** permet de
+relancer la proposition après avoir modifié le contexte.
+
+La proposition est construite à partir du sujet et du contenu (facturation, rendez-vous, devis,
+relance, litige, question), avec votre signature — ici `Alva DALERY`.
+
+**Le registre est détecté automatiquement** : si l'expéditeur vouvoie (`vous`, `votre`, `pouvez-vous`…),
+la réponse est au vouvoiement ; s'il tutoie (`tu`, `ton`, `peux-tu`…), la réponse est au tutoiement.
+Un badge « Vouvoiement détecté » / « Tutoiement détecté » l'indique à côté du message.
+
+Le texte reste **toujours éditable**, puis :
 - **Enregistrer en brouillon** → déposé dans *Brouillons* Gmail, rien n'est envoyé ;
 - **Envoyer maintenant** → confirmation explicite obligatoire.
 

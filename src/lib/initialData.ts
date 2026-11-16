@@ -12,7 +12,7 @@ import {
 } from "@/types";
 
 export const initialUserProfile: UserProfile = {
-  name: "Alex",
+  name: "Alva",
   energyToday: "medium",
   focusMode: false,
   morphology: "Silhouette V (Épaules dessinées, taille plus fine)",
@@ -38,7 +38,7 @@ Jeudi après-midi me convient tout à fait. Je suis disponible à 14h30 ou à 16
 Dis-moi ce qui t'arrange le mieux et je te confirme le lien visio.
 
 Bonne fin de journée,
-Alex`,
+Alva`,
     status: "pending_review",
     urgency: "haute",
   },
@@ -56,7 +56,7 @@ Bien reçu le devis avec le raccord inox spécifique. C'est exactement ce qu'il 
 Je valide la proposition. Peux-tu m'indiquer le délai de livraison estimé une fois le bon signé ?
 
 Bien cordialement,
-Alex`,
+Alva`,
     status: "pending_review",
     urgency: "normale",
   },

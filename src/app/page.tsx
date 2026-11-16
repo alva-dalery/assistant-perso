@@ -176,7 +176,7 @@ export default function Home() {
                     emails={emails}
                     onApprove={handleApproveEmail}
                     onUpdateDraft={handleUpdateEmailDraft}
-                    signature={user.name ? `Bien cordialement,\n${user.name}` : ""}
+                    signature={user.name ? `Bien cordialement,\n${user.name} DALERY` : ""}
                   />
                 </div>
               )}

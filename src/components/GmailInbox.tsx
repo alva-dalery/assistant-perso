@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     AlertTriangle,
     ArrowLeft,
@@ -50,6 +50,7 @@ interface ReplyDraftResponse {
     subject: string;
     body: string;
     intent: string;
+    register: "vouvoiement" | "tutoiement";
     needsReply: boolean;
     error?: string;
 }
@@ -79,7 +80,7 @@ function replySubject(subject: string): string {
 }
 
 interface GmailInboxProps {
-    /** Ligne de signature utilisée dans les brouillons (ex. « Bien cordialement, Alex »). */
+    /** Ligne de signature utilisée dans les brouillons (ex. « Bien cordialement, Alva DALERY »). */
     signature?: string;
 }
 
@@ -98,7 +99,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [draftSubject, setDraftSubject] = useState<string | null>(null);
     const [draftIntent, setDraftIntent] = useState<string | null>(null);
     const [drafting, setDrafting] = useState(false);
+    const [draftRegister, setDraftRegister] = useState<"vouvoiement" | "tutoiement" | null>(null);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
+    const autoOpenedRef = useRef(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -134,8 +137,19 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 setError(messagesData.error ?? "Impossible de lire la boîte de réception.");
                 return;
             }
-            setMessages(messagesData.messages ?? []);
+            const incoming = messagesData.messages ?? [];
+            setMessages(incoming);
             setTotal(messagesData.total ?? 0);
+
+            // Première ouverture : on sélectionne directement le premier email
+            // qui attend une réponse, et la proposition est rédigée aussitôt.
+            if (!autoOpenedRef.current) {
+                const firstToReply = incoming.find((message) => message.needsReply);
+                if (firstToReply) {
+                    autoOpenedRef.current = true;
+                    void openMessage(firstToReply.uid);
+                }
+            }
         } catch {
             setError("Connexion à l'API impossible. Vérifiez votre connexion réseau.");
         } finally {
@@ -159,12 +173,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const visibleMessages =
         filter === "todo" ? toReply : filter === "later" ? toIgnore : messages;
 
-    const openMessage = async (uid: number) => {
+    async function openMessage(uid: number) {
         setLoadingDetail(true);
         setDetail(null);
         setReply("");
         setDraftSubject(null);
         setDraftIntent(null);
+        setDraftRegister(null);
         try {
             const response = await fetch(`/api/gmail/message?uid=${uid}`, {
                 cache: "no-store",
@@ -176,15 +191,19 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 return;
             }
             setDetail(data);
+            // Proposition immédiate : dès qu'un email attend une réponse, on rédige.
+            if (data.needsReply) {
+                void generateDraft(data);
+            }
         } catch {
             setError("Impossible de charger le message.");
         } finally {
             setLoadingDetail(false);
         }
-    };
+    }
 
-    const generateDraft = async () => {
-        if (!detail) return;
+    async function generateDraft(target: MessageDetail | null = detail) {
+        if (!target) return;
         setDrafting(true);
         setFeedback(null);
         try {
@@ -192,7 +211,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
-                body: JSON.stringify({ uid: detail.uid, signature }),
+                body: JSON.stringify({ uid: target.uid, signature }),
             });
             const data = (await response.json()) as ReplyDraftResponse;
             if (!response.ok) {
@@ -202,17 +221,18 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             setReply(data.body);
             setDraftSubject(data.subject);
             setDraftIntent(data.intent);
+            setDraftRegister(data.register);
             setFeedback(
                 data.needsReply
-                    ? `Proposition de réponse prête (intention détectée : ${data.intent}). Relisez, modifiez, puis validez.`
-                    : `Ce message ressemble à une diffusion (${detail.reason}). Vérifiez avant d'envoyer.`
+                    ? `Proposition prête (${data.intent}, ${data.register}). Relisez, ajustez, puis validez.`
+                    : `Diffusion probable (${target.reason}) : à vérifier avant d'envoyer.`
             );
         } catch {
             setFeedback("Impossible de joindre le serveur.");
         } finally {
             setDrafting(false);
         }
-    };
+    }
 
     const submitReply = async (mode: "draft" | "send") => {
         if (!detail) return;
@@ -254,6 +274,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             setReply("");
             setDraftSubject(null);
             setDraftIntent(null);
+            setDraftRegister(null);
             void load();
         } catch {
             setFeedback("Impossible de joindre le serveur.");
@@ -404,8 +425,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                             key={message.uid}
                             onClick={() => void openMessage(message.uid)}
                             className={`w-full text-left p-3.5 rounded-2xl border transition-all ${detail?.uid === message.uid
-                                    ? "bg-white border-teal-500 shadow-md ring-2 ring-teal-50"
-                                    : "bg-white/80 border-slate-200/70 hover:bg-white hover:border-slate-300"
+                                ? "bg-white border-teal-500 shadow-md ring-2 ring-teal-50"
+                                : "bg-white/80 border-slate-200/70 hover:bg-white hover:border-slate-300"
                                 }`}
                         >
                             <div className="flex items-center justify-between gap-2 mb-1">
@@ -463,6 +484,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     {formatDate(detail.date)}
                                 </p>
                                 <p className="text-[10px] text-slate-400 mt-1">Tri automatique : {detail.reason}</p>
+                                {draftRegister && (
+                                    <span className="inline-block mt-1.5 text-[9px] px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-600 font-bold">
+                                        {draftRegister === "tutoiement" ? "Tutoiement détecté" : "Vouvoiement détecté"}
+                                    </span>
+                                )}
                             </div>
 
                             <div className="p-4 max-h-56 overflow-y-auto text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed">
@@ -484,7 +510,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         ) : (
                                             <PenLine className="h-3.5 w-3.5" />
                                         )}
-                                        <span>{drafting ? "Rédaction…" : "Rédiger une réponse"}</span>
+                                        <span>
+                                            {drafting ? "Rédaction…" : reply ? "Régénérer la réponse" : "Rédiger une réponse"}
+                                        </span>
                                     </button>
                                 </div>
 

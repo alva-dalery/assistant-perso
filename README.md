@@ -85,9 +85,12 @@ d'application** suffit.
 
 Le module trie automatiquement les messages : **À traiter** (réponse attendue) d'un côté,
 **Newsletters & pubs** de l'autre, grâce aux en-têtes de diffusion (`List-Unsubscribe`,
-`Precedence: bulk`…), à l'adresse de l'expéditeur et à l'objet. Un bouton
-**Rédiger une réponse** propose un texte adapté à l'intention détectée ; vous le relisez,
-le modifiez, puis choisissez **Enregistrer en brouillon** ou **Envoyer maintenant**.
+`Precedence: bulk`…), à l'adresse de l'expéditeur et à l'objet.
+
+Dès qu'un email à traiter est ouvert, une **proposition de réponse est rédigée immédiatement** :
+elle respecte l'intention détectée (facturation, rendez-vous, devis, relance, litige, question)
+et le **registre de l'expéditeur** (vouvoiement ou tutoiement), avec la signature `Alva DALERY`.
+Vous relisez, modifiez, puis choisissez **Enregistrer en brouillon** ou **Envoyer maintenant**.
 Aucun mail ne part sans votre validation.
 
 Détails et dépannage : [`DEPLOIEMENT.md`](DEPLOIEMENT.md).

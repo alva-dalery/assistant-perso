@@ -7,7 +7,7 @@ interface EmailsModuleProps {
   emails: EmailDraft[];
   onApprove: (id: string) => void;
   onUpdateDraft: (id: string, newReply: string) => void;
-  /** Signature utilisée pour les brouillons Gmail (ex. « Bien cordialement, Alex »). */
+  /** Signature utilisée pour les brouillons Gmail (ex. « Bien cordialement, Alva DALERY »). */
   signature?: string;
 }
 
@@ -23,7 +23,7 @@ export const EmailsModule: React.FC<EmailsModuleProps> = ({
   const [editedText, setEditedText] = useState("");
   const [showStyleConfig, setShowStyleConfig] = useState(false);
   const [personalTone, setPersonalTone] = useState(
-    "Direct, chaleureux, bienveillant mais concis. Jamais de phrases toutes faites type 'J'espère que vous allez bien'. Signe par 'Alex' ou 'Bien cordialement, Alex' selon le degré de proximité."
+    "Direct, chaleureux, bienveillant mais concis. Jamais de phrases toutes faites type 'J'espère que vous allez bien'. Signe par 'Alva' ou 'Bien cordialement, Alva' selon le degré de proximité."
   );
 
   const selectedEmail = emails.find((e) => e.id === selectedEmailId) || emails[0];

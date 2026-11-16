@@ -416,11 +416,14 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
 /* Brouillon de réponse proposé, à valider avant envoi                */
 /* ------------------------------------------------------------------ */
 
+export type Register = "vouvoiement" | "tutoiement";
+
 export interface ReplyDraft {
     to: string;
     subject: string;
     body: string;
     intent: string;
+    register: Register;
     needsReply: boolean;
 }
 
@@ -432,56 +435,109 @@ interface ReplyContext {
     needsReply: boolean;
 }
 
+/** Détecte si l'expéditeur vouvoie ou tutoie, pour répondre sur le même registre. */
+export function detectRegister(text: string): Register {
+    const sample = text.slice(0, 8000).toLowerCase();
+
+    const count = (pattern: RegExp) => (sample.match(pattern) ?? []).length;
+
+    const vousSignals =
+        count(/\b(vous|votre|vos|vôtre|madame|monsieur)\b/g) +
+        count(/\b(avez|pouvez|voulez|souhaitez|seriez|pourriez|confirmez|validez|envoyez|merci de bien vouloir)\b/g);
+
+    const tuSignals =
+        count(/\b(tu|toi|ton|ta|tes|tien|tienne)\b/g) +
+        count(/\b(peux|veux|as|es|serais|pourrais|souhaites|penses|sais|fais|dis|vas|viens|prends|envoies|confirmes|valides)\b/g);
+
+    if (tuSignals === 0 && vousSignals === 0) return "vouvoiement";
+    return tuSignals > vousSignals ? "tutoiement" : "vouvoiement";
+}
+
 function firstNameOf(fromName: string): string {
     const candidate = fromName.split(/[\s,<]/)[0]?.trim() ?? "";
     return /^[\p{L}][\p{L}'-]{1,}$/u.test(candidate) ? candidate : "";
 }
 
+type Phrase = { vous: string; tu: string };
+
+const CORES: Record<string, Phrase> = {
+    facturation: {
+        vous: "Merci pour votre message. Je prends bonne note des éléments concernant la facturation et je reviens vers vous rapidement avec les pièces demandées.",
+        tu: "Merci pour ton message. Je note les éléments concernant la facturation et je te reviens rapidement avec les pièces demandées.",
+    },
+    rendez_vous: {
+        vous: "Merci pour votre proposition. Je vérifie mes disponibilités et je vous confirme un créneau dans les meilleurs délais.",
+        tu: "Merci pour ta proposition. Je vérifie mes disponibilités et je te confirme un créneau rapidement.",
+    },
+    devis: {
+        vous: "Merci pour votre message. Je prends connaissance de votre demande et je vous adresse une réponse détaillée très prochainement.",
+        tu: "Merci pour ton message. Je prends connaissance de ta demande et je te fais une réponse détaillée très vite.",
+    },
+    relance: {
+        vous: "Merci pour votre relance. Je traite ce point en priorité et je vous tiens informé dès que la situation est régularisée.",
+        tu: "Merci pour ta relance. Je traite ce point en priorité et je te tiens au courant dès que c'est régularisé.",
+    },
+    litige: {
+        vous: "Merci pour votre message. J'ai bien pris connaissance de votre réclamation et je vous réponds de manière détaillée après vérification des éléments.",
+        tu: "Merci pour ton message. J'ai bien noté ta réclamation et je te réponds précisément après vérification des éléments.",
+    },
+    information: {
+        vous: "Merci pour votre message. Je reviens vers vous avec une réponse complète dès que possible.",
+        tu: "Merci pour ton message. Je te reviens avec une réponse complète dès que possible.",
+    },
+    accuse: {
+        vous: "Merci pour votre message, que j'ai bien reçu. Je reviens vers vous rapidement avec une réponse complète.",
+        tu: "Merci pour ton message, bien reçu. Je te reviens rapidement avec une réponse complète.",
+    },
+};
+
+const CLOSINGS: Phrase = {
+    vous: "N'hésitez pas à me préciser si un élément complémentaire vous est utile.",
+    tu: "N'hésite pas à me dire si un élément complémentaire te serait utile.",
+};
+
 /**
- * Rédige une proposition de réponse à partir du sujet et du contenu.
- * Volontairement factuelle : vous relisez, ajustez, puis validez l'envoi.
+ * Rédige une proposition de réponse à partir du sujet et du contenu,
+ * en respectant le registre (vouvoiement ou tutoiement) de l'expéditeur.
+ * Le texte n'est jamais envoyé : il est relu et validé dans l'interface.
  */
 export function buildReplyDraft(context: ReplyContext, signature = ""): ReplyDraft {
     const haystack = `${context.subject}\n${context.text}`.slice(0, 6000).toLowerCase();
     const name = firstNameOf(context.fromName);
+    const register = detectRegister(context.text || context.subject);
 
     let intent = "accusé de réception";
-    let core =
-        "Merci pour votre message, que j'ai bien reçu. Je reviens vers vous rapidement avec une réponse complète.";
+    let key: keyof typeof CORES = "accuse";
 
     if (/(facture|invoice|paiement|remboursement|prélèvement|virement|justificatif)/.test(haystack)) {
         intent = "facturation";
-        core =
-            "Merci pour votre message. Je prends bonne note des éléments concernant la facturation et je reviens vers vous rapidement avec les pièces demandées.";
+        key = "facturation";
     } else if (/(rendez-vous|rdv|disponibilit|créneau|horaire|planifier|réunion|agenda)/.test(haystack)) {
         intent = "prise de rendez-vous";
-        core =
-            "Merci pour votre proposition. Je vérifie mes disponibilités et je vous confirme un créneau dans les meilleurs délais.";
+        key = "rendez_vous";
     } else if (/(devis|estimation|tarif|prix|proposition commerciale)/.test(haystack)) {
         intent = "devis";
-        core =
-            "Merci pour votre message. Je prends connaissance de votre demande et je vous adresse une réponse détaillée très prochainement.";
+        key = "devis";
     } else if (/(relance|retard|impayé|échéance|rappel|en attente)/.test(haystack)) {
         intent = "relance";
-        core =
-            "Merci pour votre relance. Je traite ce point en priorité et je vous tiens informé dès que la situation est régularisée.";
+        key = "relance";
     } else if (/(litige|réclamation|contestation|sinistre|mise en demeure|préjudice)/.test(haystack)) {
         intent = "litige";
-        core =
-            "Merci pour votre message. J'ai bien pris connaissance de votre réclamation et je vous réponds de manière détaillée après vérification des éléments.";
-    } else if (/(\?|pourriez-vous|pouvez-vous|merci de (me|nous)|confirmer|valider|justificatif)/.test(haystack)) {
+        key = "litige";
+    } else if (/(\?|pourriez-vous|pouvez-vous|peux-tu|merci de (me|nous)|confirmer|valider)/.test(haystack)) {
         intent = "demande d'information";
-        core =
-            "Merci pour votre message. Je reviens vers vous avec une réponse complète dès que possible.";
+        key = "information";
     }
 
+    const phrase = CORES[key];
+    const variant: keyof Phrase = register === "tutoiement" ? "tu" : "vous";
     const signatureText = signature.trim() || "Bien cordialement,";
     const body = [
         name ? `Bonjour ${name},` : "Bonjour,",
         "",
-        core,
+        phrase[variant],
         "",
-        "N'hésitez pas à me préciser si un élément complémentaire vous est utile.",
+        CLOSINGS[variant],
         "",
         signatureText,
     ].join("\n");
@@ -491,6 +547,7 @@ export function buildReplyDraft(context: ReplyContext, signature = ""): ReplyDra
         subject: /^re\s*:/i.test(context.subject) ? context.subject : `Re: ${context.subject}`,
         body,
         intent,
+        register,
         needsReply: context.needsReply,
     };
 }
