@@ -5,6 +5,7 @@ import {
     getMessage,
     isGmailConfigured,
 } from "@/lib/gmail";
+import type { ReplyStyle } from "@/lib/gmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,35 @@ export const maxDuration = 30;
 interface ReplyDraftPayload {
     uid?: number;
     signature?: string;
+    style?: unknown;
+}
+
+function sanitizeStyle(input: unknown): ReplyStyle | undefined {
+    if (!input || typeof input !== "object") return undefined;
+    const value = input as {
+        greeting?: unknown;
+        includeOffer?: unknown;
+        closing?: unknown;
+        register?: unknown;
+    };
+
+    const greeting =
+        value.greeting === "Salut" ? "Salut" : value.greeting === "Bonjour" ? "Bonjour" : undefined;
+    const includeOffer = typeof value.includeOffer === "boolean" ? value.includeOffer : undefined;
+    const closing =
+        typeof value.closing === "string" && value.closing.trim()
+            ? value.closing.slice(0, 300)
+            : undefined;
+
+    const register =
+        value.register === "tutoiement"
+            ? "tutoiement"
+            : value.register === "vouvoiement"
+              ? "vouvoiement"
+              : undefined;
+
+    if (!greeting && includeOffer === undefined && !closing && !register) return undefined;
+    return { greeting, includeOffer, closing, register };
 }
 
 export async function POST(request: Request) {
@@ -44,7 +74,20 @@ export async function POST(request: Request) {
     try {
         const message = await getMessage(uid);
         const signature = typeof payload.signature === "string" ? payload.signature : "";
-        const draft = buildReplyDraft(message, signature);
+        const style = sanitizeStyle(payload.style);
+        const draft = buildReplyDraft(
+            {
+                fromName: message.fromName,
+                fromEmail: message.fromEmail,
+                subject: message.subject,
+                text: message.currentText || message.text,
+                history: message.historyText,
+                needsReply: message.needsReply,
+                exchanges: message.exchanges,
+            },
+            signature,
+            style
+        );
         return NextResponse.json(draft, {
             headers: { "Cache-Control": "no-store" },
         });

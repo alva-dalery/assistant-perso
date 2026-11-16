@@ -285,6 +285,14 @@ export interface GmailMessageDetail extends GmailMessageSummary {
     to: string;
     cc: string;
     text: string;
+    /** Résumé court de l'email courant (hors historique cité). */
+    summary: string;
+    /** Texte du dernier message uniquement. */
+    currentText: string;
+    /** Échanges précédents cités dans le corps du message. */
+    historyText: string;
+    /** Nombre de messages dans le fil (1 = premier message). */
+    exchanges: number;
     messageId: string;
     inReplyTo: string;
 }
@@ -295,6 +303,101 @@ function addressList(list?: { name?: string; address?: string }[]): string {
         .map((entry) => entry.address || "")
         .filter(Boolean)
         .join(", ");
+}
+
+const THREAD_MARKERS: RegExp[] = [
+    /^-{2,}\s*(message d'origine|original message)\s*-{2,}$/gim,
+    /^_{8,}$/gm,
+    /^on .+ a écrit\s*:$/gim,
+    /^le .+ a écrit\s*:$/gim,
+    /^from:\s*.+$/gim,
+];
+
+/** Sépare le dernier message de l'historique cité. */
+export function splitThread(text: string): {
+    currentText: string;
+    historyText: string;
+    exchanges: number;
+} {
+    let cutIndex = text.length;
+    for (const marker of THREAD_MARKERS) {
+        marker.lastIndex = 0;
+        const match = marker.exec(text);
+        if (match && match.index >= 0 && match.index < cutIndex) {
+            cutIndex = match.index;
+        }
+    }
+
+    const currentText = text.slice(0, cutIndex).trim() || text.trim();
+    const historyText = text.slice(cutIndex).trim();
+    const quotedBlocks = historyText
+        ? (historyText.match(/a écrit\s*:|wrote\s*:|from:\s/gim) ?? []).length
+        : 0;
+    const exchanges = historyText ? Math.max(2, quotedBlocks + 1) : 1;
+
+    return { currentText, historyText, exchanges };
+}
+
+function cleanForSummary(text: string): string {
+    return text
+        .split("\n")
+        .filter((line) => {
+            const value = line.trim();
+            if (!value) return false;
+            if (value.startsWith(">")) return false;
+            if (/^(de|from|envoyé|sent|à|to|objet|subject|cc)\s*:/i.test(value)) return false;
+            if (/^(unsubscribe|désabonner|se désabonner)/i.test(value)) return false;
+            if (/^(--|__|_{3,})/.test(value)) return false;
+            if (/^(sent from|envoyé de mon)/i.test(value)) return false;
+            return true;
+        })
+        .join("\n")
+        .replace(/https?:\/\/\S+/g, " ")
+        .replace(/[ \t]{2,}/g, " ")
+        .trim();
+}
+
+/**
+ * Résumé extractif : garde les phrases les plus informatives du message courant
+ * (demande, montant, échéance…), sans recopier l'email entier ni l'historique.
+ */
+export function summarizeMessage(text: string, subject: string): string {
+    const cleaned = cleanForSummary(text);
+    if (!cleaned) return subject || "Aucun contenu texte.";
+
+    const sentences = cleaned
+        .split(/(?<=[.!?])\s+|\n+/)
+        .map((sentence) => sentence.replace(/\s+/g, " ").trim())
+        .filter(
+            (sentence) =>
+                sentence.length >= 25 &&
+                !/^(bonjour|salut|cordialement|bien cordialement|bien à vous|merci d'avance)/i.test(
+                    sentence
+                )
+        );
+
+    if (sentences.length === 0) {
+        return cleaned.slice(0, 220).trimEnd();
+    }
+
+    const keywords =
+        /(demande|merci de|pouvez-vous|pourriez-vous|peux-tu|besoin|facture|devis|rendez-vous|réunion|échéance|paiement|payer|justificatif|problème|urgent|confirmer|valider|remboursement)/i;
+
+    const ranked = sentences
+        .map((sentence, index) => {
+            let score = 0;
+            if (index < 3) score += 3;
+            if (keywords.test(sentence)) score += 3;
+            if (sentence.length <= 200) score += 1;
+            return { sentence, index, score };
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 2)
+        .sort((a, b) => a.index - b.index);
+
+    let summary = ranked.map((item) => item.sentence).join(" ");
+    if (summary.length > 320) summary = `${summary.slice(0, 317).trimEnd()}…`;
+    return summary || sentences[0];
 }
 
 function toSummary(
@@ -467,11 +570,23 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             }
         }
 
+        const fullText = text.trim();
+        const breakdown = splitThread(fullText);
+        const visibleText = fullText || "(Ce message n'a pas de contenu texte lisible.)";
+        const summary = summarizeMessage(
+            breakdown.currentText || visibleText,
+            envelope?.subject ?? ""
+        );
+
         return {
             ...toSummary(message, message.headers?.toString("utf8") ?? ""),
             to: addressList(envelope?.to),
             cc: addressList(envelope?.cc),
-            text: text.trim() || "(Ce message n'a pas de contenu texte lisible.)",
+            text: visibleText,
+            summary,
+            currentText: breakdown.currentText || visibleText,
+            historyText: breakdown.historyText,
+            exchanges: breakdown.exchanges,
             messageId: envelope?.messageId ?? "",
             inReplyTo: envelope?.inReplyTo ?? "",
         };
@@ -491,14 +606,27 @@ export interface ReplyDraft {
     intent: string;
     register: Register;
     needsReply: boolean;
+    exchanges: number;
 }
 
 interface ReplyContext {
     fromName: string;
     fromEmail: string;
     subject: string;
+    /** Message courant (sans l'historique cité si disponible). */
     text: string;
+    /** Échanges précédents, utilisés pour comprendre le contexte. */
+    history?: string;
     needsReply: boolean;
+    exchanges?: number;
+}
+
+export interface ReplyStyle {
+    greeting?: "Bonjour" | "Salut";
+    includeOffer?: boolean;
+    closing?: string;
+    /** Registre dans lequel vos corrections ont été mémorisées. */
+    register?: Register;
 }
 
 /** Détecte si l'expéditeur vouvoie ou tutoie, pour répondre sur le même registre. */
@@ -567,10 +695,18 @@ const CLOSINGS: Phrase = {
  * en respectant le registre (vouvoiement ou tutoiement) de l'expéditeur.
  * Le texte n'est jamais envoyé : il est relu et validé dans l'interface.
  */
-export function buildReplyDraft(context: ReplyContext, signature = ""): ReplyDraft {
-    const haystack = `${context.subject}\n${context.text}`.slice(0, 6000).toLowerCase();
+export function buildReplyDraft(
+    context: ReplyContext,
+    signature = "",
+    style?: ReplyStyle
+): ReplyDraft {
+    const currentText = context.text || "";
+    const history = context.history || "";
+    const haystack = `${context.subject}\n${currentText}\n${history}`
+        .slice(0, 8000)
+        .toLowerCase();
     const name = firstNameOf(context.fromName);
-    const register = detectRegister(context.text || context.subject);
+    const register = detectRegister(currentText || context.subject);
 
     let intent = "accusé de réception";
     let key: keyof typeof CORES = "accuse";
@@ -598,23 +734,36 @@ export function buildReplyDraft(context: ReplyContext, signature = ""): ReplyDra
     const phrase = CORES[key];
     const variant: keyof Phrase = register === "tutoiement" ? "tu" : "vous";
     const signatureText = signature.trim() || "Bien cordialement,";
-    const body = [
-        name ? `Bonjour ${name},` : "Bonjour,",
-        "",
-        phrase[variant],
-        "",
-        CLOSINGS[variant],
-        "",
-        signatureText,
-    ].join("\n");
+
+    // Le style appris ne s'applique que dans le registre où vous l'avez utilisé :
+    // pas de « Salut » ni de clôture familière sur un email au vouvoiement.
+    const styleApplies = !style?.register || style.register === register;
+
+    const greetingWord =
+        styleApplies && style?.greeting === "Salut" && register === "tutoiement"
+            ? "Salut"
+            : "Bonjour";
+    const greeting = name ? `${greetingWord} ${name},` : `${greetingWord},`;
+    const closingBlock =
+        styleApplies && style?.closing?.trim()
+            ? style.closing.trim().slice(0, 300)
+            : signatureText;
+
+    const parts = [greeting, "", phrase[variant], ""];
+    const includeOffer = styleApplies ? style?.includeOffer !== false : true;
+    if (includeOffer) {
+        parts.push(CLOSINGS[variant], "");
+    }
+    parts.push(closingBlock);
 
     return {
         to: context.fromEmail,
         subject: /^re\s*:/i.test(context.subject) ? context.subject : `Re: ${context.subject}`,
-        body,
+        body: parts.join("\n"),
         intent,
         register,
         needsReply: context.needsReply,
+        exchanges: context.exchanges ?? 1,
     };
 }
 

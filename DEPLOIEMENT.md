@@ -280,8 +280,27 @@ Une **question** reconnue (sujet contenant « ? » ou commençant par « questio
 bouton **Charger plus** étend l'analyse par tranches de 50 jusqu'à 200 messages. Seuls les en-têtes
 sont récupérés (rapide) ; le corps n'est lu qu'à l'ouverture d'un message.
 
-Le message ouvert affiche un bloc **« Résumé de la demande »** avec un chevron (accordéon) :
-un clic déplie le texte intégral, un second le replie.
+Le message ouvert affiche un bloc **« Résumé de l'email »** : un résumé extractif de 1 à 2 phrases,
+construit à partir des phrases porteuses de la demande (hors salutations, signature et historique
+cité). Le chevron déplie le texte intégral, un second clic le replie.
+
+### Prise en compte du fil et mémoire de vos corrections
+
+- **Fil d'échanges** : le corps est séparé en deux parties — le dernier message et l'historique cité
+  (« Le 12 nov… a écrit : », « > … », « De : … »). L'intention et le registre sont déterminés sur le
+  message courant, tandis que l'historique sert au générateur pour comprendre le contexte (montants
+  déjà annoncés, questions déjà posées). Le nombre d'échanges analysés apparaît dans la confirmation
+  de proposition.
+- **Mémoire de style** : chaque réponse envoyée ou enregistrée est conservée dans le navigateur
+  (`localStorage`, 30 derniers exemples). L'application en déduit votre salutation habituelle,
+  la présence ou non de la phrase de clôture, votre bloc de signature et le registre utilisé.
+  Ces préférences ne sont appliquées **que dans le même registre** : un email au vouvoiement ne
+  recevra jamais un « Salut » ou une clôture familière apprise sur des échanges tutoyés.
+  Limite : la mémoire est propre à cet appareil et à ce navigateur ; vider les données du site la
+  réinitialise. Une base distante serait nécessaire pour la partager entre appareils.
+
+Les propositions restent déterministes (règles, sans modèle de langage) : pour une rédaction
+vraiment personnalisée, il faudra brancher un modèle (Gemini/OpenAI) en complément.
 
 Pour répondre, aucune action n'est nécessaire : **dès qu'un email « À traiter » est ouvert, la
 proposition de réponse est rédigée** (et à la première ouverture du module, le premier email en

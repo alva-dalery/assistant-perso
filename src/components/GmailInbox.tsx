@@ -14,6 +14,7 @@ import {
     Save,
     Send,
 } from "lucide-react";
+import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
 
 type GmailCategory = "personnel" | "important" | "infos" | "newsletter" | "promotion";
 
@@ -43,6 +44,10 @@ interface MessageDetail extends InboxMessage {
     to: string;
     cc: string;
     text: string;
+    summary: string;
+    currentText: string;
+    historyText: string;
+    exchanges: number;
     messageId: string;
     inReplyTo: string;
 }
@@ -54,6 +59,7 @@ interface ReplyDraftResponse {
     intent: string;
     register: "vouvoiement" | "tutoiement";
     needsReply: boolean;
+    exchanges: number;
     error?: string;
 }
 
@@ -134,6 +140,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [folders, setFolders] = useState<{ path: string; label: string; kind: string }[]>([]);
     const [folderTarget, setFolderTarget] = useState("");
     const [moving, setMoving] = useState(false);
+    const [styleSamples, setStyleSamples] = useState(0);
 
     const load = useCallback(
         async (requestedLimit: number) => {
@@ -226,6 +233,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         };
     }, [status?.configured]);
 
+    useEffect(() => {
+        setStyleSamples(loadSamples().length);
+    }, []);
+
     const toReply = useMemo(() => messages.filter((message) => message.needsReply), [messages]);
     const important = useMemo(
         () => messages.filter((message) => message.category === "important"),
@@ -286,7 +297,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
-                body: JSON.stringify({ uid: target.uid, signature }),
+                body: JSON.stringify({
+                    uid: target.uid,
+                    signature,
+                    style: computeStyleProfile(),
+                }),
             });
             const data = (await response.json()) as ReplyDraftResponse;
             if (!response.ok) {
@@ -299,7 +314,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             setDraftRegister(data.register);
             setFeedback(
                 data.needsReply
-                    ? `Proposition prête (${data.intent}, ${data.register}). Relisez, ajustez, puis validez.`
+                    ? `Proposition prête (${data.intent}, ${data.register}, ${
+                          data.exchanges ?? 1
+                      } échange(s) analysé(s)). Relisez, ajustez, puis validez.`
                     : `Diffusion probable (${target.reason}) : à vérifier avant d'envoyer.`
             );
         } catch {
@@ -390,6 +407,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 mode === "draft"
                     ? "Brouillon enregistré dans Gmail (dossier Brouillons). Il reste à relire dans Gmail puis à envoyer."
                     : sentMessage
+            );
+            setStyleSamples(
+                recordReplySample({ text: reply, intent: draftIntent, register: draftRegister })
             );
             setReply("");
             setDraftSubject(null);
@@ -633,10 +653,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     >
                                         <span className="min-w-0">
                                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">
-                                                Résumé de la demande
+                                                Résumé de l'email
                                             </span>
                                             <span className="text-[11px] text-slate-600 block">
-                                                {expanded ? "Message complet affiché ci-dessous." : summarize(detail.text)}
+                                                {expanded ? "Message complet affiché ci-dessous." : detail.summary || summarize(detail.text)}
                                             </span>
                                             <span className="text-[10px] text-teal-700 font-bold block mt-1">
                                                 {expanded ? "Replier le message" : "Déplier le message complet"}
@@ -648,9 +668,17 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         />
                                     </button>
                                     {expanded && (
-                                        <div className="px-3 pb-3 pt-2 border-t border-slate-200/60 max-h-72 overflow-y-auto text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed">
+                                        <div className="px-3 pb-3 pt-2 border-t border-slate-200/60">
+                                        {detail.exchanges > 1 && (
+                                            <p className="text-[10px] text-slate-400 mb-2">
+                                                {detail.exchanges} messages dans ce fil : la réponse tient compte des
+                                                échanges précédents.
+                                            </p>
+                                        )}
+                                        <div className="max-h-72 overflow-y-auto text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed">
                                             {detail.text}
                                         </div>
+                                    </div>
                                     )}
                                 </div>
                             </div>
@@ -699,6 +727,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                         <span className="text-[11px] font-bold text-slate-500">
                                             {draftIntent ? `Réponse proposée · ${draftIntent}` : "Votre réponse"}
+                                            {styleSamples > 0 ? ` · style appris (${styleSamples})` : ""}
                                         </span>
                                         <button
                                             onClick={() => void generateDraft()}
