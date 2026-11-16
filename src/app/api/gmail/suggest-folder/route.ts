@@ -10,10 +10,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 
+const EMPTY = { suggestion: null, scanned: 0, withSender: 0, withDomain: 0 };
+
 export async function GET(request: Request) {
     if (!isGmailConfigured()) {
         return NextResponse.json(
-            { error: describeGmailError(new Error("not configured")), suggestion: null },
+            { ...EMPTY, error: describeGmailError(new Error("not configured")) },
             { status: 400, headers: { "Cache-Control": "no-store" } }
         );
     }
@@ -21,26 +23,25 @@ export async function GET(request: Request) {
     const uid = Number(new URL(request.url).searchParams.get("uid"));
     if (!Number.isInteger(uid) || uid <= 0) {
         return NextResponse.json(
-            { error: "Paramètre uid invalide.", suggestion: null },
+            { ...EMPTY, error: "Paramètre uid invalide." },
             { status: 400, headers: { "Cache-Control": "no-store" } }
         );
     }
 
     try {
         const summary = await getMessageSummary(uid);
-        const suggestion = await suggestFolderForMessage({
+        const result = await suggestFolderForMessage({
             senderEmail: summary.fromEmail,
             senderName: summary.fromName,
             subject: summary.subject,
         });
 
-        return NextResponse.json(
-            { suggestion },
-            { headers: { "Cache-Control": "no-store" } }
-        );
+        return NextResponse.json(result, {
+            headers: { "Cache-Control": "no-store" },
+        });
     } catch (error) {
         return NextResponse.json(
-            { error: describeGmailError(error), suggestion: null },
+            { ...EMPTY, error: describeGmailError(error) },
             { status: 502, headers: { "Cache-Control": "no-store" } }
         );
     }

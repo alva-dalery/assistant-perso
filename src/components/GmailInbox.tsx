@@ -195,6 +195,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [styleSamples, setStyleSamples] = useState(0);
     const [suggestedFolder, setSuggestedFolder] = useState<FolderSuggestion | null>(null);
     const [suggesting, setSuggesting] = useState(false);
+    const [suggestMeta, setSuggestMeta] = useState<{
+        scanned: number;
+        withSender: number;
+        withDomain: number;
+    } | null>(null);
+    const [suggestError, setSuggestError] = useState<string | null>(null);
 
     const load = useCallback(
         async (requestedLimit: number) => {
@@ -384,6 +390,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     async function suggestFolderFor(uid: number) {
         setSuggesting(true);
         setSuggestedFolder(null);
+        setSuggestError(null);
+        setSuggestMeta(null);
         try {
             const response = await fetch(`/api/gmail/suggest-folder?uid=${uid}`, {
                 cache: "no-store",
@@ -391,14 +399,26 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             });
             const data = (await response.json()) as {
                 suggestion?: FolderSuggestion | null;
+                scanned?: number;
+                withSender?: number;
+                withDomain?: number;
                 error?: string;
             };
-            if (response.ok && data.suggestion) {
+            if (!response.ok) {
+                setSuggestError(data.error ?? "La recherche de dossier a échoué.");
+                return;
+            }
+            setSuggestMeta({
+                scanned: data.scanned ?? 0,
+                withSender: data.withSender ?? 0,
+                withDomain: data.withDomain ?? 0,
+            });
+            if (data.suggestion) {
                 setSuggestedFolder(data.suggestion);
                 setFolderTarget((current) => current || data.suggestion!.path);
             }
         } catch {
-            // Suggestion facultative : on ignore silencieusement.
+            setSuggestError("Impossible de joindre la recherche de dossier.");
         } finally {
             setSuggesting(false);
         }
@@ -852,20 +872,38 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                             </div>
                             <div className="px-4 pb-3 bg-white text-[10px] text-slate-500 space-y-0.5">
                                 {suggesting && <p>Recherche d'un dossier habituel…</p>}
-                                {suggestedFolder && (
+                                {!suggesting && suggestedFolder && (
                                     <p>
                                         Suggestion :{" "}
                                         <span className="font-bold text-teal-700">
                                             {suggestedFolder.label}
                                         </span>{" "}
-                                        <span className="text-slate-400">({suggestedFolder.reason})</span>
+                                        <span className="text-slate-400">
+                                            ({suggestedFolder.reason})
+                                        </span>
                                     </p>
                                 )}
+                                {!suggesting && !suggestedFolder && !suggestError && (
+                                    <p>
+                                        Aucun dossier existant ne contient déjà d'emails de cet
+                                        expéditeur
+                                        {suggestMeta ? ` (${suggestMeta.scanned} dossiers analysés)` : ""}.
+                                    </p>
+                                )}
+                                {suggestError && <p className="text-rose-600">{suggestError}</p>}
                                 <p>
                                     {folderTarget
                                         ? "Ce dossier sera appliqué automatiquement dès l'envoi de la réponse."
                                         : "Sélectionnez un dossier pour qu'il soit appliqué après l'envoi."}
                                 </p>
+                                {detail && (
+                                    <button
+                                        onClick={() => void suggestFolderFor(detail.uid)}
+                                        className="text-[10px] text-teal-700 font-bold hover:underline"
+                                    >
+                                        Relancer la recherche de dossier
+                                    </button>
+                                )}
                             </div>
 
                             {detail.needsReply || forceReply ? (

@@ -1477,9 +1477,8 @@ export async function getMessageSummary(uid: number): Promise<GmailMessageSummar
 export interface FolderScan {
     path: string;
     label: string;
-    emails: string[];
-    domains: string[];
-    subjects: string[];
+    senderCount: number;
+    domainCount: number;
 }
 
 export interface FolderSuggestion {
@@ -1489,31 +1488,32 @@ export interface FolderSuggestion {
     reason: string;
 }
 
-/** Classe les dossiers candidats à partir de ce qu'ils contiennent déjà. */
+export interface FolderSuggestionResult {
+    suggestion: FolderSuggestion | null;
+    scanned: number;
+    withSender: number;
+    withDomain: number;
+}
+
+/** Classe les dossiers uniquement d'après les adresses qui y sont déjà rangées. */
 export function rankFolderCandidates(
     input: { senderEmail: string; senderName: string; subject: string },
     scans: FolderScan[]
 ): FolderSuggestion | null {
-    const senderEmail = input.senderEmail.toLowerCase();
-    const domain = senderEmail.split("@")[1] ?? "";
-
     let best: FolderSuggestion | null = null;
 
     for (const scan of scans) {
-        const emails = scan.emails.map((value) => value.toLowerCase());
-        const sameSender = emails.filter((value) => value === senderEmail).length;
-        const sameDomain = domain
-            ? scan.domains.filter((value) => value.toLowerCase() === domain).length
-            : 0;
+        if (scan.senderCount === 0 && scan.domainCount === 0) continue;
 
-        if (sameSender === 0 && sameDomain === 0) continue;
+        const score =
+            scan.senderCount > 0
+                ? 12 + Math.min(scan.senderCount, 3)
+                : 5 + Math.min(scan.domainCount, 2);
 
-        // L'adresse exacte pèse bien plus qu'un simple domaine commun.
-        const score = sameSender > 0 ? 12 + Math.min(sameSender, 3) : 5 + Math.min(sameDomain, 2);
         const reason =
-            sameSender > 0
-                ? `cet expéditeur figure déjà ${sameSender} fois dans ce dossier`
-                : `des emails de ce domaine (${domain}) sont déjà rangés ici`;
+            scan.senderCount > 0
+                ? `cet expéditeur figure déjà ${scan.senderCount} fois dans ce dossier`
+                : `des emails de ce domaine sont déjà rangés ici (${scan.domainCount})`;
 
         if (!best || score > best.score) {
             best = { path: scan.path, label: scan.label, score, reason };
@@ -1523,15 +1523,22 @@ export function rankFolderCandidates(
     return best;
 }
 
-const suggestionCache = new Map<string, { at: number; value: FolderSuggestion | null }>();
+const suggestionCache = new Map<
+    string,
+    { at: number; value: FolderSuggestionResult }
+>();
 const SUGGESTION_TTL_MS = 10 * 60 * 1000;
 
-/** Ouvre les dossiers récents et propose le plus cohérent pour ce message. */
+/**
+ * Interroge chaque libellé Gmail par recherche IMAP sur l'adresse de l'expéditeur
+ * (et sur son domaine en second recours). Aucun échantillonnage : les anciens
+ * emails sont donc vus aussi.
+ */
 export async function suggestFolderForMessage(input: {
     senderEmail: string;
     senderName: string;
     subject: string;
-}): Promise<FolderSuggestion | null> {
+}): Promise<FolderSuggestionResult> {
     if (!isGmailConfigured()) throw new Error("Gmail n'est pas configuré.");
 
     const cacheKey = `${input.senderEmail.toLowerCase()}|${input.subject}`;
@@ -1540,9 +1547,21 @@ export async function suggestFolderForMessage(input: {
 
     const folders = (await listFolders())
         .filter((folder) => folder.kind === "label")
-        .slice(0, 10);
+        .slice(0, 15);
 
-    if (folders.length === 0) return null;
+    if (folders.length === 0) {
+        const empty: FolderSuggestionResult = {
+            suggestion: null,
+            scanned: 0,
+            withSender: 0,
+            withDomain: 0,
+        };
+        suggestionCache.set(cacheKey, { at: Date.now(), value: empty });
+        return empty;
+    }
+
+    const senderEmail = input.senderEmail.toLowerCase();
+    const domain = senderEmail.split("@")[1] ?? "";
 
     const client = createImapClient();
     client.on("error", () => undefined);
@@ -1553,26 +1572,29 @@ export async function suggestFolderForMessage(input: {
         for (const folder of folders) {
             const lock = await client.getMailboxLock(folder.path, { readOnly: true });
             try {
-                const mailbox = client.mailbox;
-                const exists = mailbox && typeof mailbox === "object" ? mailbox.exists : 0;
-                const emails: string[] = [];
-                const domains: string[] = [];
-                const subjects: string[] = [];
+                let senderCount = 0;
+                let domainCount = 0;
 
-                if (exists > 0) {
-                    const start = Math.max(1, exists - 7);
-                    for await (const message of client.fetch(`${start}:*`, { envelope: true })) {
-                        const from = message.envelope?.from?.[0];
-                        if (from?.address) {
-                            emails.push(from.address);
-                            const domain = from.address.split("@")[1];
-                            if (domain) domains.push(domain);
-                        }
-                        if (message.envelope?.subject) subjects.push(message.envelope.subject);
+                try {
+                    const found = await client.search({ from: input.senderEmail }, { uid: true });
+                    senderCount = Array.isArray(found) ? found.length : 0;
+                } catch {
+                    senderCount = 0;
+                }
+
+                if (domain) {
+                    try {
+                        const found = await client.search(
+                            { from: `@${domain}` },
+                            { uid: true }
+                        );
+                        domainCount = Array.isArray(found) ? found.length : 0;
+                    } catch {
+                        domainCount = 0;
                     }
                 }
 
-                scans.push({ path: folder.path, label: folder.label, emails, domains, subjects });
+                scans.push({ path: folder.path, label: folder.label, senderCount, domainCount });
             } finally {
                 lock.release();
             }
@@ -1581,7 +1603,13 @@ export async function suggestFolderForMessage(input: {
         await client.logout().catch(() => undefined);
     }
 
-    const value = rankFolderCandidates(input, scans);
+    const value: FolderSuggestionResult = {
+        suggestion: rankFolderCandidates(input, scans),
+        scanned: scans.length,
+        withSender: scans.filter((scan) => scan.senderCount > 0).length,
+        withDomain: scans.filter((scan) => scan.domainCount > 0).length,
+    };
+
     suggestionCache.set(cacheKey, { at: Date.now(), value });
     return value;
 }
