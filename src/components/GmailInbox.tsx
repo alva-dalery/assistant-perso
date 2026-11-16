@@ -84,8 +84,8 @@ const CATEGORY_STYLE: Record<GmailCategory, string> = {
 
 type Filter = "todo" | "important" | "infos" | "later" | "all";
 
-const PAGE_SIZE = 50;
-const MAX_MESSAGES = 200;
+const PAGE_SIZE = 500;
+const MAX_MESSAGES = 2000;
 
 function formatDate(iso: string): string {
     const date = new Date(iso);
@@ -189,6 +189,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [drafting, setDrafting] = useState(false);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(false);
+    const autoAllRef = useRef(false);
     const [folders, setFolders] = useState<{ path: string; label: string; kind: string }[]>([]);
     const [folderTarget, setFolderTarget] = useState("");
     const [moving, setMoving] = useState(false);
@@ -238,8 +239,19 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                     return;
                 }
                 const incoming = messagesData.messages ?? [];
+                const totalAvailable = messagesData.total ?? 0;
                 setMessages(incoming);
-                setTotal(messagesData.total ?? 0);
+                setTotal(totalAvailable);
+
+                // Extension automatique à toute la boîte (plafond 2000).
+                if (
+                    !autoAllRef.current &&
+                    incoming.length < totalAvailable &&
+                    totalAvailable <= MAX_MESSAGES
+                ) {
+                    autoAllRef.current = true;
+                    void load(Math.min(totalAvailable, MAX_MESSAGES));
+                }
 
                 // Première ouverture : on sélectionne directement le premier email
                 // qui attend une réponse, et la proposition est rédigée aussitôt.
@@ -660,14 +672,17 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 <div className="flex items-center gap-2">
                     {messages.length < Math.min(total, MAX_MESSAGES) && (
                         <button
-                            onClick={() => {
-                                const next = Math.min(limit + PAGE_SIZE, MAX_MESSAGES);
-                                setLimit(next);
-                                void load(next);
-                            }}
+                            onClick={() => void load(Math.min(total, MAX_MESSAGES))}
                             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 text-xs font-bold hover:bg-teal-100 transition-all"
                         >
-                            <span>Charger plus</span>
+                            {loading ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                                <RefreshCw className="h-3.5 w-3.5" />
+                            )}
+                            <span>
+                                Tout charger ({Math.min(total, MAX_MESSAGES) - messages.length})
+                            </span>
                         </button>
                     )}
                     <button

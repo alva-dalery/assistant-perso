@@ -281,9 +281,10 @@ publicités, et sans les messages déjà répondus. Chaque ligne porte une **ét
 Une **question** reconnue (sujet contenant « ? » ou commençant par « question », « demande »,
 « pouvez-vous », « merci de me »…) reste toujours dans **À traiter**, même si elle parle de facture.
 
-**Toute la boîte de réception est prise en compte** : 50 messages analysés au chargement, puis le
-bouton **Charger plus** étend l'analyse par tranches de 50 jusqu'à 200 messages. Seuls les en-têtes
-sont récupérés (rapide) ; le corps n'est lu qu'à l'ouverture d'un message.
+**Toute la boîte de réception est prise en compte** : 500 messages analysés au premier chargement,
+puis l'application **complète automatiquement** jusqu'à l'intégralité de la boîte (plafond 2000,
+bouton **Tout charger** si besoin). Seuls les en-têtes sont récupérés ; le corps n'est lu qu'à
+l'ouverture d'un message.
 
 La date de chaque email est accompagnée d'un **âge relatif** : « aujourd'hui », « hier »,
 « il y a 2 jours », « il y a 3 semaines », calculé à partir de la date de réception.

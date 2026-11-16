@@ -3,7 +3,7 @@ import { describeGmailError, isGmailConfigured, listInbox } from "@/lib/gmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function GET(request: Request) {
     if (!isGmailConfigured()) {
@@ -13,12 +13,12 @@ export async function GET(request: Request) {
         );
     }
 
-    // Toute la boîte de réception : on autorise jusqu'à 200 en-têtes
-    // (seuls les en-têtes sont récupérés, pas les corps des messages).
-    const requested = Number(new URL(request.url).searchParams.get("limit") ?? "50");
+    // Toute la boîte de réception : seuls les en-têtes sont récupérés, le coût
+    // reste donc raisonnable. La limite est portée à 2000 messages.
+    const requested = Number(new URL(request.url).searchParams.get("limit") ?? "500");
     const limit = Number.isFinite(requested)
-        ? Math.min(Math.max(Math.trunc(requested), 1), 200)
-        : 50;
+        ? Math.min(Math.max(Math.trunc(requested), 1), 2000)
+        : 500;
 
     try {
         const data = await listInbox(limit);
