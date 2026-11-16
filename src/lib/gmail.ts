@@ -1524,6 +1524,7 @@ export interface FolderScan {
     path: string;
     label: string;
     senderCount: number;
+    domainCount: number;
 }
 
 export interface FolderSuggestion {
@@ -1539,31 +1540,103 @@ export interface FolderSuggestionResult {
     withSender: number;
 }
 
+/** Domaines grand public : un domaine partagé n'aide jamais à classer. */
+const FREEMAIL_DOMAINS = new Set([
+    "gmail.com",
+    "googlemail.com",
+    "outlook.com",
+    "outlook.fr",
+    "hotmail.com",
+    "hotmail.fr",
+    "live.com",
+    "live.fr",
+    "msn.com",
+    "yahoo.com",
+    "yahoo.fr",
+    "ymail.com",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "proton.me",
+    "protonmail.com",
+    "free.fr",
+    "orange.fr",
+    "wanadoo.fr",
+    "laposte.net",
+    "sfr.fr",
+    "neuf.fr",
+    "aol.com",
+    "gmx.com",
+    "gmx.fr",
+    "mail.com",
+    "zoho.com",
+    "tutanota.com",
+]);
+
+function normalizedKey(value: string): string {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+}
+
 /**
- * Classe les dossiers uniquement d'après la présence de l'adresse exacte
- * de l'expéditeur. Aucune heuristique sur le nom du dossier ni sur le domaine :
- * sur un domaine partagé (entreprise), le domaine ne prouve rien.
+ * Suggestion de dossier :
+ * 1. l'adresse exacte de l'expéditeur est déjà rangée dans le dossier ;
+ * 2. sinon, si le domaine est spécifique (pas grand public) et que le nom du
+ *    dossier correspond à ce domaine (« BNC » ↔ bnc.nc), on propose le dossier.
+ * Un dossier qui contient seulement des emails du même domaine sans rapport
+ * avec son nom (ex. # PERSO pour bnc.nc) n'est jamais proposé.
  */
 export function rankFolderCandidates(
-    _input: { senderEmail: string; senderName: string; subject: string },
+    input: { senderEmail: string; senderName: string; subject: string },
     scans: FolderScan[]
 ): FolderSuggestion[] {
-    return scans
-        .filter((scan) => scan.senderCount > 0)
-        .map((scan) => ({
+    const email = input.senderEmail.toLowerCase();
+    const domain = email.split("@")[1] ?? "";
+    const root = domain.split(".")[0] ?? "";
+    const rootKey = normalizedKey(root);
+    const domainIsSpecific =
+        Boolean(domain) && !FREEMAIL_DOMAINS.has(domain) && rootKey.length >= 3;
+
+    const results: FolderSuggestion[] = [];
+
+    for (const scan of scans) {
+        if (scan.senderCount > 0) {
+            results.push({
+                path: scan.path,
+                label: scan.label,
+                score: 100 + Math.min(scan.senderCount, 20),
+                reason: `cet expéditeur figure déjà ${scan.senderCount} fois dans ce dossier`,
+            });
+            continue;
+        }
+
+        if (!domainIsSpecific || scan.domainCount === 0) continue;
+
+        const folderKey = normalizedKey(scan.label);
+        const matchesDomainName =
+            folderKey.length >= 3 &&
+            (folderKey.includes(rootKey) || rootKey.includes(folderKey));
+
+        if (!matchesDomainName) continue;
+
+        results.push({
             path: scan.path,
             label: scan.label,
-            score: 10 + Math.min(scan.senderCount, 20),
-            reason: `cet expéditeur figure déjà ${scan.senderCount} fois dans ce dossier`,
-        }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
+            score: 50 + Math.min(scan.domainCount, 10),
+            reason: `dossier « ${scan.label} » : ${scan.domainCount} email(s) du domaine ${domain}`,
+        });
+    }
+
+    return results.sort((a, b) => b.score - a.score).slice(0, 5);
 }
 
 const suggestionCache = new Map<string, { at: number; value: FolderSuggestionResult }>();
 const SUGGESTION_TTL_MS = 10 * 60 * 1000;
 
-/** Interroge chaque libellé Gmail par recherche IMAP sur l'adresse exacte. */
+/** Interroge chaque libellé Gmail par recherche IMAP (adresse exacte + domaine). */
 export async function suggestFolderForMessage(
     input: { senderEmail: string; senderName: string; subject: string },
     options?: { refresh?: boolean }
@@ -1587,9 +1660,11 @@ export async function suggestFolderForMessage(
     }
 
     const senderEmail = input.senderEmail.toLowerCase();
+    const domain = senderEmail.split("@")[1] ?? "";
     const baseAddress = senderEmail.includes("+")
-        ? `${senderEmail.split("+")[0]}@${senderEmail.split("@")[1] ?? ""}`
+        ? `${senderEmail.split("+")[0]}@${domain}`
         : null;
+    const searchDomain = Boolean(domain) && !FREEMAIL_DOMAINS.has(domain);
 
     const client = createImapClient();
     client.on("error", () => undefined);
@@ -1601,6 +1676,8 @@ export async function suggestFolderForMessage(
             const lock = await client.getMailboxLock(folder.path, { readOnly: true });
             try {
                 let senderCount = 0;
+                let domainCount = 0;
+
                 try {
                     const found = await client.search({ from: input.senderEmail }, { uid: true });
                     senderCount = Array.isArray(found) ? found.length : 0;
@@ -1617,7 +1694,16 @@ export async function suggestFolderForMessage(
                     }
                 }
 
-                scans.push({ path: folder.path, label: folder.label, senderCount });
+                if (searchDomain) {
+                    try {
+                        const found = await client.search({ from: `@${domain}` }, { uid: true });
+                        domainCount = Array.isArray(found) ? found.length : 0;
+                    } catch {
+                        domainCount = 0;
+                    }
+                }
+
+                scans.push({ path: folder.path, label: folder.label, senderCount, domainCount });
             } finally {
                 lock.release();
             }

@@ -317,11 +317,15 @@ et affiche « Envoi de N pièce(s) jointe(s) : … » au lieu du message « cont
 ### Suggestion de dossier et rangement après envoi
 
 - À l'ouverture d'un email, l'application interroge vos **libellés Gmail** (30 maximum) par une
-  recherche IMAP sur **l'adresse e-mail exacte de l'expéditeur**. Ni le nom du dossier ni le domaine
-  n'entrent dans le calcul : sur un domaine partagé (entreprise, `bnc.nc`…), le domaine ne prouve rien.
-- Si l'adresse est présente dans **plusieurs dossiers**, l'application affiche **jusqu'à 5 suggestions**
-  sous forme de pastilles cliquables, triées par nombre d'emails déjà rangés, et présélectionne la
-  première. La pastille sélectionnée est surlignée ; les autres restent disponibles d'un clic.
+  recherche IMAP sur **l'adresse e-mail exacte de l'expéditeur** (priorité absolue) et, en second
+  recours, sur **le domaine**.
+- Le domaine n'est utilisé que s'il est **spécifique** : jamais pour un domaine grand public
+  (`gmail.com`, `orange.fr`, `outlook.fr`…) et uniquement si le **nom du dossier correspond au
+  domaine** — `BNC` ↔ `bnc.nc`, `BNC/Compta` ↔ `bnc.nc`. Un dossier comme `# PERSO/###_Perso` qui
+  contient simplement des emails du même domaine n'est **pas** proposé.
+- Si plusieurs dossiers correspondent, l'application affiche **jusqu'à 5 suggestions** en pastilles
+  cliquables, triées (adresse exacte d'abord, puis domaine), et présélectionne la première. La
+  pastille choisie est surlignée ; les autres restent disponibles d'un clic.
 - **Sélectionner** un dossier ne déplace rien : le choix est mémorisé. Le déplacement est appliqué
   **automatiquement après l'envoi** de la réponse (ou immédiatement avec « Déplacer maintenant »,
   et « Supprimer maintenant » envoie le message dans la corbeille Gmail).

@@ -973,7 +973,6 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                                 }`}
                                             >
                                                 {folder.label}
-                                                {folder.score > 10 ? ` (${folder.score - 10})` : ""}
                                             </button>
                                         ))}
                                     </div>

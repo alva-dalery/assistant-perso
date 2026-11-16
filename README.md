@@ -101,9 +101,10 @@ Vous relisez, modifiez, puis choisissez **Enregistrer en brouillon** ou **Envoye
 Aucun mail ne part sans votre validation.
 
 Le dossier de rangement est **suggéré automatiquement** d'après la **présence de l'adresse exacte**
-de l'expéditeur dans vos libellés Gmail — plusieurs suggestions sont proposées si elle apparaît dans
-plusieurs dossiers. La première est présélectionnée ; vous pouvez en choisir une autre **sans
-valider**, elle sera appliquée dès l'envoi de la réponse.
+de l'expéditeur dans vos libellés Gmail ; si le domaine est spécifique et que le dossier porte son
+nom (`BNC` ↔ `bnc.nc`), il est proposé en second recours. Plusieurs pastilles sont affichées quand
+plusieurs dossiers correspondent, la meilleure étant présélectionnée. Vous pouvez en choisir une
+autre **sans valider** : elle sera appliquée dès l'envoi de la réponse.
 
 Après un envoi réel, le message d'origine est marqué **« Répondu »** et sort de la file
 **À traiter**. Une barre **Ranger** permet ensuite de le déplacer dans n'importe quel libellé
