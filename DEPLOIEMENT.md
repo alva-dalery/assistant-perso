@@ -293,6 +293,8 @@ extrait du texte. L'application identifie l'action du message et la reformule :
 | « Je vous confirme la réunion projet jeudi 21 novembre à 14h » | *Rendez-vous : jeudi 21 novembre à 14h en salle B.* |
 | « Pouvez-vous me confirmer le montant et le délai ? » | *Demande : Pouvez-vous me confirmer le montant et le délai ?* |
 
+Les absences et indisponibilités sont résumées d'emblée (« **Absente jusqu'au 17/11.** »).
+
 Les formules creuses (« Nous vous en souhaitons une agréable lecture ! », « Nous restons à votre
 disposition ») sont écartées, et une information chiffrée (taux, montant, date, pourcentage) est
 préférée à une phrase de politesse. Une phrase d'information est préfixée par « Information : »,
@@ -302,6 +304,18 @@ texte intégral, un second clic le replie.
 Si un email n'a pas de partie texte exploitable (HTML atypique ou message réduit à des pièces
 jointes), l'application tente de récupérer le corps complet, liste les **pièces jointes** détectées
 et affiche « Envoi de N pièce(s) jointe(s) : … » au lieu du message « contenu illisible ».
+
+### Suggestion de dossier et rangement après envoi
+
+- À l'ouverture d'un email, l'application parcourt vos **libellés Gmail** (10 maximum, 8 derniers
+  messages chacun) et propose le dossier le plus cohérent : expéditeur déjà rangé dedans, même
+  domaine, nom de dossier proche de l'expéditeur ou de l'objet. La suggestion s'affiche sous la
+  barre « Ranger » avec sa justification et est **présélectionnée**.
+- **Sélectionner** un dossier ne déplace rien : le choix est mémorisé. Le déplacement est appliqué
+  **automatiquement après l'envoi** de la réponse (ou immédiatement avec « Déplacer maintenant »,
+  et « Archiver » reste disponible).
+- Sans choix de dossier (« Ne pas ranger automatiquement »), le message reste simplement marqué
+  comme répondu.
 
 ### Images et pièces jointes
 

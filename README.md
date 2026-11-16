@@ -99,6 +99,10 @@ La salutation utilise le prénom réel de votre interlocuteur (signature, adress
 Vous relisez, modifiez, puis choisissez **Enregistrer en brouillon** ou **Envoyer maintenant**.
 Aucun mail ne part sans votre validation.
 
+Le dossier de rangement est **suggéré automatiquement** d'après les emails déjà classés
+(expéditeur, domaine, nom du dossier) et présélectionné : vous pouvez en choisir un autre **sans
+valider**, il sera appliqué dès l'envoi de la réponse.
+
 Après un envoi réel, le message d'origine est marqué **« Répondu »** et sort de la file
 **À traiter**. Une barre **Ranger** permet ensuite de le déplacer dans n'importe quel libellé
 Gmail (ex. `Fitness Park`) ou de l'archiver.

@@ -435,6 +435,20 @@ export function summarizeMessage(text: string, subject: string): string {
     // d'une pièce jointe : c'est elle qui intéresse le lecteur.
     const hasMajorInfo = INFO_KEYWORDS.test(flat) && /\d/.test(cleaned);
 
+    // Absence / indisponibilité : « Absente jusqu'au 17/11. »
+    if (/(absent|absente|indisponible|en cong[ée]|en d[ée]placement)/.test(flat)) {
+        const until =
+            cleaned.match(/jusqu['’]au\s+([0-9]{1,2}[\/.][0-9]{1,2}(?:[\/.][0-9]{2,4})?)/i) ||
+            cleaned.match(/jusqu['’]au\s+([0-9]{1,2}\s+[a-zéûôà]+(?:\s+\d{4})?)/i);
+        const label = /indisponible/.test(flat)
+            ? "Indisponible"
+            : /absente/.test(flat)
+              ? "Absente"
+              : "Absent";
+        if (until) return `${label} jusqu'au ${until[1]}.`;
+        return `${label} temporairement.`;
+    }
+
     // 1. Envoi d'un document (le cas le plus fréquent).
     if (isEnvoi && document && !hasMajorInfo) {
         const word = document[1];
@@ -521,6 +535,12 @@ export function summarizeMessage(text: string, subject: string): string {
         .sort((a, b) => b.score - a.score)[0];
 
     let summary = best.sentence.replace(/\s+/g, " ").trim();
+
+    // Alléger les tournures personnelles : « Je suis absente… » → « Absente… ».
+    summary = summary.replace(/^je suis\s+/i, "").replace(/^je reste\s+/i, "");
+    if (summary.length > 0) {
+        summary = summary.charAt(0).toUpperCase() + summary.slice(1);
+    }
 
     if (/\?$/.test(summary)) {
         summary = `Demande : ${summary}`;
@@ -1423,6 +1443,172 @@ export async function downloadPart(
         lock?.release();
         await client.logout().catch(() => undefined);
     }
+}
+
+/** Récupère uniquement l'enveloppe d'un message (rapide, sans le corps). */
+export async function getMessageSummary(uid: number): Promise<GmailMessageSummary> {
+    if (!isGmailConfigured()) throw new Error("Gmail n'est pas configuré.");
+    if (!Number.isInteger(uid) || uid <= 0) throw new Error("Identifiant de message invalide.");
+
+    return withInbox(async (client) => {
+        const message = await client.fetchOne(
+            String(uid),
+            { envelope: true, internalDate: true, flags: true, headers: HEADERS_TO_FETCH },
+            { uid: true }
+        );
+        if (!message) throw new Error("Message introuvable dans la boîte de réception.");
+        return toSummary(message, message.headers?.toString("utf8") ?? "");
+    });
+}
+
+/* ------------------------------------------------------------------ */
+/* Suggestion de dossier apprise des emails déjà rangés                */
+/* ------------------------------------------------------------------ */
+
+export interface FolderScan {
+    path: string;
+    label: string;
+    emails: string[];
+    domains: string[];
+    subjects: string[];
+}
+
+export interface FolderSuggestion {
+    path: string;
+    label: string;
+    score: number;
+    reason: string;
+}
+
+const STOP_TOKENS = new Set([
+    "votre", "pour", "avec", "dans", "cette", "nous", "vous", "mail", "email",
+    "info", "infos", "service", "client", "clients", "contact", "gmail", "hotmail",
+    "outlook", "yahoo", "l'equipe", "lequipe", "equipe", "message", "courriel",
+]);
+
+function normalizeTokens(value: string): string[] {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((token) => token.length >= 4 && !STOP_TOKENS.has(token));
+}
+
+/** Classe les dossiers candidats à partir de ce qu'ils contiennent déjà. */
+export function rankFolderCandidates(
+    input: { senderEmail: string; senderName: string; subject: string },
+    scans: FolderScan[]
+): FolderSuggestion | null {
+    const senderEmail = input.senderEmail.toLowerCase();
+    const domain = senderEmail.split("@")[1] ?? "";
+    const domainRoot = domain.split(".")[0] ?? "";
+    const tokens = new Set([
+        ...normalizeTokens(input.senderName),
+        ...normalizeTokens(input.subject),
+    ]);
+
+    let best: FolderSuggestion | null = null;
+
+    for (const scan of scans) {
+        let score = 0;
+        const reasons: string[] = [];
+        const emails = scan.emails.map((value) => value.toLowerCase());
+
+        if (emails.includes(senderEmail)) {
+            score += 12;
+            reasons.push("cet expéditeur y est déjà rangé");
+        } else if (domain && scan.domains.includes(domain)) {
+            score += 5;
+            reasons.push("même domaine d'expéditeur");
+        }
+
+        const folderTokens = normalizeTokens(scan.label);
+        const overlap = folderTokens.filter((token) => tokens.has(token));
+        if (overlap.length > 0) {
+            score += Math.min(overlap.length * 3, 9);
+            reasons.push(`nom proche (${overlap.slice(0, 2).join(", ")})`);
+        }
+
+        if (domainRoot.length >= 4 && scan.label.toLowerCase().includes(domainRoot)) {
+            score += 4;
+            reasons.push("nom du dossier proche du domaine");
+        }
+
+        if (score > 0 && (!best || score > best.score)) {
+            best = {
+                path: scan.path,
+                label: scan.label,
+                score,
+                reason: reasons.join(" · "),
+            };
+        }
+    }
+
+    return best && best.score >= 3 ? best : null;
+}
+
+const suggestionCache = new Map<string, { at: number; value: FolderSuggestion | null }>();
+const SUGGESTION_TTL_MS = 10 * 60 * 1000;
+
+/** Ouvre les dossiers récents et propose le plus cohérent pour ce message. */
+export async function suggestFolderForMessage(input: {
+    senderEmail: string;
+    senderName: string;
+    subject: string;
+}): Promise<FolderSuggestion | null> {
+    if (!isGmailConfigured()) throw new Error("Gmail n'est pas configuré.");
+
+    const cacheKey = `${input.senderEmail.toLowerCase()}|${input.subject}`;
+    const cached = suggestionCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < SUGGESTION_TTL_MS) return cached.value;
+
+    const folders = (await listFolders())
+        .filter((folder) => folder.kind === "label")
+        .slice(0, 10);
+
+    if (folders.length === 0) return null;
+
+    const client = createImapClient();
+    client.on("error", () => undefined);
+    await client.connect();
+
+    const scans: FolderScan[] = [];
+    try {
+        for (const folder of folders) {
+            const lock = await client.getMailboxLock(folder.path, { readOnly: true });
+            try {
+                const mailbox = client.mailbox;
+                const exists = mailbox && typeof mailbox === "object" ? mailbox.exists : 0;
+                const emails: string[] = [];
+                const domains: string[] = [];
+                const subjects: string[] = [];
+
+                if (exists > 0) {
+                    const start = Math.max(1, exists - 7);
+                    for await (const message of client.fetch(`${start}:*`, { envelope: true })) {
+                        const from = message.envelope?.from?.[0];
+                        if (from?.address) {
+                            emails.push(from.address);
+                            const domain = from.address.split("@")[1];
+                            if (domain) domains.push(domain);
+                        }
+                        if (message.envelope?.subject) subjects.push(message.envelope.subject);
+                    }
+                }
+
+                scans.push({ path: folder.path, label: folder.label, emails, domains, subjects });
+            } finally {
+                lock.release();
+            }
+        }
+    } finally {
+        await client.logout().catch(() => undefined);
+    }
+
+    const value = rankFolderCandidates(input, scans);
+    suggestionCache.set(cacheKey, { at: Date.now(), value });
+    return value;
 }
 
 export interface GmailStatus {

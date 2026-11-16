@@ -124,6 +124,13 @@ interface PartInfo {
     size: number | null;
 }
 
+interface FolderSuggestion {
+    path: string;
+    label: string;
+    score: number;
+    reason: string;
+}
+
 function attachmentUrl(uid: number, file: PartInfo): string {
     const params = new URLSearchParams({
         uid: String(uid),
@@ -185,6 +192,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [folderTarget, setFolderTarget] = useState("");
     const [moving, setMoving] = useState(false);
     const [styleSamples, setStyleSamples] = useState(0);
+    const [suggestedFolder, setSuggestedFolder] = useState<FolderSuggestion | null>(null);
+    const [suggesting, setSuggesting] = useState(false);
 
     const load = useCallback(
         async (requestedLimit: number) => {
@@ -321,6 +330,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 return;
             }
             setDetail(data);
+            void suggestFolderFor(data.uid);
             // Proposition immédiate : dès qu'un email attend une réponse, on rédige.
             if (data.needsReply) {
                 void generateDraft(data);
@@ -367,6 +377,29 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             setFeedback("Impossible de joindre le serveur.");
         } finally {
             setDrafting(false);
+        }
+    }
+
+    async function suggestFolderFor(uid: number) {
+        setSuggesting(true);
+        setSuggestedFolder(null);
+        try {
+            const response = await fetch(`/api/gmail/suggest-folder?uid=${uid}`, {
+                cache: "no-store",
+                credentials: "same-origin",
+            });
+            const data = (await response.json()) as {
+                suggestion?: FolderSuggestion | null;
+                error?: string;
+            };
+            if (response.ok && data.suggestion) {
+                setSuggestedFolder(data.suggestion);
+                setFolderTarget((current) => current || data.suggestion!.path);
+            }
+        } catch {
+            // Suggestion facultative : on ignore silencieusement.
+        } finally {
+            setSuggesting(false);
         }
     }
 
@@ -437,21 +470,46 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 setFeedback(data.error ?? "L'envoi a échoué.");
                 return;
             }
-            if (mode === "send") {
+            let movedLabel: string | null = null;
+            if (mode === "send" && folderTarget) {
+                const moveResponse = await fetch("/api/gmail/move", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "same-origin",
+                    body: JSON.stringify({ uid: detail.uid, destination: folderTarget }),
+                });
+                if (moveResponse.ok) {
+                    movedLabel =
+                        folders.find((folder) => folder.path === folderTarget)?.label ??
+                        folderTarget;
+                    setMessages((previous) => previous.filter((item) => item.uid !== detail.uid));
+                    setTotal((previous) => Math.max(0, previous - 1));
+                    setDetail(null);
+                }
+            }
+
+            if (mode === "send" && movedLabel === null) {
                 setDetail((previous) =>
                     previous
                         ? { ...previous, answered: true, needsReply: false, reason: "Déjà répondu" }
                         : previous
                 );
             }
+
+            const targetLabel =
+                folders.find((folder) => folder.path === folderTarget)?.label ?? folderTarget;
+
             const sentMessage = `Message envoyé à ${detail.fromEmail}.${
                 data.markedAnswered ? " Marqué comme répondu dans Gmail." : ""
-            } Vous pouvez maintenant le ranger dans un dossier ci-dessous.`;
-            setFeedback(
-                mode === "draft"
-                    ? "Brouillon enregistré dans Gmail (dossier Brouillons). Il reste à relire dans Gmail puis à envoyer."
-                    : sentMessage
-            );
+            }${movedLabel ? ` Rangé dans « ${movedLabel} ».` : ""}`;
+
+            const draftMessage = `Brouillon enregistré dans Gmail (dossier Brouillons). Il reste à relire dans Gmail puis à envoyer.${
+                folderTarget
+                    ? ` Le message sera rangé dans « ${targetLabel} » après envoi.`
+                    : ""
+            }`;
+
+            setFeedback(mode === "draft" ? draftMessage : sentMessage);
             setStyleSamples(
                 recordReplySample({ text: reply, intent: draftIntent, register: draftRegister })
             );
@@ -782,7 +840,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     onChange={(event) => setFolderTarget(event.target.value)}
                                     className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[11px] text-slate-700 focus:outline-none focus:border-teal-500"
                                 >
-                                    <option value="">Choisir un dossier Gmail…</option>
+                                    <option value="">Ne pas ranger automatiquement</option>
                                     {folders
                                         .filter((folder) => folder.kind === "label")
                                         .map((folder) => (
@@ -796,7 +854,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     disabled={moving || !folderTarget}
                                     className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 text-[11px] font-bold transition-all"
                                 >
-                                    {moving ? "Déplacement…" : "Déplacer"}
+                                    {moving ? "Déplacement…" : "Déplacer maintenant"}
                                 </button>
                                 <button
                                     onClick={() => void moveTo("[Gmail]/All Mail")}
@@ -810,6 +868,23 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         Dossiers indisponibles pour le moment
                                     </span>
                                 )}
+                            </div>
+                            <div className="px-4 pb-3 bg-white text-[10px] text-slate-500 space-y-0.5">
+                                {suggesting && <p>Recherche d'un dossier habituel…</p>}
+                                {suggestedFolder && (
+                                    <p>
+                                        Suggestion :{" "}
+                                        <span className="font-bold text-teal-700">
+                                            {suggestedFolder.label}
+                                        </span>{" "}
+                                        <span className="text-slate-400">({suggestedFolder.reason})</span>
+                                    </p>
+                                )}
+                                <p>
+                                    {folderTarget
+                                        ? "Ce dossier sera appliqué automatiquement dès l'envoi de la réponse."
+                                        : "Sélectionnez un dossier pour qu'il soit appliqué après l'envoi."}
+                                </p>
                             </div>
 
                             {detail.needsReply || forceReply ? (
