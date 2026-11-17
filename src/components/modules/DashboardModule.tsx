@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -16,6 +16,10 @@ import {
   Smile,
   Shield,
   Clock,
+  Truck,
+  ExternalLink,
+  ChevronDown,
+  Trash2,
 } from "lucide-react";
 import {
   UserProfile,
@@ -27,6 +31,15 @@ import {
   PersonalProject,
   ModuleType,
 } from "@/types";
+import { loadParcels, removeParcel, TRACKING_EVENT } from "@/lib/trackingMemory";
+import type { SavedParcel } from "@/lib/trackingMemory";
+
+/** « 12 nov. 2026 » */
+function formatDay(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+}
 
 interface DashboardModuleProps {
   user: UserProfile;
@@ -53,8 +66,22 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
   onApproveEmail,
 }) => {
   const [selectedEmailId, setSelectedEmailId] = useState<string>(emails[0]?.id || "mail-1");
+  const [parcels, setParcels] = useState<SavedParcel[]>([]);
+  const [openParcel, setOpenParcel] = useState<number | null>(null);
 
   const selectedEmail = emails.find((e) => e.id === selectedEmailId) || emails[0];
+
+  const refreshParcels = useCallback(() => setParcels(loadParcels()), []);
+
+  useEffect(() => {
+    refreshParcels();
+    window.addEventListener(TRACKING_EVENT, refreshParcels);
+    window.addEventListener("storage", refreshParcels);
+    return () => {
+      window.removeEventListener(TRACKING_EVENT, refreshParcels);
+      window.removeEventListener("storage", refreshParcels);
+    };
+  }, [refreshParcels]);
 
   return (
     <div className="w-full grid grid-cols-1 xl:grid-cols-12 gap-6 p-4">
@@ -258,6 +285,128 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
             </div>
           </div>
         </div>
+
+        {/* COLIS EN COURS : suivis validés depuis le module Emails */}
+        {parcels.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+                <Truck className="h-4 w-4 text-violet-600" />
+                Colis en cours
+              </h3>
+              <span className="text-[11px] font-bold bg-violet-600 text-white px-2.5 py-0.5 rounded-full">
+                {parcels.length}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {parcels.map((parcel) => {
+                const open = openParcel === parcel.uid;
+                const number = parcel.numbers[0] ?? "";
+                const delivered = Boolean(parcel.status && /livr/i.test(parcel.status));
+                return (
+                  <div
+                    key={parcel.uid}
+                    className="bg-white rounded-2xl border border-slate-200/80 p-4 space-y-2.5 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-extrabold text-slate-900 truncate">
+                          {parcel.store}
+                        </p>
+                        <p className="text-[10px] text-slate-500 truncate">
+                          {parcel.carrier ?? "Transporteur non précisé"}
+                        </p>
+                      </div>
+                      <span
+                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${delivered
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : "bg-violet-50 text-violet-700 border-violet-200"
+                          }`}
+                      >
+                        {parcel.status ?? "En cours"}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div className="min-w-0">
+                        <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
+                          N° de suivi
+                        </p>
+                        <p className="font-mono text-slate-800 break-all select-all">
+                          {number || "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
+                          Expédié le
+                        </p>
+                        <p className="font-semibold text-slate-800">
+                          {formatDay(parcel.shippedAt)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {parcel.url && (
+                        <a
+                          href={parcel.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 text-white text-[11px] font-bold hover:bg-violet-700 transition-all"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          <span>Suivre</span>
+                        </a>
+                      )}
+                      <button
+                        onClick={() => setOpenParcel(open ? null : parcel.uid)}
+                        aria-expanded={open}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-[11px] font-bold hover:bg-slate-50 transition-all"
+                      >
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+                        />
+                        <span>Historique</span>
+                      </button>
+                      <button
+                        onClick={() => setParcels(removeParcel(parcel.uid))}
+                        aria-label="Retirer ce colis du tableau de bord"
+                        title="Retirer du tableau de bord"
+                        className="ml-auto h-8 w-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {open && (
+                      <div className="pt-2 border-t border-slate-100 space-y-2">
+                        {parcel.history.length > 0 ? (
+                          <ol className="space-y-1.5 text-[11px] text-slate-600">
+                            {parcel.history.map((event, index) => (
+                              <li key={`${parcel.uid}-${index}`} className="flex gap-2">
+                                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-violet-400 shrink-0" />
+                                <span>{event}</span>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : (
+                          <p className="text-[11px] text-slate-500">
+                            Aucun détail de suivi dans l'email : ouvrez le lien du transporteur pour
+                            l'historique complet.
+                          </p>
+                        )}
+                        <p className="text-[9px] text-slate-400">
+                          Rangé dans « {parcel.folderLabel ?? parcel.folder} » · {parcel.subject}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* BOTTOM SECTION: Patient's list & Visit Details -> Emails list & Detail Card */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5 pt-2">

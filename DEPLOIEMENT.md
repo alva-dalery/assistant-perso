@@ -382,6 +382,22 @@ Ces notifications ne demandent pas de réponse : aucun brouillon n'est proposé,
 **« Répondre quand même »** reste disponible. Une vraie question d'un expéditeur (« Question sur ma
 commande ? ») reste classée **Répondre**.
 
+#### Valider un suivi et le ranger
+
+Dans la carte **Suivi de colis**, choisissez le dossier de rangement — l'application propose
+automatiquement **« Commandes et Factures »**, sinon le premier dossier contenant « commande », à
+défaut « facture » — puis cliquez sur **« Valider et suivre »** :
+
+1. l'email est **déplacé dans le dossier Gmail** choisi ;
+2. le colis est enregistré dans le navigateur (`localStorage`, clé `assistantPerso.tracking.v1`) ;
+3. il apparaît dans le **tableau de bord**, section **Colis en cours**.
+
+Chaque colis du tableau de bord affiche le **magasin**, le **transporteur**, le **numéro de suivi**,
+un bouton **« Suivre »**, le **statut**, la **date d'expédition** et un **historique en accordéon**
+(étapes datées lues dans l'email, sinon message invitant à ouvrir le lien du transporteur). Une
+corbeille retire le colis du tableau de bord — l'email reste rangé dans Gmail. Les 20 derniers colis
+sont conservés.
+
 #### Corriger une étiquette à la main
 
 Chaque email peut être reclassé manuellement, dans **tous les onglets** :

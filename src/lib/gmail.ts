@@ -104,6 +104,8 @@ export type GmailCategory =
 
 /** Informations de suivi d'un colis extraites du message. */
 export interface GmailTracking {
+    /** Magasin à l'origine de la commande (nom d'affichage ou domaine). */
+    store: string | null;
     /** Transporteur reconnu (La Poste, Colissimo, DHL, OPT.nc…). */
     carrier: string | null;
     /** Numéros de suivi détectés (1 à 3). */
@@ -112,6 +114,8 @@ export interface GmailTracking {
     status: string | null;
     /** Date de livraison annoncée, telle qu'écrite dans l'email. */
     estimatedDelivery: string | null;
+    /** Étapes de suivi lues dans l'email (de la plus récente à la plus ancienne). */
+    history: string[];
     /** Lien de suivi (celui de l'email, sinon la page du transporteur). */
     url: string | null;
 }
@@ -340,6 +344,62 @@ function trackingNumbersIn(text: string): string[] {
     return [...found].slice(0, 3);
 }
 
+/** Magasin à l'origine de la commande (nom affiché ou domaine). */
+function storeFromSender(fromName: string, fromEmail: string): string | null {
+    const name = (fromName ?? "").trim();
+    if (name && !name.includes("@") && !CARRIER_SENDER.test(name)) {
+        return name.slice(0, 60);
+    }
+    const domain = (fromEmail.split("@")[1] ?? "").toLowerCase();
+    if (!domain || CARRIER_SENDER.test(domain)) return null;
+    const root = domain
+        .split(".")
+        .filter(
+            (part) =>
+                part &&
+                !["www", "mail", "email", "news", "shop", "e", "no-reply", "noreply", "info"].includes(part)
+        )[0];
+    if (!root) return null;
+    return root
+        .replace(/[-_]+/g, " ")
+        .split(" ")
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ")
+        .slice(0, 60);
+}
+
+const HISTORY_DATE =
+    /(?:\d{1,2}[\/.\s-]\d{1,2}(?:[\/.\s-]\d{2,4})?|\d{1,2}\s+(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)(?:\s+20\d{2})?)/i;
+
+/** Étapes de suivi lisibles dans le corps de l'email (lignes datées + statut). */
+function trackingHistory(body: string): string[] {
+    const events: string[] = [];
+    const lines = body
+        .split(/\r?\n/)
+        .map((line) => line.replace(/\s+/g, " ").trim())
+        .filter((line) => line.length >= 8 && line.length <= 160);
+
+    for (const line of lines) {
+        if (!HISTORY_DATE.test(line)) continue;
+        if (!TRACKING_STATUS.some((entry) => entry.match.test(line))) continue;
+        if (events.includes(line)) continue;
+        events.push(line);
+        if (events.length >= 8) break;
+    }
+
+    if (events.length === 0) {
+        for (const line of lines) {
+            if (!TRACKING_STATUS.some((entry) => entry.match.test(line))) continue;
+            if (events.includes(line)) continue;
+            events.push(line);
+            if (events.length >= 3) break;
+        }
+    }
+
+    return events;
+}
+
 /**
  * Reconnaît un suivi de colis et rassemble les informations utiles
  * (transporteur, numéro, statut, date de livraison, lien de suivi).
@@ -377,10 +437,12 @@ export function extractTracking(input: {
     if (!carrier && numbers.length === 0 && !status && !estimatedDelivery) return null;
 
     return {
+        store: storeFromSender(input.fromName, input.fromEmail),
         carrier: carrier?.name ?? null,
         numbers,
         status,
         estimatedDelivery,
+        history: trackingHistory(body),
         url,
     };
 }

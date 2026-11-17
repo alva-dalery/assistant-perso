@@ -28,6 +28,7 @@ import {
     Zap,
 } from "lucide-react";
 import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
+import { addParcel } from "@/lib/trackingMemory";
 
 type GmailCategory =
     | "personnel"
@@ -218,10 +219,12 @@ interface FolderSuggestion {
 }
 
 interface TrackingInfo {
+    store?: string | null;
     carrier: string | null;
     numbers: string[];
     status: string | null;
     estimatedDelivery: string | null;
+    history?: string[];
     url: string | null;
 }
 
@@ -400,6 +403,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const invoiceRequestedRef = useRef<Set<number>>(new Set());
     const mountedRef = useRef(true);
     const [labelOverrides, setLabelOverrides] = useState<Record<number, GmailCategory>>({});
+    const [commandFolder, setCommandFolder] = useState("");
+    const [commandSaving, setCommandSaving] = useState(false);
     /** Étiquettes renvoyées par le serveur, pour pouvoir revenir en « Automatique ». */
     const rawLabelsRef = useRef<
         Record<number, { category: GmailCategory; needsReply: boolean; reason: string }>
@@ -526,6 +531,21 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         setStyleSamples(loadSamples().length);
     }, []);
 
+    // Dossier proposé pour ranger une commande : « Commandes et Factures » en priorité.
+    useEffect(() => {
+        if (!detail || detail.category !== "commande") return;
+        const score = (label: string) => {
+            const value = label.toLowerCase();
+            if (/commande/.test(value) && /facture/.test(value)) return 3;
+            if (/commande/.test(value)) return 2;
+            if (/facture/.test(value)) return 1;
+            return 0;
+        };
+        if (commandFolder && folders.some((folder) => folder.path === commandFolder)) return;
+        const best = [...folders].sort((a, b) => score(b.label) - score(a.label))[0];
+        setCommandFolder(best && score(best.label) > 0 ? best.path : "");
+    }, [detail, folders, commandFolder]);
+
     // « À traiter » = tout ce qui demande un coup d'œil : répondre, important ou infos,
     // en excluant les newsletters/publicités et les messages déjà traités.
     const toReview = useMemo(
@@ -638,6 +658,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         setDraftSubject(null);
         setDraftIntent(null);
         setDraftRegister(null);
+        setCommandFolder("");
         try {
             const response = await fetch(`/api/gmail/message?uid=${uid}`, {
                 cache: "no-store",
@@ -1109,6 +1130,59 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 ? "Étiquette automatique rétablie."
                 : `Étiquette modifiée : ${CATEGORY_LABEL[value]}.`
         );
+    }
+
+    /** Valide un suivi : range l'email dans le dossier choisi et l'ajoute au tableau de bord. */
+    async function validateCommand() {
+        const target = detail;
+        const tracking = target?.tracking;
+        if (!target || !tracking) return;
+        if (!commandFolder) {
+            setFeedback("Choisissez d'abord le dossier de rangement.");
+            return;
+        }
+
+        setCommandSaving(true);
+        setFeedback(null);
+        try {
+            const response = await fetch("/api/gmail/move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({ uid: target.uid, destination: commandFolder }),
+            });
+            const data = (await response.json()) as { error?: string };
+            if (!response.ok) {
+                setFeedback(data.error ?? "Le déplacement a échoué.");
+                return;
+            }
+
+            const label =
+                folders.find((folder) => folder.path === commandFolder)?.label ?? commandFolder;
+            addParcel({
+                uid: target.uid,
+                store: tracking.store?.trim() || target.fromName || tracking.carrier || "Colis",
+                carrier: tracking.carrier,
+                numbers: tracking.numbers,
+                url: tracking.url,
+                status: tracking.status,
+                shippedAt: target.date,
+                subject: target.subject,
+                folder: commandFolder,
+                folderLabel: label,
+                history: tracking.history ?? [],
+                savedAt: new Date().toISOString(),
+            });
+
+            setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
+            setTotal((previous) => Math.max(0, previous - 1));
+            setDetail(null);
+            setFeedback(`Commande rangée dans « ${label} ». Suivi ajouté au tableau de bord.`);
+        } catch {
+            setFeedback("Impossible de joindre le serveur.");
+        } finally {
+            setCommandSaving(false);
+        }
     }
 
     async function copyTrackingNumber(value: string) {
@@ -1926,6 +2000,42 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                                     <span>Copier le numéro</span>
                                                 </button>
                                             )}
+                                        </div>
+
+                                        <div className="pt-2 border-t border-violet-200/70 space-y-1.5">
+                                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                                <select
+                                                    value={commandFolder}
+                                                    onChange={(event) =>
+                                                        setCommandFolder(event.target.value)
+                                                    }
+                                                    aria-label="Dossier de rangement de la commande"
+                                                    className="flex-1 min-w-0 rounded-xl border border-violet-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-100"
+                                                >
+                                                    <option value="">Choisir un dossier…</option>
+                                                    {folders.map((folder) => (
+                                                        <option key={folder.path} value={folder.path}>
+                                                            {folder.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <button
+                                                    onClick={() => void validateCommand()}
+                                                    disabled={commandSaving || !commandFolder}
+                                                    className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 text-white text-[11px] font-bold hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                                >
+                                                    {commandSaving ? (
+                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                    ) : (
+                                                        <CheckCircle2 className="h-3.5 w-3.5" />
+                                                    )}
+                                                    <span>Valider et suivre</span>
+                                                </button>
+                                            </div>
+                                            <p className="text-[9px] text-slate-500">
+                                                L'email est rangé dans ce dossier et le colis rejoint le
+                                                tableau de bord (magasin, numéro, lien, statut, historique).
+                                            </p>
                                         </div>
                                     </div>
                                 )}
