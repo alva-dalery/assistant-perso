@@ -1828,8 +1828,13 @@ export interface InvoiceFile {
 export interface InvoiceProposal {
     provider: InvoiceProvider;
     providerLabel: string;
+    /** Libellé de période : « AOÛT 2026 » ou « 2026-T3 ». */
     period: string;
+    /** Date de facture retenue (AAAA-MM-JJ). */
+    invoiceDate: string;
     files: InvoiceFile[];
+    /** Lien présent dans l'email (facture en ligne, ex. EEC Engie). */
+    link?: string;
 }
 
 const MONTHS_FR: Record<string, number> = {
@@ -1849,6 +1854,21 @@ const MONTHS_FR: Record<string, number> = {
     decembre: 12,
     décembre: 12,
 };
+
+const MONTH_LABELS = [
+    "JANVIER",
+    "FÉVRIER",
+    "MARS",
+    "AVRIL",
+    "MAI",
+    "JUIN",
+    "JUILLET",
+    "AOÛT",
+    "SEPTEMBRE",
+    "OCTOBRE",
+    "NOVEMBRE",
+    "DÉCEMBRE",
+];
 
 const PROVIDER_LABEL: Record<InvoiceProvider, string> = {
     lagoon: "LAGOON",
@@ -1881,73 +1901,45 @@ function detectProvider(message: GmailMessageDetail): InvoiceProvider | null {
     return null;
 }
 
-function monthFromText(text: string): { year: number; month: number } | null {
-    const iso = text.match(/(20\d{2})[-\/.](\d{1,2})/);
-    if (iso) {
-        const year = Number(iso[1]);
-        const month = Number(iso[2]);
-        if (month >= 1 && month <= 12) return { year, month };
-    }
+/** Date de facture : explicitement citée, sinon date de réception. */
+function invoiceDateOf(message: GmailMessageDetail): { day: number; month: number; year: number } {
+    const text = `${message.subject}\n${message.currentText}\n${message.historyText}`;
 
-    const french = text.match(/(?:^|\D)(\d{1,2})[\/.](20\d{2})(?!\d)/);
-    if (french) {
-        const month = Number(french[1]);
-        const year = Number(french[2]);
-        if (month >= 1 && month <= 12) return { year, month };
-    }
+    const nearInvoice = text.match(
+        /(?:facture|date)[^\n]{0,40}?(\d{1,2})[\/.](\d{1,2})[\/.](20\d{2})/i
+    );
+    const anyDate = text.match(/\b(\d{1,2})[\/.](\d{1,2})[\/.](20\d{2})\b/);
+    const match = nearInvoice ?? anyDate;
 
-    const named = text
-        .toLowerCase()
-        .match(/(janvier|fevrier|février|mars|avril|mai|juin|juillet|aout|août|septembre|octobre|novembre|decembre|décembre)\s+(20\d{2})/);
-    if (named) {
-        return { year: Number(named[2]), month: MONTHS_FR[named[1]] ?? 1 };
-    }
-
-    return null;
-}
-
-function quarterFromText(text: string): { year: number; quarter: number } | null {
-    const direct = text.match(/\bT([1-4])\b[^\d]{0,8}(20\d{2})/i);
-    if (direct) return { quarter: Number(direct[1]), year: Number(direct[2]) };
-
-    const reverse = text.match(/(20\d{2})[^\d]{0,8}\bT([1-4])\b/i);
-    if (reverse) return { year: Number(reverse[1]), quarter: Number(reverse[2]) };
-
-    const trimestre = text.match(/([1-4])(?:er|e|ème|eme)?\s*trimestre[^\d]{0,10}(20\d{2})/i);
-    if (trimestre) return { quarter: Number(trimestre[1]), year: Number(trimestre[2]) };
-
-    return null;
-}
-
-function periodFromMessage(
-    message: GmailMessageDetail,
-    provider: InvoiceProvider
-): string {
-    const haystack = `${message.subject}\n${message.currentText}\n${message.historyText}`;
-    const received = new Date(message.date);
-    const fallbackYear = Number.isNaN(received.getTime())
-        ? new Date().getFullYear()
-        : received.getFullYear();
-    const fallbackMonth = Number.isNaN(received.getTime())
-        ? new Date().getMonth() + 1
-        : received.getMonth() + 1;
-
-    if (provider === "cde") {
-        const explicit = quarterFromText(haystack);
-        if (explicit) {
-            return `${explicit.year}-T${explicit.quarter}`;
+    if (match) {
+        const day = Number(match[1]);
+        const month = Number(match[2]);
+        const year = Number(match[3]);
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            return { day, month, year };
         }
-        const month = monthFromText(haystack);
-        const year = month?.year ?? fallbackYear;
-        const monthNumber = month?.month ?? fallbackMonth;
-        const quarter = Math.floor((monthNumber - 1) / 3) + 1;
-        return `${year}-T${quarter}`;
     }
 
-    const month = monthFromText(haystack);
-    const year = month?.year ?? fallbackYear;
-    const monthNumber = month?.month ?? fallbackMonth;
-    return `${year}-${String(monthNumber).padStart(2, "0")}`;
+    const received = new Date(message.date);
+    if (Number.isNaN(received.getTime())) {
+        const now = new Date();
+        return { day: now.getDate(), month: now.getMonth() + 1, year: now.getFullYear() };
+    }
+    return { day: received.getDate(), month: received.getMonth() + 1, year: received.getFullYear() };
+}
+
+/** Les premières dates du mois se rapportent à la période précédente. */
+function billingMonth(date: { day: number; month: number; year: number }): {
+    year: number;
+    month: number;
+} {
+    if (date.day > 5) return { year: date.year, month: date.month };
+    if (date.month === 1) return { year: date.year - 1, month: 12 };
+    return { year: date.year, month: date.month - 1 };
+}
+
+function isoDate(date: { day: number; month: number; year: number }): string {
+    return `${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`;
 }
 
 function pdfFiles(message: GmailMessageDetail): InvoiceFile[] {
@@ -1969,27 +1961,56 @@ function pdfFiles(message: GmailMessageDetail): InvoiceFile[] {
     }));
 }
 
-/**
- * Détecte une facture d'un fournisseur connu et propose un nom de fichier
- * normalisé : « 2026-08 - LAGOON - Facture.pdf », « 2026-T3 - CDE - Facture.pdf »…
- */
+/** Lien vers la facture en ligne (certains fournisseurs n'envoient pas de PDF). */
+function invoiceLink(message: GmailMessageDetail): string | undefined {
+    const text = `${message.currentText}\n${message.historyText}`;
+    const urls = (text.match(/https?:\/\/[^\s<>"')]+/gi) ?? []).map((url) =>
+        url.replace(/[.,;:!?]+$/, "")
+    );
+
+    if (urls.length === 0) return undefined;
+
+    return (
+        urls.find((url) => /\.pdf(\?|$)/i.test(url)) ??
+        urls.find((url) => /facture|invoice|eec|engie/i.test(url)) ??
+        urls[0]
+    );
+}
+
 export function detectInvoiceFromMessage(message: GmailMessageDetail): InvoiceProposal | null {
     const provider = detectProvider(message);
     if (!provider) return null;
 
     const files = pdfFiles(message);
-    if (files.length === 0) return null;
+    const link = invoiceLink(message);
+    if (files.length === 0 && !link) return null;
 
-    const period = periodFromMessage(message, provider);
+    const date = invoiceDateOf(message);
+    const monthRef = billingMonth(date);
     const label = PROVIDER_LABEL[provider];
+
+    let period: string;
+    let namePeriod: string;
+    if (provider === "cde") {
+        const quarter = Math.floor((monthRef.month - 1) / 3) + 1;
+        period = `${monthRef.year}-T${quarter}`;
+        namePeriod = `${monthRef.year}-T${quarter}`;
+    } else {
+        period = `${MONTH_LABELS[monthRef.month - 1]} ${monthRef.year}`;
+        namePeriod = `${MONTH_LABELS[monthRef.month - 1]} ${monthRef.year}`;
+    }
 
     return {
         provider,
         providerLabel: label,
         period,
+        invoiceDate: isoDate(date),
+        link,
         files: files.map((file, index) => ({
             ...file,
-            proposed: `${period} - ${label} - Facture${files.length > 1 ? ` (${index + 1})` : ""}.pdf`,
+            proposed: `${namePeriod} - ${label} - Facture${
+                files.length > 1 ? ` (${index + 1})` : ""
+            }.pdf`,
         })),
     };
 }

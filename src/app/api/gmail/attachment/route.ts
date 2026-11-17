@@ -36,7 +36,8 @@ export async function GET(request: Request) {
                 ? declared
                 : "application/octet-stream";
 
-        const disposition = SAFE_IMAGE.test(safeType) ? "inline" : "attachment";
+        const disposition =
+      SAFE_IMAGE.test(safeType) || SAFE_DOCUMENT.test(safeType) ? "inline" : "attachment";
         const requestedName = url.searchParams.get("name") || filename || "fichier";
         const safeName = requestedName.replace(/[^\w.\- ]/g, "_").slice(0, 120) || "fichier";
 

@@ -146,6 +146,6 @@ elles restent sur l'appareil et ne sont pas envoyées à un serveur.
 
 Les emails de factures de **Lagoon**, **EEC Engie**, **CDE** et **OPT.nc** (Internet et Mobile)
 sont reconnus automatiquement. L'application propose un nom de fichier normalisé
-(`2026-08 - LAGOON - Facture.pdf`, `2026-T3 - CDE - Facture.pdf`, `2026-06 - OPT Internet - Facture.pdf`…),
+(`AOÛT 2026 - LAGOON - Facture.pdf`, `2026-T3 - CDE - Facture.pdf`, `JUIN 2026 - OPT Internet - Facture.pdf`…),
 vous le validez, le PDF est téléchargé, puis **le mail est envoyé dans la corbeille Gmail**.
 Aucun téléchargement ni suppression sans votre validation.

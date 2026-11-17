@@ -82,7 +82,7 @@ export function middleware(request: NextRequest): NextResponse {
     // Empêche l'indexation par les moteurs de recherche et le cache partagé.
     response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
     response.headers.set("Cache-Control", "private, no-store");
-    response.headers.set("X-Frame-Options", "DENY");
+    response.headers.set("X-Frame-Options", "SAMEORIGIN");
     response.headers.set("Referrer-Policy", "no-referrer");
     return response;
 }

@@ -7,6 +7,7 @@ import {
     CheckCircle2,
     ChevronDown,
     Download,
+    ExternalLink,
     FolderInput,
     KeyRound,
     Loader2,
@@ -148,6 +149,8 @@ interface InvoiceProposal {
     provider: string;
     providerLabel: string;
     period: string;
+    invoiceDate: string;
+    link?: string;
     files: InvoiceFile[];
 }
 
@@ -658,6 +661,41 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         }
     }
 
+    async function deleteAfterLink() {
+        if (!detail) return;
+        if (
+            !window.confirm(
+                "Supprimer ce mail ? Vérifiez que la facture a bien été téléchargée depuis le lien."
+            )
+        ) {
+            return;
+        }
+        const target = detail;
+        setInvoiceWorking(true);
+        setInvoiceError(null);
+        try {
+            const deletion = await fetch("/api/gmail/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({ uid: target.uid }),
+            });
+            const data = (await deletion.json()) as { error?: string };
+            if (!deletion.ok) {
+                setInvoiceError(data.error ?? "Suppression impossible.");
+                return;
+            }
+            setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
+            setTotal((previous) => Math.max(0, previous - 1));
+            setDetail(null);
+            setFeedback("Email de facture supprimé.");
+        } catch {
+            setInvoiceError("Suppression impossible.");
+        } finally {
+            setInvoiceWorking(false);
+        }
+    }
+
     async function removeMessage() {
         if (!detail) return;
         if (!window.confirm("Supprimer ce message ? Il partira dans la corbeille Gmail.")) {
@@ -1073,15 +1111,31 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     {invoiceLoading && (
                                         <p className="flex items-center gap-1.5 text-[11px] text-indigo-800">
                                             <Loader2 className="h-3 w-3 animate-spin" />
-                                            Recherche de la facture PDF…
+                                            Recherche de la facture…
                                         </p>
                                     )}
                                     {invoiceProposal && (
                                         <>
                                             <p className="text-[11px] font-bold text-indigo-900">
-                                                Facture {invoiceProposal.providerLabel} détectée · période{" "}
+                                                Facture {invoiceProposal.providerLabel} détectée ·{" "}
                                                 {invoiceProposal.period}
+                                                {invoiceProposal.invoiceDate
+                                                    ? ` · facturée le ${formatDate(invoiceProposal.invoiceDate)}`
+                                                    : ""}
                                             </p>
+
+                                            {invoiceProposal.files.length > 0 && (
+                                                <iframe
+                                                    title="Aperçu de la facture PDF"
+                                                    src={`/api/gmail/attachment?uid=${detail.uid}&part=${encodeURIComponent(
+                                                        invoiceProposal.files[0].part
+                                                    )}&type=application%2Fpdf&name=${encodeURIComponent(
+                                                        invoiceProposal.files[0].proposed
+                                                    )}`}
+                                                    className="w-full h-72 rounded-xl border border-indigo-200 bg-white"
+                                                />
+                                            )}
+
                                             {invoiceProposal.files.map((file) => (
                                                 <input
                                                     key={file.part}
@@ -1095,19 +1149,53 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                                     className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-1.5 text-[11px] font-mono focus:outline-none focus:border-indigo-500"
                                                 />
                                             ))}
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <button
-                                                    onClick={() => void downloadInvoice()}
-                                                    disabled={invoiceWorking}
-                                                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-[11px] font-bold transition-all"
+
+                                            {invoiceProposal.link && (
+                                                <a
+                                                    href={invoiceProposal.link}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-indigo-200 text-indigo-800 text-[11px] font-bold hover:bg-indigo-50"
                                                 >
-                                                    {invoiceWorking ? (
-                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                                    ) : (
-                                                        <Download className="h-3.5 w-3.5" />
-                                                    )}
-                                                    <span>Valider les noms et télécharger</span>
-                                                </button>
+                                                    <ExternalLink className="h-3.5 w-3.5" />
+                                                    <span>Ouvrir la facture (lien de l'email)</span>
+                                                </a>
+                                            )}
+
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                {invoiceProposal.files.length > 0 && (
+                                                    <button
+                                                        onClick={() => void downloadInvoice()}
+                                                        disabled={invoiceWorking}
+                                                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-[11px] font-bold transition-all"
+                                                    >
+                                                        {invoiceWorking ? (
+                                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                        ) : (
+                                                            <Download className="h-3.5 w-3.5" />
+                                                        )}
+                                                        <span>Valider les noms et télécharger</span>
+                                                    </button>
+                                                )}
+                                                {invoiceProposal.files.length > 0 && !invoiceProposal.link && (
+                                                    <span className="text-[10px] text-slate-500">
+                                                        Le mail sera supprimé automatiquement après le téléchargement.
+                                                    </span>
+                                                )}
+                                                {invoiceProposal.link && (
+                                                    <button
+                                                        onClick={() => void deleteAfterLink()}
+                                                        disabled={invoiceWorking}
+                                                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-60 text-[11px] font-bold"
+                                                    >
+                                                        {invoiceWorking ? (
+                                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                        ) : (
+                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                        )}
+                                                        <span>Facture récupérée — supprimer le mail</span>
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={() => {
                                                         setInvoiceProposal(null);
@@ -1117,9 +1205,6 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                                 >
                                                     Ignorer
                                                 </button>
-                                                <span className="text-[10px] text-slate-500">
-                                                    Le mail sera supprimé automatiquement après le téléchargement.
-                                                </span>
                                             </div>
                                         </>
                                     )}
@@ -1129,6 +1214,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                 </div>
                             )}
 
+                            {!(invoiceLoading || invoiceProposal) && (
+                                <>
                             <div className="px-4 py-3 border-t border-slate-100 bg-white flex flex-wrap items-center gap-2">
                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                     Ranger
@@ -1236,6 +1323,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     </button>
                                 )}
                             </div>
+
+                                </>
+                            )}
 
                             {detail.needsReply || forceReply ? (
                                 <div className="p-4 space-y-3 bg-slate-50/40">

@@ -275,13 +275,24 @@ Quand un email classé **Factures** provient d'un fournisseur reconnu **Lagoon**
 
 | Fournisseur | Exemple de nom proposé |
 | --- | --- |
-| Lagoon | `2026-08 - LAGOON - Facture.pdf` |
-| EEC Engie | `2026-09 - EEC - Facture.pdf` |
+| Lagoon | `AOÛT 2026 - LAGOON - Facture.pdf` |
+| EEC Engie | `SEPTEMBRE 2026 - EEC - Facture.pdf` |
 | CDE | `2026-T3 - CDE - Facture.pdf` |
-| OPT Internet | `2026-06 - OPT Internet - Facture.pdf` |
-| OPT Mobile | `2016-06 - OPT Mobile - Facture.pdf` |
+| OPT Internet | `JUIN 2026 - OPT Internet - Facture.pdf` |
+| OPT Mobile | `JUIN 2026 - OPT Mobile - Facture.pdf` |
+
+**Règle de période** : on utilise la date de facture (celle citée dans l'email, sinon la date de
+réception). Si cette date tombe dans les **5 premiers jours** du mois, la période est le **mois
+précédent** (facture du 01/11/2026 → `OCTOBRE 2026`), sinon c'est le mois courant
+(facture du 31/08/2026 → `AOÛT 2026`). CDE reste en trimestres (`2026-T3`).
 
 Rien n'est téléchargé tant que vous n'avez pas cliqué sur **« Valider les noms et télécharger »**.
+Un **aperçu du PDF** s'affiche directement dans la fiche (iframe sur la route protégée), et la
+section **Ranger** est masquée pour ces emails afin de ne pas mélanger rangement et traitement.
+
+Pour **EEC Engie**, la facture est souvent disponible via un **lien** dans l'email plutôt qu'en
+pièce jointe : le panneau propose alors « Ouvrir la facture (lien de l'email) » puis
+« Facture récupérée — supprimer le mail » (confirmation obligatoire).
 Après le téléchargement réussi, **l'email est déplacé dans la corbeille Gmail** (suppression
 récupérable). Si plusieurs PDF sont joints, ils reçoivent un suffixe `(1)`, `(2)`…
 
