@@ -8,6 +8,7 @@ import {
     ChevronDown,
     Download,
     ExternalLink,
+    Eye,
     FolderInput,
     KeyRound,
     Loader2,
@@ -151,6 +152,8 @@ interface InvoiceProposal {
     providerLabel: string;
     period: string;
     invoiceDate: string;
+    /** Montant total lu dans le PDF (ex. « 27 350 XPF »). */
+    amount?: string | null;
     link?: string;
     files: InvoiceFile[];
 }
@@ -1467,7 +1470,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
 
                                 <div className="min-w-0 md:w-60 md:shrink-0">
                                     <p className="text-xs font-bold text-slate-800 truncate">
-                                        {row.fromName}
+                                        {row.proposal?.providerLabel ?? row.fromName}
                                     </p>
                                     <p className="text-[10px] text-slate-500 truncate">
                                         {row.subject}
@@ -1493,11 +1496,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                                 }
                                                 className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50/60 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:border-teal-400"
                                             />
-                                            <span className="text-[10px] text-slate-400 shrink-0">
-                                                {row.proposal.providerLabel}
-                                                {row.proposal.period
-                                                    ? ` · ${row.proposal.period}`
-                                                    : ""}
+                                            <span
+                                                className={`text-[11px] shrink-0 tabular-nums ${
+                                                    row.proposal.amount
+                                                        ? "font-bold text-slate-700"
+                                                        : "text-slate-400"
+                                                }`}
+                                                title="Montant de la facture"
+                                            >
+                                                {row.proposal.amount ?? "Montant non détecté"}
                                             </span>
                                         </div>
                                     )}
@@ -1517,10 +1524,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         href={href}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-[11px] font-bold hover:bg-slate-100 transition-all shrink-0"
+                                        title="Aperçu du PDF"
+                                        aria-label="Aperçu du PDF"
+                                        className="flex items-center justify-center h-9 w-9 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all shrink-0"
                                     >
-                                        <ExternalLink className="h-3.5 w-3.5" />
-                                        <span>Aperçu</span>
+                                        <Eye className="h-4 w-4" />
                                     </a>
                                 )}
                             </div>

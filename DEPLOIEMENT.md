@@ -304,15 +304,22 @@ Rien n'est téléchargé tant que vous n'avez pas validé. L'onglet **Factures**
 **traitement en lot**, sans ouvrir chaque email :
 
 1. dès l'ouverture de l'onglet, tous les emails de facture sont analysés par paquets de 5 (une seule
-   connexion IMAP par paquet) et le **nom de PDF proposé** apparaît directement dans la liste ;
+   connexion IMAP par paquet) : **nom du fournisseur**, objet, date, **nom de PDF proposé** et
+   **montant de la facture** apparaissent directement dans la liste ;
 2. une **case à cocher** par email et une case **« Tout sélectionner »** permettent de choisir les
    factures à traiter ;
-3. chaque nom reste **modifiable** dans la liste (champ de saisie) ;
+3. chaque nom reste **modifiable** dans la liste (champ de saisie), le montant s'affiche juste à
+   droite ;
 4. **« Valider les noms et télécharger (n) »** télécharge tous les PDF sélectionnés avec les noms
    affichés, puis **déplace chaque email correspondant dans la corbeille Gmail** ;
-5. un bouton **« Aperçu »** ouvre le PDF dans un nouvel onglet, uniquement si vous le demandez
-   (aucun aperçu automatique) ;
+5. une **icône œil** ouvre le PDF dans un nouvel onglet, uniquement si vous le demandez (aucun
+   aperçu automatique) ;
 6. les emails sans facture reconnue restent visibles avec la mention « Aucune facture reconnue ».
+
+Le PDF joint (≤ 8 Mo) est lu pour chaque facture : il fournit le **montant TTC** en `XPF` / `FCFP`
+(ou `€`) — les lignes « net à payer », « total » ou « montant » sont prioritaires — et, pour OPT.nc,
+le **n° de compte** qui distingue Internet de Mobile. Si le PDF est illisible, le montant est
+recherché dans le texte de l'email.
 
 Quand une facture est ouverte depuis un autre onglet (« Tous », « À traiter »…), la fiche garde la
 présentation en **trois colonnes** : liste des emails, détail (nom du fichier modifiable + boutons)

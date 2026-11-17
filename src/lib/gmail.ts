@@ -1834,6 +1834,8 @@ export interface InvoiceProposal {
     /** Date de facture retenue (AAAA-MM-JJ). */
     invoiceDate: string;
     files: InvoiceFile[];
+    /** Montant total détecté, par exemple « 27 350 XPF » (null si illisible). */
+    amount: string | null;
     /** Lien présent dans l'email (facture en ligne, ex. EEC Engie). */
     link?: string;
 }
@@ -2086,11 +2088,49 @@ async function invoicePdfText(message: GmailMessageDetail): Promise<string | nul
 export async function analyzeInvoice(
     message: GmailMessageDetail
 ): Promise<InvoiceProposal | null> {
-    const guess = detectProvider(message);
-    if (!guess) return null;
-    const needsPdf = guess === "opt-internet" || guess === "opt-mobile";
-    const pdfText = needsPdf ? await invoicePdfText(message) : null;
+    if (!detectProvider(message)) return null;
+    // Le PDF donne le montant, et le n° de compte pour OPT.nc.
+    const pdfText = await invoicePdfText(message);
     return detectInvoiceFromMessage(message, pdfText ?? undefined);
+}
+
+const AMOUNT_RE = /(\d[\d\s.,]*)\s*(xpf|f\s?cfp|cfp|eur|€)/gi;
+const AMOUNT_KEYWORD = /net\s+à\s+payer|montant|total|somme|à\s+payer|règlement/i;
+
+function parseAmount(raw: string): number {
+    const cleaned = raw.replace(/[\s\u00a0\u202f]/g, "");
+    const grouped = /^\d{1,3}(\.\d{3})+(,\d{1,2})?$/.test(cleaned);
+    const normalized = grouped
+        ? cleaned.replace(/\./g, "").replace(",", ".")
+        : cleaned.replace(/,/g, ".");
+    const value = Number(normalized);
+    return Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Montant total d'une facture (XPF/FCFP ou €). Les lignes contenant
+ * « net à payer », « total » ou « montant » sont prioritaires, puis on garde
+ * le montant le plus élevé — jamais les dates ni les numéros de compte.
+ */
+export function amountFromText(text: string): string | null {
+    const found: Array<{ value: number; label: string; keyword: boolean }> = [];
+
+    for (const line of text.split(/\r?\n/)) {
+        const keyword = AMOUNT_KEYWORD.test(line);
+        for (const match of line.matchAll(AMOUNT_RE)) {
+            const value = parseAmount(match[1]);
+            if (value < 50) continue;
+            const raw = match[1].replace(/[\s\u00a0\u202f]+/g, " ").trim();
+            const currency = /€|eur/i.test(match[2]) ? "€" : "XPF";
+            found.push({ value, label: `${raw} ${currency}`, keyword });
+        }
+    }
+
+    if (found.length === 0) return null;
+
+    const preferred = found.filter((item) => item.keyword);
+    const pool = preferred.length > 0 ? preferred : found;
+    return pool.reduce((best, item) => (item.value > best.value ? item : best), pool[0]).label;
 }
 
 export function detectInvoiceFromMessage(
@@ -2123,6 +2163,8 @@ export function detectInvoiceFromMessage(
 
     const link = invoiceLink(message);
     const pdfs = pdfFiles(message);
+    // Le PDF est la source la plus fiable ; l'email sert de repli.
+    const amount = (pdfText ? amountFromText(pdfText) : null) ?? amountFromText(text);
 
     // Certains fournisseurs (EEC Engie) envoient un lien plutôt qu'une pièce jointe :
     // on crée alors une entrée virtuelle pour le renommage et l'aperçu.
@@ -2140,6 +2182,7 @@ export function detectInvoiceFromMessage(
         providerLabel: label,
         period,
         invoiceDate: isoDate(date),
+        amount,
         link,
         files: prepared.map((file, index) => ({
             ...file,
@@ -2362,12 +2405,11 @@ export async function detectInvoicesForUids(
                     inReplyTo: "",
                 } as GmailMessageDetail;
 
-                const guess = detectProvider(detail);
                 const pdfPart = firstPdfPart(detail);
                 let pdfText: string | null = null;
 
-                // OPT.nc : seul le PDF indique Internet ou Mobile.
-                if ((guess === "opt-internet" || guess === "opt-mobile") && pdfPart?.part) {
+                // Le PDF apporte le montant et, pour OPT.nc, le n° de compte.
+                if (pdfPart?.part) {
                     try {
                         const download = await client.download(String(uid), pdfPart.part, {
                             uid: true,

@@ -154,8 +154,9 @@ Aucun téléchargement ni suppression sans votre validation.
 distingue. Le PDF est donc lu automatiquement : compte `9000019168` → OPT Internet,
 compte `1.11150452` → OPT Mobile.
 
-L'onglet **Factures** traite tout **en lot** : chaque email affiche directement son nom de PDF proposé,
-avec une case à cocher par ligne et une case **« Tout sélectionner »**. Le bouton
-**« Valider les noms et télécharger (n) »** télécharge tous les PDF sélectionnés puis supprime les
-emails correspondants. Le bouton **« Aperçu »** ouvre un PDF dans un nouvel onglet seulement si vous
-le demandez (aucun aperçu automatique, aucune ouverture d'email nécessaire).
+L'onglet **Factures** traite tout **en lot** : chaque email affiche le **nom du fournisseur**, son nom
+de PDF proposé et le **montant lu dans le PDF**, avec une case à cocher par ligne et une case
+**« Tout sélectionner »**. Le bouton **« Valider les noms et télécharger (n) »** télécharge tous les
+PDF sélectionnés puis supprime les emails correspondants. Une **icône œil** ouvre un PDF dans un
+nouvel onglet seulement si vous le demandez (aucun aperçu automatique, aucune ouverture d'email
+nécessaire).
