@@ -34,6 +34,7 @@ import {
 import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
 import { addParcel } from "@/lib/trackingMemory";
 import {
+    coverSrc,
     loadCoverOverrides,
     loanCoverKey,
     lookupBook,
@@ -244,6 +245,7 @@ interface LoanCardProps {
 const LoanCard: React.FC<LoanCardProps> = ({ loan, override, onSaveCover }) => {
     const [lookup, setLookup] = useState<BookLookup | null>(null);
     const [coverIndex, setCoverIndex] = useState(0);
+    const [attempt, setAttempt] = useState(0);
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState(override ?? "");
 
@@ -252,13 +254,13 @@ const LoanCard: React.FC<LoanCardProps> = ({ loan, override, onSaveCover }) => {
         setLookup(null);
         setCoverIndex(0);
         void (async () => {
-            const found = await lookupBook(loan.title, loan.author);
+            const found = await lookupBook(loan.title, loan.author, { force: attempt > 0 });
             if (!cancelled) setLookup(found);
         })();
         return () => {
             cancelled = true;
         };
-    }, [loan.title, loan.author]);
+    }, [loan.title, loan.author, attempt]);
 
     useEffect(() => {
         setDraft(override ?? "");
@@ -271,7 +273,8 @@ const LoanCard: React.FC<LoanCardProps> = ({ loan, override, onSaveCover }) => {
             : loan.author
               ? titleCase(loan.author)
               : null;
-    const coverUrl = override ?? lookup?.covers[coverIndex] ?? null;
+    const rawCover = override ?? lookup?.covers[coverIndex] ?? null;
+    const coverUrl = coverSrc(rawCover);
     const searching = lookup === null && !override;
     const tone = dueTone(loan.dueDate);
 
@@ -298,6 +301,15 @@ const LoanCard: React.FC<LoanCardProps> = ({ loan, override, onSaveCover }) => {
                         <span className="text-[8px] font-bold leading-tight line-clamp-3">
                             {displayTitle}
                         </span>
+                        {!searching && (
+                            <button
+                                type="button"
+                                onClick={() => setAttempt((value) => value + 1)}
+                                className="text-[8px] font-bold text-amber-700 underline"
+                            >
+                                Rechercher
+                            </button>
+                        )}
                     </div>
                 )}
             </div>

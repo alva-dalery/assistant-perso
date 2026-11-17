@@ -49,13 +49,19 @@ function similarity(left: string, right: string): number {
     return common / Math.min(a.size, b.size);
 }
 
-/** Le résultat du catalogue correspond-il vraiment au livre demandé ? */
-function credible(requested: string, candidate: string): boolean {
+/**
+ * Le résultat du catalogue correspond-il au livre demandé ?
+ * `lenient` sert au dernier essai : mieux vaut une couverture approchante
+ * qu'aucune couverture, l'utilisateur pouvant corriger le lien.
+ */
+function credible(requested: string, candidate: string, lenient = false): boolean {
     if (!candidate.trim()) return false;
     const normalizedRequested = normalize(requested);
     const normalizedCandidate = normalize(candidate);
+    if (!normalizedRequested) return false;
     if (normalizedCandidate.startsWith(normalizedRequested)) return true;
-    return similarity(requested, candidate) >= 0.6;
+    if (normalizedCandidate.includes(normalizedRequested)) return true;
+    return similarity(requested, candidate) >= (lenient ? 0.34 : 0.6);
 }
 
 /** « DAMASIO, Alain » → « Alain Damasio », « ALAIN DAMASIO » → « Alain Damasio ». */
@@ -107,7 +113,11 @@ function readableTitle(title?: string, subtitle?: string): string {
     return [title?.trim(), subtitle?.trim()].filter(Boolean).join(" : ").slice(0, 160);
 }
 
-async function googleBooksLookup(title: string, author: string | null): Promise<BookLookup> {
+async function googleBooksLookup(
+    title: string,
+    author: string | null,
+    lenient = false
+): Promise<BookLookup> {
     const params = new URLSearchParams({
         q: `intitle:${title}${author ? ` inauthor:${author}` : ""}`,
         maxResults: "3",
@@ -140,7 +150,7 @@ async function googleBooksLookup(title: string, author: string | null): Promise<
         const info = item.volumeInfo;
         if (!info) continue;
         const candidate = readableTitle(info.title, info.subtitle);
-        if (!credible(title, candidate)) continue;
+        if (!credible(title, candidate, lenient)) continue;
 
         if (!matched) {
             matched = {
@@ -171,7 +181,11 @@ async function googleBooksLookup(title: string, author: string | null): Promise<
     };
 }
 
-async function openLibraryLookup(title: string, author: string | null): Promise<BookLookup> {
+async function openLibraryLookup(
+    title: string,
+    author: string | null,
+    lenient = false
+): Promise<BookLookup> {
     const params = new URLSearchParams({
         title,
         limit: "3",
@@ -197,7 +211,7 @@ async function openLibraryLookup(title: string, author: string | null): Promise<
 
     for (const doc of data.docs ?? []) {
         const candidate = readableTitle(doc.title, doc.subtitle);
-        if (!credible(title, candidate)) continue;
+        if (!credible(title, candidate, lenient)) continue;
 
         if (!matched) {
             matched = {
@@ -231,6 +245,14 @@ function reorderAuthors(authors: string[], requested: string | null): string[] {
     return [...authors].sort((a, b) => similarity(requested, b) - similarity(requested, a));
 }
 
+function mergeLookups(base: BookLookup, extra: BookLookup): BookLookup {
+    return {
+        title: base.title ?? extra.title,
+        authors: base.authors.length > 0 ? base.authors : extra.authors,
+        covers: unique([...base.covers, ...extra.covers]).slice(0, 5),
+    };
+}
+
 const LOOKUP_CACHE = new Map<string, BookLookup>();
 const LOOKUP_PROMISES = new Map<string, Promise<BookLookup>>();
 
@@ -238,9 +260,14 @@ const LOOKUP_PROMISES = new Map<string, Promise<BookLookup>>();
  * Recherche le titre complet, les auteurs et les couvertures d'un ouvrage.
  * Les résultats (même vides) sont mis en cache pour la session.
  */
-export async function lookupBook(title: string, author: string | null): Promise<BookLookup> {
+export async function lookupBook(
+    title: string,
+    author: string | null,
+    options?: { force?: boolean }
+): Promise<BookLookup> {
     if (!title.trim()) return EMPTY_LOOKUP;
     const key = loanCoverKey(title, author);
+    if (options?.force) LOOKUP_CACHE.delete(key);
 
     const cached = LOOKUP_CACHE.get(key);
     if (cached) return cached;
@@ -251,22 +278,21 @@ export async function lookupBook(title: string, author: string | null): Promise<
     const task = (async (): Promise<BookLookup> => {
         let result = EMPTY_LOOKUP;
 
-        try {
-            result = await googleBooksLookup(title, author);
-        } catch {
-            result = EMPTY_LOOKUP;
-        }
+        const attempts: Array<() => Promise<BookLookup>> = [
+            () => googleBooksLookup(title, author),
+            () => googleBooksLookup(title, null),
+            () => openLibraryLookup(title, author),
+            () => openLibraryLookup(title, null),
+            () => openLibraryLookup(title, null, true),
+        ];
 
-        if (result.covers.length === 0) {
+        for (const attempt of attempts) {
+            if (result.covers.length > 0) break;
             try {
-                const fallback = await openLibraryLookup(title, author);
-                result = {
-                    title: result.title ?? fallback.title,
-                    authors: result.authors.length > 0 ? result.authors : fallback.authors,
-                    covers: unique([...result.covers, ...fallback.covers]).slice(0, 5),
-                };
+                const found = await attempt();
+                result = mergeLookups(result, found);
             } catch {
-                // réseau indisponible : on garde ce que Google Books a donné
+                // source indisponible : on passe à la suivante
             }
         }
 
@@ -308,4 +334,22 @@ export function saveCoverOverrides(overrides: Record<string, string>): void {
     } catch {
         // Stockage indisponible : le lien reste valable pour la session.
     }
+}
+
+/* ----------------------------- Affichage des images ----------------------------- */
+
+const PROXYABLE_COVER = /^https?:\/\/([a-z0-9-]+\.)*(openlibrary\.org|archive\.org|google\.com|googleusercontent\.com)\//i;
+
+/**
+ * Les couvertures sont servies par notre propre route `/api/cover` : cela évite
+ * les blocages de hotlink et les redirections refusées par le navigateur.
+ * Un lien saisi à la main sur un autre domaine est utilisé tel quel.
+ */
+export function coverSrc(url: string | null | undefined): string | null {
+    if (!url) return null;
+    const trimmed = url.trim();
+    if (!/^https?:\/\//i.test(trimmed)) return null;
+    return PROXYABLE_COVER.test(trimmed)
+        ? `/api/cover?url=${encodeURIComponent(trimmed)}`
+        : trimmed;
 }

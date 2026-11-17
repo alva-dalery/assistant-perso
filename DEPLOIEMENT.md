@@ -418,8 +418,11 @@ Trois formats sont reconnus :
 Jusqu'à 15 ouvrages, dédoublonnés par titre. Pour chaque livre, l'application retrouve
 automatiquement :
 
-- la **couverture** (Google Books puis Open Library, plusieurs formats d'image essayés et mis en
-  cache) ;
+- la **couverture** (Google Books puis Open Library, plusieurs essais : avec puis sans auteur, puis
+  recherche élargie). Les images passent par la route interne `/api/cover` : elles sont téléchargées
+  côté serveur (sources autorisées : `*.openlibrary.org`, `*.archive.org`, `*.google.com`,
+  `*.googleusercontent.com`), ce qui évite les blocages de hotlink et les redirections refusées par
+  le navigateur. Un bouton **« Rechercher »** relance la recherche si aucune couverture n'est trouvée ;
 - le **titre complet** catalogué, sous-titre compris ;
 - le **prénom et le nom** de l'auteur (l'auteur cité dans l'email est placé en premier s'il fait
   partie des contributeurs).
