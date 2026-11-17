@@ -172,8 +172,12 @@ interface InvoiceRow {
     error?: string;
 }
 
-const INVOICE_LOGOS: Record<string, { domain: string; label: string; color: string }> = {
-    lagoon: { domain: "lagoon.nc", label: "LAGOON", color: "bg-sky-600" },
+const INVOICE_LOGOS: Record<
+    string,
+    { domain: string; src?: string; label: string; color: string }
+> = {
+    // Logo officiel du site lagoon.nc (SVG), contenu dans le carré.
+    lagoon: { domain: "lagoon.nc", src: "/logos/lagoon.svg", label: "LAGOON", color: "bg-sky-600" },
     eec: { domain: "engie.nc", label: "EEC", color: "bg-blue-700" },
     cde: { domain: "cde.nc", label: "CDE", color: "bg-cyan-600" },
     "opt-internet": { domain: "opt.nc", label: "OPT", color: "bg-emerald-600" },
@@ -195,10 +199,10 @@ const ProviderLogo: React.FC<{ provider: string; className?: string }> = ({
         <span
             className={`inline-flex items-center justify-center overflow-hidden rounded-lg bg-white border border-slate-200 shrink-0 ${className}`}
         >
-            {!broken && meta.domain ? (
+            {!broken && (meta.src || meta.domain) ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                    src={`https://logo.clearbit.com/${meta.domain}`}
+                    src={meta.src ?? `https://logo.clearbit.com/${meta.domain}`}
                     alt={meta.label}
                     onError={() => setBroken(true)}
                     className="h-full w-full object-contain p-0.5"
