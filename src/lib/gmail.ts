@@ -447,6 +447,199 @@ export function extractTracking(input: {
     };
 }
 
+/* ---------------------- Bibliothèque (BM Lyon) ---------------------- */
+
+const LIBRARY_SENDER = /@(?:[\w-]+\.)*bm-lyon\.fr$/i;
+
+const LOAN_DATE =
+    /(\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}|\d{1,2}\s+(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)\s+\d{4})/i;
+
+const LOAN_LABEL =
+    /^(?:titre|document|ouvrage|auteur|cote|support|date de retour|retour|[àa] rendre|[ée]ch[ée]ance|emprunt)\b\s*[:\-]?/i;
+
+const LOAN_MONTHS: Record<string, number> = {
+    janvier: 1,
+    fevrier: 2,
+    février: 2,
+    mars: 3,
+    avril: 4,
+    mai: 5,
+    juin: 6,
+    juillet: 7,
+    aout: 8,
+    août: 8,
+    septembre: 9,
+    octobre: 10,
+    novembre: 11,
+    decembre: 12,
+    décembre: 12,
+};
+
+function loanIsoDate(raw: string): string | null {
+    const numeric = raw.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{2,4})$/);
+    if (numeric) {
+        const day = Number(numeric[1]);
+        const month = Number(numeric[2]);
+        let year = Number(numeric[3]);
+        if (year < 100) year += 2000;
+        if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+            return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        }
+        return null;
+    }
+    const long = raw.match(/^(\d{1,2})\s+(\S+)\s+(\d{4})$/);
+    if (long) {
+        const month = LOAN_MONTHS[long[2].toLowerCase()];
+        const day = Number(long[1]);
+        if (month && day >= 1 && day <= 31) {
+            return `${long[3]}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        }
+    }
+    return null;
+}
+
+/** Écart entre la colonne « Titre » et « Date de retour » d'un tableau. */
+function loanTableOffset(lines: string[]): number | null {
+    for (let header = 0; header < lines.length; header += 1) {
+        if (!/^titre\s*$/i.test(lines[header])) continue;
+        for (let cursor = header + 1; cursor <= Math.min(lines.length - 1, header + 5); cursor += 1) {
+            if (/^(?:date de retour|retour)$/i.test(lines[cursor])) {
+                return cursor - header;
+            }
+        }
+    }
+    return null;
+}
+
+/** Titre (et auteur) rattaché à une ligne de date de retour. */
+function loanTitle(
+    lines: string[],
+    index: number,
+    tableOffset: number | null
+): { title: string; author: string | null } | null {
+    const windowStart = Math.max(0, index - 8);
+    for (let cursor = index; cursor >= windowStart; cursor -= 1) {
+        const labelled = lines[cursor].match(/^(?:titre|document|ouvrage)\s*[:\-]\s*(.+)$/i);
+        if (!labelled) continue;
+        // Auteur le plus proche (au-dessus ou en dessous du titre).
+        const authors: Array<{ distance: number; value: string }> = [];
+        for (let offset = -3; offset <= 4; offset += 1) {
+            const line = lines[cursor + offset];
+            if (!line) continue;
+            const match = line.match(/^auteur\s*[:\-]\s*(.+)$/i);
+            if (match) authors.push({ distance: Math.abs(offset), value: match[1].trim() });
+        }
+        authors.sort((a, b) => a.distance - b.distance);
+        return { title: labelled[1].trim(), author: authors[0]?.value ?? null };
+    }
+
+    // Tableau « Titre / Auteur / Date de retour » : la ligne du titre est
+    // décalée du même nombre de lignes que l'en-tête.
+    if (tableOffset && index - tableOffset >= 0) {
+        const candidate = lines[index - tableOffset];
+        if (
+            candidate &&
+            candidate.length >= 3 &&
+            candidate.length <= 140 &&
+            !LOAN_DATE.test(candidate) &&
+            !LOAN_LABEL.test(candidate) &&
+            /[A-Za-zÀ-ÿ]/.test(candidate)
+        ) {
+            const author = lines[index - tableOffset + 1];
+            const usableAuthor =
+                author && !LOAN_DATE.test(author) && !LOAN_LABEL.test(author) && author.length <= 80
+                    ? author
+                    : null;
+            return { title: candidate, author: usableAuthor };
+        }
+    }
+
+    let before = lines[index]
+        .split(LOAN_DATE)[0]
+        .replace(
+            /\s*(?:[-–—|:]\s*)?(?:date de retour|retour|[àa] rendre|[ée]ch[ée]ance)(?:\s*(?:le|:|-))?\s*$/i,
+            ""
+        )
+        .replace(/[|·•\-–—:\s]+$/, "")
+        .trim();
+
+    if (before.length >= 3 && !LOAN_LABEL.test(before)) {
+        const parts = before.split(/\s+[-–—|]\s+/);
+        if (parts.length >= 2 && parts[0].length >= 3 && parts[1].length >= 2) {
+            before = parts[0].trim();
+            return { title: before, author: parts[1].trim() };
+        }
+        const inParentheses = before.match(/^(.+?)\s*\(([^)]+)\)$/);
+        if (inParentheses) {
+            return { title: inParentheses[1].trim(), author: inParentheses[2].trim() };
+        }
+        return { title: before, author: null };
+    }
+
+    for (let cursor = index - 1; cursor >= Math.max(0, index - 4); cursor -= 1) {
+        const line = lines[cursor];
+        if (LOAN_DATE.test(line)) continue;
+        if (LOAN_LABEL.test(line)) continue;
+        if (line.length < 3 || line.length > 140) continue;
+        if (!/[A-Za-zÀ-ÿ]/.test(line)) continue;
+        return { title: line, author: null };
+    }
+
+    return null;
+}
+
+/**
+ * Liste des livres empruntés dans un email de bibliothèque (BM Lyon),
+ * avec la date de retour de chaque ouvrage.
+ */
+export function extractBookLoans(input: {
+    subject: string;
+    fromEmail: string;
+    text: string;
+}): GmailBookLoan[] {
+    if (!LIBRARY_SENDER.test(input.fromEmail)) return [];
+
+    const lines = input.text
+        .replace(/\r/g, "")
+        .split("\n")
+        .map((line) => line.replace(/\s+/g, " ").trim())
+        .filter(Boolean);
+
+    if (lines.length === 0) return [];
+    if (!/(pr[êe]t|emprunt|rendre|retour|biblioth[èe]que)/i.test(`${input.subject} ${input.text}`)) {
+        return [];
+    }
+
+    const loans: GmailBookLoan[] = [];
+    const seen = new Set<string>();
+    const tableOffset = loanTableOffset(lines);
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const match = line.match(LOAN_DATE);
+        if (!match) continue;
+        if (/emprunt|inscription|naissance|carte/i.test(line)) continue;
+
+        const picked = loanTitle(lines, index, tableOffset);
+        if (!picked) continue;
+
+        const key = picked.title.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        loans.push({
+            title: picked.title.slice(0, 140),
+            author: picked.author ? picked.author.slice(0, 80) : null,
+            dueDate: loanIsoDate(match[1]),
+            dueLabel: match[1].trim(),
+        });
+
+        if (loans.length >= 15) break;
+    }
+
+    return loans;
+}
+
 function headerValue(headers: string, name: string): string {
     const regex = new RegExp(`^${name}:\\s*(.+)$`, "im");
     const match = headers.match(regex);
@@ -620,6 +813,16 @@ export interface GmailMessageSummary extends GmailClassification {
     answered: boolean;
 }
 
+/** Livre emprunté dans une bibliothèque (BM Lyon). */
+export interface GmailBookLoan {
+    title: string;
+    author: string | null;
+    /** Date de retour au format ISO (AAAA-MM-JJ) si lisible. */
+    dueDate: string | null;
+    /** Date de retour telle qu'écrite dans l'email. */
+    dueLabel: string | null;
+}
+
 export interface GmailMessageDetail extends GmailMessageSummary {
     to: string;
     cc: string;
@@ -644,6 +847,8 @@ export interface GmailMessageDetail extends GmailMessageSummary {
     inReplyTo: string;
     /** Suivi de colis, si l'email en contient un. */
     tracking: GmailTracking | null;
+    /** Livres empruntés, pour les emails de la bibliothèque (BM Lyon). */
+    loans: GmailBookLoan[];
 }
 
 function addressList(list?: { name?: string; address?: string }[]): string {
@@ -1214,6 +1419,12 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             text: breakdown.currentText || visibleText,
         });
 
+        const loans = extractBookLoans({
+            subject: envelope?.subject ?? "",
+            fromEmail: envelope?.from?.[0]?.address ?? "",
+            text: breakdown.currentText || visibleText,
+        });
+
         const base = toSummary(message, message.headers?.toString("utf8") ?? "");
         // Le corps du message peut révéler un suivi qu'un en-tête de diffusion
         // masquait (boutiques qui expédient via une régie marketing).
@@ -1245,6 +1456,7 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             messageId: envelope?.messageId ?? "",
             inReplyTo: envelope?.inReplyTo ?? "",
             tracking,
+            loans,
         };
     });
 }

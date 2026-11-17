@@ -402,6 +402,23 @@ sont conservés.
 Le pied de fiche **« Suivi de colis : aucune réponse attendue »** et le bouton **« Répondre quand
 même »** n'apparaissent pas pour ces emails : une notification d'expédition ne se répond pas.
 
+#### Bibliothèque de Lyon (BM Lyon)
+
+Un email venant d'une adresse en **@bm-lyon.fr** qui contient une liste de prêts est reconnu
+automatiquement. La fiche affiche une carte **Livres empruntés** : une vignette par ouvrage avec sa
+**couverture**, le **titre**, l'**auteur** et la **date de retour** (`À rendre le 12 déc. 2026`), en
+rouge si la date est dépassée, en ambre dans les sept jours.
+
+Trois formats sont reconnus :
+
+- blocs étiquetés (`Titre : …`, `Auteur : …`, `Date de retour : …`) ;
+- lignes simples (`Titre - Auteur - à rendre le 12/12/2026`, `Titre (Auteur) - retour le 22 novembre 2026`) ;
+- tableaux (`Titre` / `Auteur` / `Date de retour` en en-tête, puis une ligne par ouvrage).
+
+Jusqu'à 15 ouvrages, dédoublonnés par titre. Les couvertures sont cherchées sur **Google Books** à
+partir du titre et de l'auteur (mise en cache, repli sur une vignette sobre si aucune couverture).
+Aucune analyse n'a lieu pour les autres expéditeurs.
+
 #### Corriger une étiquette à la main
 
 Chaque email peut être reclassé manuellement, dans **tous les onglets** : un bouton **« … »** est

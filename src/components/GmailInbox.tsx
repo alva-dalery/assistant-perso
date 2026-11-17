@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
     AlertTriangle,
     ArrowLeft,
+    BookOpen,
     CheckCircle2,
     Check,
     ChevronDown,
@@ -15,6 +16,7 @@ import {
     FileText,
     FolderInput,
     KeyRound,
+    Library,
     Loader2,
     Mail,
     MoreHorizontal,
@@ -77,6 +79,7 @@ interface MessageDetail extends InboxMessage {
     messageId: string;
     inReplyTo: string;
     tracking?: TrackingInfo | null;
+    loans?: BookLoan[];
 }
 
 interface ReplyDraftResponse {
@@ -205,6 +208,97 @@ function formatRelative(iso: string): string {
     return `il y a ${years} an${years > 1 ? "s" : ""}`;
 }
 
+/** « 12 déc. 2026 » à partir d'une date ISO (AAAA-MM-JJ). */
+function formatShortDate(iso: string): string {
+    const date = new Date(`${iso}T12:00:00`);
+    if (Number.isNaN(date.getTime())) return iso;
+    return date.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+/** Urgence d'une date de retour : en retard, proche (7 jours) ou normale. */
+function dueTone(iso: string | null): "overdue" | "soon" | "normal" {
+    if (!iso) return "normal";
+    const due = new Date(`${iso}T23:59:59`).getTime();
+    if (Number.isNaN(due)) return "normal";
+    const days = Math.ceil((due - Date.now()) / 86_400_000);
+    if (days < 0) return "overdue";
+    if (days <= 7) return "soon";
+    return "normal";
+}
+
+/** Couvertures Google Books, mises en cache pour éviter les requêtes répétées. */
+const LOAN_COVER_CACHE = new Map<string, string | null>();
+
+const LoanCover: React.FC<{ title: string; author: string | null }> = ({ title, author }) => {
+    const key = `${title}|${author ?? ""}`;
+    const [url, setUrl] = useState<string | null>(LOAN_COVER_CACHE.get(key) ?? null);
+    const [loading, setLoading] = useState(!LOAN_COVER_CACHE.has(key));
+
+    useEffect(() => {
+        if (LOAN_COVER_CACHE.has(key)) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const params = new URLSearchParams({
+                    q: `intitle:${title}${author ? ` inauthor:${author}` : ""}`,
+                    maxResults: "1",
+                    fields: "items(volumeInfo(imageLinks))",
+                });
+                const response = await fetch(
+                    `https://www.googleapis.com/books/v1/volumes?${params.toString()}`
+                );
+                const data = (await response.json()) as {
+                    items?: {
+                        volumeInfo?: {
+                            imageLinks?: { thumbnail?: string; smallThumbnail?: string };
+                        };
+                    }[];
+                };
+                const links = data.items?.[0]?.volumeInfo?.imageLinks;
+                const found = links?.thumbnail ?? links?.smallThumbnail ?? null;
+                const cleaned = found
+                    ? found.replace(/^http:/, "https:").replace(/&edge=curl/g, "")
+                    : null;
+                LOAN_COVER_CACHE.set(key, cleaned);
+                if (!cancelled) setUrl(cleaned);
+            } catch {
+                LOAN_COVER_CACHE.set(key, null);
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [key, title, author]);
+
+    if (url) {
+        return (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+                src={url}
+                alt={`Couverture de ${title}`}
+                className="h-full w-full object-cover"
+                onError={() => {
+                    LOAN_COVER_CACHE.set(key, null);
+                    setUrl(null);
+                }}
+            />
+        );
+    }
+
+    return (
+        <div className="h-full w-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400 p-2 text-center">
+            {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+                <BookOpen className="h-5 w-5" />
+            )}
+            <span className="text-[8px] font-bold leading-tight line-clamp-3">{title}</span>
+        </div>
+    );
+};
+
 interface PartInfo {
     part: string;
     filename: string;
@@ -218,6 +312,13 @@ interface FolderSuggestion {
     label: string;
     score: number;
     reason: string;
+}
+
+interface BookLoan {
+    title: string;
+    author: string | null;
+    dueDate: string | null;
+    dueLabel: string | null;
 }
 
 interface TrackingInfo {
@@ -2092,6 +2193,67 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                                 L'email est rangé dans ce dossier et le colis rejoint le
                                                 tableau de bord (magasin, numéro, lien, statut, historique).
                                             </p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {detail.loans && detail.loans.length > 0 && (
+                                    <div className="mt-3 rounded-2xl bg-amber-50/60 border border-amber-200/70 p-3 space-y-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+                                                <Library className="h-3.5 w-3.5" />
+                                                Livres empruntés
+                                            </p>
+                                            <span className="text-[10px] font-bold text-amber-800">
+                                                {detail.loans.length}
+                                            </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                            {detail.loans.map((loan, index) => {
+                                                const tone = dueTone(loan.dueDate);
+                                                return (
+                                                    <div
+                                                        key={`${loan.title}-${index}`}
+                                                        className="rounded-xl bg-white border border-amber-200/70 overflow-hidden flex flex-col"
+                                                    >
+                                                        <div className="aspect-[2/3] bg-slate-100 overflow-hidden">
+                                                            <LoanCover
+                                                                title={loan.title}
+                                                                author={loan.author}
+                                                            />
+                                                        </div>
+                                                        <div className="p-2 space-y-0.5">
+                                                            <p className="text-[11px] font-bold text-slate-800 leading-tight line-clamp-2">
+                                                                {loan.title}
+                                                            </p>
+                                                            {loan.author && (
+                                                                <p className="text-[9px] text-slate-500 truncate">
+                                                                    {loan.author}
+                                                                </p>
+                                                            )}
+                                                            {loan.dueDate ? (
+                                                                <p
+                                                                    className={`text-[9px] font-bold ${
+                                                                        tone === "overdue"
+                                                                            ? "text-rose-600"
+                                                                            : tone === "soon"
+                                                                              ? "text-amber-700"
+                                                                              : "text-slate-500"
+                                                                    }`}
+                                                                >
+                                                                    À rendre le{" "}
+                                                                    {formatShortDate(loan.dueDate)}
+                                                                </p>
+                                                            ) : loan.dueLabel ? (
+                                                                <p className="text-[9px] font-bold text-slate-500">
+                                                                    Retour : {loan.dueLabel}
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}

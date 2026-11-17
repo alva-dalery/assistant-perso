@@ -140,6 +140,11 @@ Le bouton **« Valider et suivre »** range l'email dans le dossier choisi (prop
 « Commandes et Factures ») puis ajoute le colis au **tableau de bord** : magasin, numéro de suivi,
 lien, statut, date d'expédition et historique en accordéon.
 
+## 📚 Bibliothèque (BM Lyon)
+
+Les emails de la bibliothèque de Lyon (`@bm-lyon.fr`) sont analysés : la liste des livres empruntés
+apparaît en **vignettes de couvertures**, avec auteur et **date de retour** (rouge si dépassée).
+
 ## 🎭 Culture — expositions, livres et films
 
 Nouveau module accessible depuis la barre latérale :
