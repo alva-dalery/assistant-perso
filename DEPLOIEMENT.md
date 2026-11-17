@@ -384,9 +384,10 @@ commande ? ») reste classée **Répondre**.
 
 #### Valider un suivi et le ranger
 
-Dans la carte **Suivi de colis**, choisissez le dossier de rangement — l'application propose
-automatiquement **« Commandes et Factures »**, sinon le premier dossier contenant « commande », à
-défaut « facture » — puis cliquez sur **« Valider et suivre »** :
+Pour un email de **commande**, la section **Ranger** et la recherche de dossier sont masquées : seul
+le bouton de suppression reste. Dans la carte **Suivi de colis**, le dossier est **présélectionné**
+(**« Commandes et Factures »**, sinon le premier dossier contenant « commande », à défaut
+« facture ») ; vous pouvez le changer, puis cliquez sur **« Valider et suivre »** :
 
 1. l'email est **déplacé dans le dossier Gmail** choisi ;
 2. le colis est enregistré dans le navigateur (`localStorage`, clé `assistantPerso.tracking.v1`) ;
@@ -398,19 +399,21 @@ un bouton **« Suivre »**, le **statut**, la **date d'expédition** et un **his
 corbeille retire le colis du tableau de bord — l'email reste rangé dans Gmail. Les 20 derniers colis
 sont conservés.
 
+Le pied de fiche **« Suivi de colis : aucune réponse attendue »** et le bouton **« Répondre quand
+même »** n'apparaissent pas pour ces emails : une notification d'expédition ne se répond pas.
+
 #### Corriger une étiquette à la main
 
-Chaque email peut être reclassé manuellement, dans **tous les onglets** :
-
-- dans la liste, un sélecteur **Auto / Répondre / Important / Factures / Commande / Infos / Newsletter /
-  Publicité** est affiché sous chaque email ;
-- dans la fiche de lecture, le même sélecteur est proposé sous la ligne « Tri automatique » ;
-- dans l'onglet **Factures**, le sélecteur est présent sur chaque ligne.
+Chaque email peut être reclassé manuellement, dans **tous les onglets** : un bouton **« … »** est
+placé **juste à côté de l'étiquette** (liste des emails, fiche de lecture et lignes de l'onglet
+Factures). Il ouvre un menu avec les sept catégories — **Répondre, Important, Factures, Commande,
+Infos, Newsletter, Publicité** — et l'option **Automatique** en bas du menu.
 
 Le choix est prioritaire sur le tri automatique, s'applique immédiatement (compteurs et onglets
 recalculés) et est **mémorisé dans le navigateur** (`localStorage`, clé `assistantPerso.labels.v1`).
-Repasser sur **Auto** rétablit le classement automatique d'origine. Un email classé à la main en
-« Répondre » passe dans l'onglet **Répondre** et propose un brouillon à l'ouverture.
+Le bouton passe en teal quand une étiquette manuelle est active ; **Automatique** rétablit le
+classement d'origine. Un email classé à la main en « Répondre » passe dans l'onglet **Répondre** et
+propose un brouillon à l'ouverture.
 
 ### Tri automatique et rédaction de réponse
 

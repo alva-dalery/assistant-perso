@@ -132,8 +132,9 @@ Les emails d'expédition et de livraison reçoivent l'étiquette **Commande** et
 marketing). La fiche du message affiche le transporteur, le numéro de suivi (avec bouton de copie),
 le statut, la date de livraison annoncée et un bouton **« Suivre le colis »**.
 
-Chaque email peut aussi être **reclassé à la main** (liste, fiche et onglet Factures) : le choix est
-mémorisé dans le navigateur, et l'option **Auto** rétablit le classement automatique.
+Chaque email peut aussi être **reclassé à la main** : un bouton **« … »** à côté de l'étiquette ouvre
+le menu des catégories (liste, fiche et onglet Factures). Le choix est mémorisé dans le navigateur,
+et l'option **Automatique** rétablit le classement d'origine.
 
 Le bouton **« Valider et suivre »** range l'email dans le dossier choisi (proposition automatique :
 « Commandes et Factures ») puis ajoute le colis au **tableau de bord** : magasin, numéro de suivi,

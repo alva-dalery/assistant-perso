@@ -5,6 +5,7 @@ import {
     AlertTriangle,
     ArrowLeft,
     CheckCircle2,
+    Check,
     ChevronDown,
     Copy,
     Download,
@@ -16,6 +17,7 @@ import {
     KeyRound,
     Loader2,
     Mail,
+    MoreHorizontal,
     Package,
     PenLine,
     RefreshCw,
@@ -297,6 +299,110 @@ const ProviderLogo: React.FC<{ provider: string; className?: string }> = ({
         >
             <Icon className="h-1/2 w-1/2" />
         </span>
+    );
+};
+
+interface LabelMenuProps {
+    value: GmailCategory;
+    /** Étiquette choisie à la main (absente = tri automatique). */
+    override?: GmailCategory;
+    onSelect: (value: "auto" | GmailCategory) => void;
+    className?: string;
+    /** Aligne le menu à droite (bord droit du bouton). */
+    align?: "left" | "right";
+}
+
+/** Bouton « … » qui ouvre la liste des catégories à appliquer à l'email. */
+const LabelMenu: React.FC<LabelMenuProps> = ({
+    value,
+    override,
+    onSelect,
+    className = "",
+    align = "right",
+}) => {
+    const [open, setOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!open) return;
+        const handlePointer = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setOpen(false);
+            }
+        };
+        const handleKey = (event: KeyboardEvent) => {
+            if (event.key === "Escape") setOpen(false);
+        };
+        document.addEventListener("mousedown", handlePointer);
+        document.addEventListener("keydown", handleKey);
+        return () => {
+            document.removeEventListener("mousedown", handlePointer);
+            document.removeEventListener("keydown", handleKey);
+        };
+    }, [open]);
+
+    const choose = (next: "auto" | GmailCategory) => {
+        setOpen(false);
+        onSelect(next);
+    };
+
+    return (
+        <div ref={containerRef} className={`relative shrink-0 ${className}`}>
+            <button
+                type="button"
+                onClick={(event) => {
+                    event.stopPropagation();
+                    setOpen((current) => !current);
+                }}
+                aria-haspopup="menu"
+                aria-expanded={open}
+                aria-label="Changer la catégorie"
+                title="Changer la catégorie"
+                className={`h-7 w-7 flex items-center justify-center rounded-lg transition-all ${
+                    override
+                        ? "text-teal-700 bg-teal-50 hover:bg-teal-100"
+                        : "text-slate-400 hover:text-slate-800 hover:bg-slate-100"
+                }`}
+            >
+                <MoreHorizontal className="h-4 w-4" />
+            </button>
+
+            {open && (
+                <div
+                    role="menu"
+                    onClick={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    className={`absolute z-40 mt-1 w-44 rounded-xl border border-slate-200 bg-white shadow-xl p-1 ${
+                        align === "right" ? "right-0" : "left-0"
+                    }`}
+                >
+                    {CATEGORY_ORDER.map((category) => (
+                        <button
+                            key={category}
+                            type="button"
+                            role="menuitem"
+                            onClick={() => choose(category)}
+                            className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-left hover:bg-slate-100 ${
+                                category === value ? "text-teal-700" : "text-slate-700"
+                            }`}
+                        >
+                            <span>{CATEGORY_LABEL[category]}</span>
+                            {category === value && <Check className="h-3.5 w-3.5" />}
+                        </button>
+                    ))}
+                    <div className="my-1 h-px bg-slate-100" />
+                    <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => choose("auto")}
+                        className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-left text-slate-700 hover:bg-slate-100"
+                    >
+                        <span>Automatique</span>
+                        {!override && <Check className="h-3.5 w-3.5" />}
+                    </button>
+                </div>
+            )}
+        </div>
     );
 };
 
@@ -671,7 +777,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             }
             const labelled = applyLabelOverride(data, labelOverrides[data.uid]);
             setDetail(labelled);
-            void suggestFolderFor(data.uid);
+            // Pas de suggestion de dossier pour une commande : le dossier de
+            // rangement est présélectionné (« Commandes et Factures »).
+            if (labelled.category !== "commande") {
+                void suggestFolderFor(data.uid);
+            }
             setInvoiceProposal(null);
             setInvoiceNames({});
             setInvoiceError(null);
@@ -1744,26 +1854,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     )}
                                 </div>
 
-                                <select
-                                    value={labelOverrides[row.uid] ?? "auto"}
-                                    onChange={(event) => {
-                                        const value = event.target.value;
-                                        changeMessageCategory(
-                                            row.uid,
-                                            value === "auto" ? "auto" : (value as GmailCategory)
-                                        );
-                                    }}
-                                    aria-label={`Modifier l'étiquette de ${row.fromName}`}
-                                    title="Modifier l'étiquette"
-                                    className="rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-[9px] font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-100 shrink-0"
-                                >
-                                    <option value="auto">Auto</option>
-                                    {CATEGORY_ORDER.map((value) => (
-                                        <option key={value} value={value}>
-                                            {CATEGORY_LABEL[value]}
-                                        </option>
-                                    ))}
-                                </select>
+                                <LabelMenu
+                                    value={labelOverrides[row.uid] ?? "factures"}
+                                    override={labelOverrides[row.uid]}
+                                    onSelect={(value) => changeMessageCategory(row.uid, value)}
+                                />
 
                                 {href && (
                                     <a
@@ -1835,29 +1930,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         Répondu
                                     </span>
                                 )}
-                                <select
-                                    value={labelOverrides[message.uid] ?? "auto"}
-                                    onClick={(event) => event.stopPropagation()}
-                                    onMouseDown={(event) => event.stopPropagation()}
-                                    onKeyDown={(event) => event.stopPropagation()}
-                                    onChange={(event) => {
-                                        const value = event.target.value;
-                                        changeMessageCategory(
-                                            message.uid,
-                                            value === "auto" ? "auto" : (value as GmailCategory)
-                                        );
-                                    }}
-                                    aria-label={`Modifier l'étiquette de ${message.fromName}`}
-                                    title="Modifier l'étiquette"
-                                    className="ml-auto max-w-[9.5rem] rounded-lg border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-100"
-                                >
-                                    <option value="auto">Auto</option>
-                                    {CATEGORY_ORDER.map((value) => (
-                                        <option key={value} value={value}>
-                                            {CATEGORY_LABEL[value]}
-                                        </option>
-                                    ))}
-                                </select>
+                                <LabelMenu
+                                    className="ml-auto"
+                                    value={message.category}
+                                    override={labelOverrides[message.uid]}
+                                    onSelect={(value) => changeMessageCategory(message.uid, value)}
+                                />
                             </div>
                         </div>
                     ))}
@@ -1889,6 +1967,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     >
                                         {CATEGORY_LABEL[detail.category]}
                                     </span>
+                                    <LabelMenu
+                                        value={detail.category}
+                                        override={labelOverrides[detail.uid]}
+                                        onSelect={(value) => changeMessageCategory(detail.uid, value)}
+                                    />
                                     {detail.answered && (
                                         <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold shrink-0">
                                             Répondu
@@ -1902,33 +1985,6 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     {formatDate(detail.date)} · {formatRelative(detail.date)}
                                 </p>
                                 <p className="text-[10px] text-slate-400 mt-1">Tri automatique : {detail.reason}</p>
-
-                                <label className="mt-2 flex items-center gap-2 text-[10px] font-bold text-slate-400">
-                                    <span className="uppercase tracking-wider">Étiquette</span>
-                                    <select
-                                        value={labelOverrides[detail.uid] ?? "auto"}
-                                        onChange={(event) => {
-                                            const value = event.target.value;
-                                            changeMessageCategory(
-                                                detail.uid,
-                                                value === "auto" ? "auto" : (value as GmailCategory)
-                                            );
-                                        }}
-                                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-100"
-                                    >
-                                        <option value="auto">Automatique</option>
-                                        {CATEGORY_ORDER.map((value) => (
-                                            <option key={value} value={value}>
-                                                {CATEGORY_LABEL[value]}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {labelOverrides[detail.uid] && (
-                                        <span className="text-[9px] font-bold text-teal-700">
-                                            modifiée à la main
-                                        </span>
-                                    )}
-                                </label>
 
                                 {detail.tracking && (
                                     <div className="mt-3 rounded-2xl bg-violet-50/70 border border-violet-200/70 p-3 space-y-2.5">
@@ -2200,36 +2256,40 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                             {!(invoiceLoading || invoiceProposal) && (
                                 <>
                             <div className="px-4 py-3 border-t border-slate-100 bg-white flex flex-wrap items-center gap-2">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                    Ranger
-                                </span>
-                                <select
-                                    value={folderTarget}
-                                    onChange={(event) => setFolderTarget(event.target.value)}
-                                    className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[11px] text-slate-700 focus:outline-none focus:border-teal-500"
-                                >
-                                    <option value="">Ne pas ranger automatiquement</option>
-                                    {folders
-                                        .filter((folder) => folder.kind === "label")
-                                        .map((folder) => (
-                                            <option key={folder.path} value={folder.path}>
-                                                {folder.label}
-                                            </option>
-                                        ))}
-                                </select>
-                                <button
-                                    onClick={() => void moveTo(folderTarget)}
-                                    disabled={moving || !folderTarget}
-                                    title="Déplacer maintenant"
-                                    aria-label="Déplacer maintenant"
-                                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 transition-all"
-                                >
-                                    {moving ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <FolderInput className="h-4 w-4" />
-                                    )}
-                                </button>
+                                {detail.category !== "commande" && (
+                                    <>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                            Ranger
+                                        </span>
+                                        <select
+                                            value={folderTarget}
+                                            onChange={(event) => setFolderTarget(event.target.value)}
+                                            className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[11px] text-slate-700 focus:outline-none focus:border-teal-500"
+                                        >
+                                            <option value="">Ne pas ranger automatiquement</option>
+                                            {folders
+                                                .filter((folder) => folder.kind === "label")
+                                                .map((folder) => (
+                                                    <option key={folder.path} value={folder.path}>
+                                                        {folder.label}
+                                                    </option>
+                                                ))}
+                                        </select>
+                                        <button
+                                            onClick={() => void moveTo(folderTarget)}
+                                            disabled={moving || !folderTarget}
+                                            title="Déplacer maintenant"
+                                            aria-label="Déplacer maintenant"
+                                            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 transition-all"
+                                        >
+                                            {moving ? (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                                <FolderInput className="h-4 w-4" />
+                                            )}
+                                        </button>
+                                    </>
+                                )}
                                 <button
                                     onClick={() => void removeMessage()}
                                     disabled={moving || !detail}
@@ -2249,6 +2309,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     </span>
                                 )}
                             </div>
+                            {detail.category !== "commande" && (
                             <div className="px-4 pb-3 bg-white text-[10px] text-slate-500 space-y-0.5">
                                 {suggesting && (
                                     <p className="flex items-center gap-1.5">
@@ -2306,6 +2367,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     </button>
                                 )}
                             </div>
+                            )}
 
                                 </>
                             )}
@@ -2397,14 +2459,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         </button>
                                     </div>
                                 </div>
-                            ) : (
+                            ) : detail.category === "commande" ? null : (
                                 <div className={`p-4 border-t border-slate-100 bg-slate-50/40 flex flex-wrap items-center justify-between gap-3 ${invoiceActive ? "hidden" : ""}`}>
                                     <p className="text-[11px] text-slate-500">
-                                        {detail.category === "commande"
-                                            ? "Suivi de colis : aucune réponse attendue."
-                                            : detail.category === "important"
-                                              ? "Action à prévoir (paiement, échéance) mais aucune réponse nécessaire."
-                                              : "Information à lire : aucune réponse attendue."}
+                                        {detail.category === "important"
+                                            ? "Action à prévoir (paiement, échéance) mais aucune réponse nécessaire."
+                                            : "Information à lire : aucune réponse attendue."}
                                     </p>
                                     <button
                                         onClick={() => {
