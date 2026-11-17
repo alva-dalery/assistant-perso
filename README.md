@@ -145,7 +145,9 @@ lien, statut, date d'expédition et historique en accordéon.
 Les emails de la bibliothèque de Lyon (`@bm-lyon.fr`) sont analysés : la liste des livres empruntés
 apparaît en **vignettes de couvertures**, avec le **titre complet**, le **prénom et nom de l'auteur**
 et la **date de retour** (rouge si dépassée). Un bouton **« Modifier »** permet de corriger le lien de
-l'image, mémorisé dans le navigateur.
+l'image, mémorisé dans le navigateur. Les couvertures passent par la route interne `/api/cover`, ce qui
+évite les images bloquées ou les redirections refusées ; un bouton **« Rechercher »** relance la
+recherche si besoin.
 
 ## 🎭 Culture — expositions, livres et films
 
