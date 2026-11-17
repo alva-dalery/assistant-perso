@@ -97,9 +97,24 @@ export type GmailCategory =
     | "personnel"
     | "important"
     | "factures"
+    | "commande"
     | "infos"
     | "newsletter"
     | "promotion";
+
+/** Informations de suivi d'un colis extraites du message. */
+export interface GmailTracking {
+    /** Transporteur reconnu (La Poste, Colissimo, DHL, OPT.nc…). */
+    carrier: string | null;
+    /** Numéros de suivi détectés (1 à 3). */
+    numbers: string[];
+    /** Dernier statut lisible (« En cours de livraison », « Livré »…). */
+    status: string | null;
+    /** Date de livraison annoncée, telle qu'écrite dans l'email. */
+    estimatedDelivery: string | null;
+    /** Lien de suivi (celui de l'email, sinon la page du transporteur). */
+    url: string | null;
+}
 
 export interface GmailClassification {
     category: GmailCategory;
@@ -141,6 +156,228 @@ const INFO_SUBJECT =
 
 const NO_REPLY_LOCAL =
     /^(no-?reply|do-?not-?reply|ne-?pas-?repondre|nepasrepondre|notifications?|notify|alerts?|newsletter|news|infolettre|promo|promotions?|marketing|mailer|mailing|bounce|bounces|system|automated?|robot|service-?client|support)([._-].*)?$/i;
+
+/* ---------------------- Suivi de colis / commandes ---------------------- */
+
+interface CarrierRule {
+    name: string;
+    /** Domaine ou nom d'expéditeur. */
+    sender: RegExp;
+    /** Domaine des liens de suivi. */
+    host?: RegExp;
+    /** Motif de numéro de suivi propre au transporteur. */
+    number?: RegExp;
+    /** Page de suivi du transporteur. */
+    url?: (value: string) => string;
+}
+
+const CARRIERS: CarrierRule[] = [
+    {
+        name: "La Poste / Colissimo",
+        sender: /(laposte|colissimo|colisprive)/i,
+        host: /(laposte\.fr|colissimo)/i,
+        number: /\b[A-Z]{2}\d{9}[A-Z]{2}\b|\b[6-9][A-Z]\d{11,12}\b/,
+        url: (value) =>
+            `https://www.laposte.fr/outils/suivre-vos-envois?code=${encodeURIComponent(value)}`,
+    },
+    {
+        name: "Chronopost",
+        sender: /chronopost/i,
+        host: /chronopost/i,
+        number: /\b[A-Z]{2}\d{9}[A-Z]{2}\b|\b[6-9][A-Z]\d{11,12}\b/,
+        url: (value) =>
+            `https://www.chronopost.fr/tracking-no-cms/suivi-page?listeNumerosLT=${encodeURIComponent(
+                value
+            )}`,
+    },
+    {
+        name: "DHL",
+        sender: /dhl/i,
+        host: /dhl\./i,
+        number: /\b(?:JD\d{16,20}|[A-Z]{3}\d{7,10}|\d{10})\b/,
+        url: (value) =>
+            `https://www.dhl.com/fr-fr/home/tracking.html?tracking-id=${encodeURIComponent(value)}`,
+    },
+    {
+        name: "UPS",
+        sender: /(^|[.@-])ups([.-]|$)/i,
+        host: /ups\.com/i,
+        number: /\b1Z[0-9A-Z]{16}\b/i,
+        url: (value) =>
+            `https://www.ups.com/track?loc=fr_FR&tracknum=${encodeURIComponent(value)}`,
+    },
+    {
+        name: "FedEx",
+        sender: /fedex/i,
+        host: /fedex\./i,
+        number: /\b\d{12,15}\b/,
+        url: (value) =>
+            `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(value)}`,
+    },
+    {
+        name: "GLS",
+        sender: /gls[-.]?france|(^|[.@-])gls([.-]|$)/i,
+        host: /gls-(group|france)/i,
+        number: /\b[A-Z0-9]{8,20}\b/,
+        url: (value) =>
+            `https://gls-group.com/FR/fr/suivi-colis?match=${encodeURIComponent(value)}`,
+    },
+    {
+        name: "Mondial Relay",
+        sender: /mondialrelay/i,
+        host: /mondialrelay/i,
+        number: /\b\d{8,14}\b/,
+        url: (value) =>
+            `https://www.mondialrelay.fr/suivi-de-colis?numeroExpedition=${encodeURIComponent(
+                value
+            )}`,
+    },
+    {
+        name: "Amazon",
+        sender: /amazon/i,
+        host: /amazon\./i,
+        number: /\bTB[AC]\d{10,14}\b/i,
+        url: (value) =>
+            `https://www.amazon.fr/progress-tracker?trackingId=${encodeURIComponent(value)}`,
+    },
+    {
+        name: "AliExpress / Cainiao",
+        sender: /(aliexpress|cainiao)/i,
+        host: /(aliexpress|cainiao)/i,
+        number: /\b(?:LP\d{14,16}|[A-Z]{2}\d{9}[A-Z]{2})\b/,
+        url: (value) =>
+            `https://global.cainiao.com/detail.htm?mailNoList=${encodeURIComponent(value)}`,
+    },
+    {
+        name: "OPT.nc — Colis Poste",
+        sender: /opt\.nc/i,
+        host: /opt\.nc/i,
+        number: /\b[A-Z]{2}\d{9}[A-Z]{2}\b|\b\d{10,13}\b/,
+    },
+    { name: "Vinted", sender: /vinted/i, host: /vinted/i },
+    { name: "Shein", sender: /shein/i, host: /shein/i },
+    { name: "Temu", sender: /temu/i, host: /temu/i },
+];
+
+/** Objet typique d'une notification d'expédition ou de livraison. */
+const STRONG_TRACKING_SUBJECT =
+    /(suivi de (?:votre |mon )?colis|votre colis|colis (?:n[°o]|num[ée]ro)|num[ée]ro de suivi|tracking (?:number|no|num[ée]ro)|exp[ée]dition de votre commande|votre commande a (?:bien )?[ée]t[ée] exp[ée]di[ée]e?|votre commande est (?:en route|exp[ée]di[ée]e?|arriv[ée]e?|livr[ée]e?)|en cours de livraison|a (?:bien )?[ée]t[ée] livr[ée]e?|livraison (?:pr[ée]vue|aujourd|demain|imminente)|pris en charge par|shipment (?:notification|confirmation|update)|your (?:package|parcel|order) (?:is|has|was)|package (?:delivered|shipped|arrived)|order (?:shipped|delivered|arrived)|on the way)/i;
+
+/** Expéditeur identifiable comme transporteur ou marchand. */
+const CARRIER_SENDER =
+    /(laposte|colissimo|colisprive|chronopost|dhl|(^|[.@-])ups([.-]|$)|fedex|gls[-.]?france|mondialrelay|amazon|aliexpress|cainiao|vinted|shein|temu|opt\.nc)/i;
+
+const TRACKING_TOPIC =
+    /(livraison|colis|commande|exp[ée]di|suivi|tracking|transporteur|shipment|shipping|delivery|package|parcel|order)/i;
+
+const TRACKING_PATTERNS: RegExp[] = [
+    /\b1Z[0-9A-Z]{16}\b/g, // UPS
+    /\bTB[AC]\d{10,14}\b/g, // Amazon
+    /\b(?:JD|JJD)\d{16,20}\b/g, // DHL eCommerce
+    /\bLP\d{14,16}\b/g, // Cainiao / AliExpress
+    /\b[A-Z]{2}\d{9}[A-Z]{2}\b/g, // format international S10
+    /\b[6-9][A-Z]\d{11,12}\b/g, // Colissimo 13 caractères
+];
+
+const TRACKING_KEYWORD_NUMBER =
+    /(?:n[°o]\s*(?:de\s*)?suivi|num[ée]ro\s*de\s*suivi|num[ée]ro\s*d.exp[ée]dition|num[ée]ro\s*de\s*colis|tracking(?:\s*(?:number|no|num[ée]ro))?)\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{7,34})/gi;
+
+/** Transporteurs reconnaissables au seul format du numéro. */
+const SIGNATURE_CARRIERS: Array<{ pattern: RegExp; name: string }> = [
+    { pattern: /^1Z[0-9A-Z]{16}$/i, name: "UPS" },
+    { pattern: /^TB[AC]\d{10,14}$/i, name: "Amazon" },
+    { pattern: /^JD\d{16,20}$/i, name: "DHL" },
+    { pattern: /^LP\d{14,16}$/i, name: "AliExpress / Cainiao" },
+];
+
+const TRACKING_STATUS: Array<{ label: string; match: RegExp }> = [
+    {
+        label: "Livré",
+        match: /(colis (?:a [ée]t[ée] |a bien [ée]t[ée] )?livr[ée]|livr[ée] le|delivered|remis au destinataire)/i,
+    },
+    {
+        label: "Disponible en point relais",
+        match: /(disponible en point|available for pickup|en attente de retrait|pr[êe]t [àa] [êe]tre retir[ée])/i,
+    },
+    { label: "En cours de livraison", match: /(en cours de livraison|out for delivery)/i },
+    {
+        label: "En transit",
+        match: /(en cours d.acheminement|en transit|in transit|a quitt[ée]|en route)/i,
+    },
+    {
+        label: "Pris en charge",
+        match: /(pris en charge|colis accept[ée]|en pr[ée]paration|pr[ée]paration de votre commande|order processed|shipment information received)/i,
+    },
+    { label: "Expédié", match: /(exp[ée]di[ée]|shipped|dispatched)/i },
+    { label: "Retard signalé", match: /(retard de livraison|livraison retard[ée]e|delayed)/i },
+];
+
+const DELIVERY_DATE_RE =
+    /(?:livraison (?:pr[ée]vue|estim[ée]e|pr[ée]visionnelle|attendue)|estimated delivery|arriv[ée]e (?:pr[ée]vue|estim[ée]))\s*(?:le|:|-)?\s*(\d{1,2}[\/.\s-]\d{1,2}(?:[\/.\s-]\d{2,4})?|\d{1,2}\s+(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)(?:\s+20\d{2})?|(?:lundi|mardi|mercredi|jeudi|vendredi|samedi)\s+\d{1,2}(?:\s+\w+)?)/i;
+
+function urlsInText(text: string): string[] {
+    return (text.match(/https?:\/\/[^\s<>"')]+/gi) ?? []).map((url) =>
+        url.replace(/[.,;:!?]+$/, "")
+    );
+}
+
+function trackingNumbersIn(text: string): string[] {
+    const found = new Set<string>();
+    for (const pattern of TRACKING_PATTERNS) {
+        for (const match of text.matchAll(pattern)) found.add(match[0].toUpperCase());
+    }
+    for (const match of text.matchAll(TRACKING_KEYWORD_NUMBER)) {
+        const value = match[1].toUpperCase().replace(/[-\s]+$/, "");
+        const digits = (value.match(/\d/g) ?? []).length;
+        if (value.length >= 8 && digits >= 4) found.add(value);
+    }
+    return [...found].slice(0, 3);
+}
+
+/**
+ * Reconnaît un suivi de colis et rassemble les informations utiles
+ * (transporteur, numéro, statut, date de livraison, lien de suivi).
+ */
+export function extractTracking(input: {
+    subject: string;
+    fromEmail: string;
+    fromName: string;
+    text: string;
+}): GmailTracking | null {
+    const body = input.text ?? "";
+    const sender = `${input.fromEmail} ${input.fromName}`;
+    const numbers = trackingNumbersIn(body);
+
+    const signature = SIGNATURE_CARRIERS.find((entry) =>
+        numbers.some((number) => entry.pattern.test(number))
+    );
+    const carrier =
+        CARRIERS.find((rule) => rule.sender.test(sender)) ??
+        (signature ? CARRIERS.find((rule) => rule.name === signature.name) : undefined) ??
+        CARRIERS.find((rule) => rule.host && urlsInText(body).some((url) => rule.host!.test(url)));
+
+    const status = TRACKING_STATUS.find((entry) => entry.match.test(body))?.label ?? null;
+    const estimatedDelivery = body.match(DELIVERY_DATE_RE)?.[1]?.trim() ?? null;
+
+    const urls = urlsInText(body);
+    const byHost = carrier?.host ? urls.find((url) => carrier.host!.test(url)) : undefined;
+    const byKeyword = urls.find((url) =>
+        /(suivi|track|colis|shipment|parcel|expedition|delivery)/i.test(url)
+    );
+    const byTemplate =
+        carrier?.url && numbers.length > 0 ? carrier.url(numbers[0]) : null;
+    const url = byHost ?? byKeyword ?? byTemplate ?? null;
+
+    if (!carrier && numbers.length === 0 && !status && !estimatedDelivery) return null;
+
+    return {
+        carrier: carrier?.name ?? null,
+        numbers,
+        status,
+        estimatedDelivery,
+        url,
+    };
+}
 
 function headerValue(headers: string, name: string): string {
     const regex = new RegExp(`^${name}:\\s*(.+)$`, "im");
@@ -232,7 +469,22 @@ export function classifyMessage(
         };
     }
 
-    // 4. Administratif important (impôts, cotisations, assurances…).
+    // 4. Suivi de colis : étiquette « Commande » (aucune réponse attendue).
+    if (
+        STRONG_TRACKING_SUBJECT.test(subject) ||
+        (CARRIER_SENDER.test(fromEmail) && TRACKING_TOPIC.test(subject))
+    ) {
+        const carrier = CARRIERS.find((rule) => rule.sender.test(fromEmail))?.name;
+        return {
+            category: "commande",
+            needsReply: false,
+            reason: carrier
+                ? `Suivi de colis — ${carrier}`
+                : "Suivi de colis (aucune réponse attendue)",
+        };
+    }
+
+    // 5. Administratif important (impôts, cotisations, assurances…).
     if (IMPORTANT_SUBJECT.test(subject)) {
         return {
             category: "important",
@@ -318,6 +570,8 @@ export interface GmailMessageDetail extends GmailMessageSummary {
     images: GmailPartInfo[];
     messageId: string;
     inReplyTo: string;
+    /** Suivi de colis, si l'email en contient un. */
+    tracking: GmailTracking | null;
 }
 
 function addressList(list?: { name?: string; address?: string }[]): string {
@@ -881,6 +1135,13 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
               ? `Envoi de ${attachments.length} pièce(s) jointe(s) : ${attachments.join(", ")}.`
               : "Message sans contenu texte.";
 
+        const tracking = extractTracking({
+            subject: envelope?.subject ?? "",
+            fromEmail: envelope?.from?.[0]?.address ?? "",
+            fromName: envelope?.from?.[0]?.name ?? "",
+            text: breakdown.currentText || visibleText,
+        });
+
         return {
             ...toSummary(message, message.headers?.toString("utf8") ?? ""),
             to: addressList(envelope?.to),
@@ -896,6 +1157,7 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             images,
             messageId: envelope?.messageId ?? "",
             inReplyTo: envelope?.inReplyTo ?? "",
+            tracking,
         };
     });
 }

@@ -6,6 +6,7 @@ import {
     ArrowLeft,
     CheckCircle2,
     ChevronDown,
+    Copy,
     Download,
     Droplet,
     ExternalLink,
@@ -15,6 +16,7 @@ import {
     KeyRound,
     Loader2,
     Mail,
+    Package,
     PenLine,
     RefreshCw,
     Router,
@@ -27,7 +29,14 @@ import {
 } from "lucide-react";
 import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
 
-type GmailCategory = "personnel" | "important" | "factures" | "infos" | "newsletter" | "promotion";
+type GmailCategory =
+    | "personnel"
+    | "important"
+    | "factures"
+    | "commande"
+    | "infos"
+    | "newsletter"
+    | "promotion";
 
 interface GmailStatus {
     configured: boolean;
@@ -64,6 +73,7 @@ interface MessageDetail extends InboxMessage {
     images: PartInfo[];
     messageId: string;
     inReplyTo: string;
+    tracking?: TrackingInfo | null;
 }
 
 interface ReplyDraftResponse {
@@ -81,6 +91,7 @@ const CATEGORY_LABEL: Record<GmailCategory, string> = {
     personnel: "Répondre",
     important: "Important",
     factures: "Factures",
+    commande: "Commande",
     infos: "Infos",
     newsletter: "Newsletter",
     promotion: "Publicité",
@@ -90,12 +101,21 @@ const CATEGORY_STYLE: Record<GmailCategory, string> = {
     personnel: "bg-teal-50 text-teal-700 border-teal-200",
     important: "bg-rose-50 text-rose-700 border-rose-200",
     factures: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    commande: "bg-violet-50 text-violet-700 border-violet-200",
     infos: "bg-sky-50 text-sky-700 border-sky-200",
     newsletter: "bg-slate-100 text-slate-500 border-slate-200",
     promotion: "bg-amber-50 text-amber-700 border-amber-200",
 };
 
-type Filter = "todo" | "reply" | "important" | "factures" | "infos" | "later" | "all";
+type Filter =
+    | "todo"
+    | "reply"
+    | "important"
+    | "factures"
+    | "commande"
+    | "infos"
+    | "later"
+    | "all";
 
 const PAGE_SIZE = 500;
 const MAX_MESSAGES = 2000;
@@ -144,6 +164,14 @@ interface FolderSuggestion {
     label: string;
     score: number;
     reason: string;
+}
+
+interface TrackingInfo {
+    carrier: string | null;
+    numbers: string[];
+    status: string | null;
+    estimatedDelivery: string | null;
+    url: string | null;
 }
 
 interface InvoiceFile {
@@ -445,6 +473,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         () => messages.filter((message) => message.category === "factures"),
         [messages]
     );
+    const commandes = useMemo(
+        () => messages.filter((message) => message.category === "commande"),
+        [messages]
+    );
     const infos = useMemo(() => messages.filter((message) => message.category === "infos"), [messages]);
     const later = useMemo(() => messages.filter((message) => isLater(message.category)), [messages]);
 
@@ -457,7 +489,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                     ? important
                     : filter === "factures"
                         ? factures
-                        : filter === "infos"
+                        : filter === "commande"
+                            ? commandes
+                            : filter === "infos"
                             ? infos
                             : filter === "later"
                                 ? later
@@ -491,6 +525,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 return important;
             case "factures":
                 return factures;
+            case "commande":
+                return commandes;
             case "infos":
                 return infos;
             case "later":
@@ -974,6 +1010,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         return null;
     }
 
+    async function copyTrackingNumber(value: string) {
+        try {
+            await navigator.clipboard.writeText(value);
+            setFeedback("Numéro de suivi copié.");
+        } catch {
+            setFeedback("Copie impossible : sélectionnez le numéro à la main.");
+        }
+    }
+
     async function downloadSelectedInvoices() {
         const rows = invoiceRowList.filter((row) => row.selected && row.status === "ready");
         if (rows.length === 0) {
@@ -1372,6 +1417,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                         ["reply", `Répondre (${toReply.length})`],
                         ["important", `Important (${important.length})`],
                         ["factures", `Factures (${factures.length})`],
+                        ["commande", `Commandes (${commandes.length})`],
                         ["infos", `Infos (${infos.length})`],
                         ["later", `Newsletter/pubs (${later.length})`],
                         ["all", `Tous (${messages.length})`],
@@ -1629,6 +1675,81 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     {formatDate(detail.date)} · {formatRelative(detail.date)}
                                 </p>
                                 <p className="text-[10px] text-slate-400 mt-1">Tri automatique : {detail.reason}</p>
+
+                                {detail.tracking && (
+                                    <div className="mt-3 rounded-2xl bg-violet-50/70 border border-violet-200/70 p-3 space-y-2.5">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-violet-700">
+                                                <Package className="h-3.5 w-3.5" />
+                                                Suivi de colis
+                                            </p>
+                                            {detail.tracking.carrier && (
+                                                <span className="text-[10px] font-bold text-violet-800">
+                                                    {detail.tracking.carrier}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                            <div className="min-w-0">
+                                                <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
+                                                    Numéro de suivi
+                                                </p>
+                                                <p className="font-mono text-slate-800 break-all select-all">
+                                                    {detail.tracking.numbers.length > 0
+                                                        ? detail.tracking.numbers.join(" · ")
+                                                        : "Non détecté"}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
+                                                    Statut
+                                                </p>
+                                                <p className="font-semibold text-slate-800">
+                                                    {detail.tracking.status ?? "Non précisé"}
+                                                </p>
+                                            </div>
+                                            {detail.tracking.estimatedDelivery && (
+                                                <div>
+                                                    <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
+                                                        Livraison prévue
+                                                    </p>
+                                                    <p className="font-semibold text-slate-800">
+                                                        {detail.tracking.estimatedDelivery}
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            {detail.tracking.url && (
+                                                <a
+                                                    href={detail.tracking.url}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 text-white text-[11px] font-bold hover:bg-violet-700 transition-all"
+                                                >
+                                                    <ExternalLink className="h-3.5 w-3.5" />
+                                                    <span>Suivre le colis</span>
+                                                </a>
+                                            )}
+                                            {detail.tracking.numbers.length > 0 && (
+                                                <button
+                                                    onClick={() =>
+                                                        void copyTrackingNumber(
+                                                            detail.tracking?.numbers[0] ?? ""
+                                                        )
+                                                    }
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-violet-200 text-violet-700 text-[11px] font-bold hover:bg-violet-50 transition-all"
+                                                >
+                                                    <Copy className="h-3.5 w-3.5" />
+                                                    <span>Copier le numéro</span>
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {draftRegister && (
                                     <span className="inline-block mt-1.5 text-[9px] px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-600 font-bold">
                                         {draftRegister === "tutoiement" ? "Tutoiement détecté" : "Vouvoiement détecté"}
@@ -1989,9 +2110,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                             ) : (
                                 <div className={`p-4 border-t border-slate-100 bg-slate-50/40 flex flex-wrap items-center justify-between gap-3 ${invoiceActive ? "hidden" : ""}`}>
                                     <p className="text-[11px] text-slate-500">
-                                        {detail.category === "important"
-                                            ? "Action à prévoir (paiement, échéance) mais aucune réponse nécessaire."
-                                            : "Information à lire : aucune réponse attendue."}
+                                        {detail.category === "commande"
+                                            ? "Suivi de colis : aucune réponse attendue."
+                                            : detail.category === "important"
+                                              ? "Action à prévoir (paiement, échéance) mais aucune réponse nécessaire."
+                                              : "Information à lire : aucune réponse attendue."}
                                     </p>
                                     <button
                                         onClick={() => {

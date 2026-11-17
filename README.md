@@ -125,6 +125,12 @@ Détails et dépannage : [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 
 ---
 
+## 📦 Suivi de colis (étiquette « Commande »)
+
+Les emails d'expédition et de livraison reçoivent l'étiquette **Commande** et un onglet dédié.
+La fiche du message affiche le transporteur, le numéro de suivi (avec bouton de copie), le statut,
+la date de livraison annoncée et un bouton **« Suivre le colis »**.
+
 ## 🎭 Culture — expositions, livres et films
 
 Nouveau module accessible depuis la barre latérale :

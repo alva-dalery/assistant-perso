@@ -351,6 +351,31 @@ basculer un lien `http://` en `https://`.
 Après le téléchargement réussi, **l'email est déplacé dans la corbeille Gmail** (suppression
 récupérable). Si plusieurs PDF sont joints, ils reçoivent un suffixe `(1)`, `(2)`…
 
+### Suivi de colis et commandes
+
+Un email de suivi de colis (expédition, acheminement, livraison) reçoit l'étiquette **Commande** et
+apparaît dans l'onglet **Commandes** (il reste aussi dans **À traiter**). La détection s'appuie sur :
+
+- l'**objet** (« votre colis », « commande expédiée », « shipment notification », « out for delivery »…) ;
+- l'**expéditeur** : La Poste / Colissimo, Chronopost, DHL, UPS, FedEx, GLS, Mondial Relay, Amazon,
+  AliExpress / Cainiao, Vinted, Shein, Temu, OPT.nc (Colis Poste) ;
+- le **format du numéro de suivi** (UPS `1Z…`, Amazon `TBA…`, DHL `JD…`, Cainiao `LP…`, format
+  international `XX123456789FR`, Colissimo 13 caractères).
+
+La fiche du message affiche alors une carte **Suivi de colis** avec :
+
+| Information | Détail |
+| --- | --- |
+| Transporteur | reconnu via l'expéditeur ou le format du numéro |
+| Numéro de suivi | jusqu'à 3 numéros, sélectionnables, bouton **« Copier le numéro »** |
+| Statut | pris en charge, en transit, en cours de livraison, disponible en point relais, livré, retard |
+| Livraison prévue | date annoncée dans l'email, si présente |
+| Lien | bouton **« Suivre le colis »** : lien de l'email, sinon page du transporteur avec le numéro |
+
+Ces notifications ne demandent pas de réponse : aucun brouillon n'est proposé, mais le bouton
+**« Répondre quand même »** reste disponible. Une vraie question d'un expéditeur (« Question sur ma
+commande ? ») reste classée **Répondre**.
+
 ### Tri automatique et rédaction de réponse
 
 Chaque message est classé **sans IA**, à partir de trois familles d'indices (en-têtes de diffusion,
