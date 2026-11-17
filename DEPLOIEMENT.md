@@ -281,8 +281,10 @@ Quand un email classé **Factures** provient d'un fournisseur reconnu **Lagoon**
 | OPT Internet | `2026-06 - OPT Internet - Facture.pdf` |
 | OPT Mobile | `2026-06 - OPT Mobile - Facture.pdf` |
 
-**Règle de période** : on utilise la date de facture (celle citée dans l'email, sinon la date de
-réception). Si cette date tombe dans les **5 premiers jours** du mois, la période est le **mois
+**Règle de période** : si un **mois en toutes lettres** est écrit dans l'objet ou le corps
+(« Facture : Mois de Octobre 2026 [Ref. …] »), c'est lui qui fait foi, sans décalage. Même logique
+pour un **trimestre explicite** (`T3 2026`) chez CDE. Autrement, on utilise la date de facture
+(celle citée dans l'email, sinon la date de réception). Si cette date tombe dans les **5 premiers jours** du mois, la période est le **mois
 précédent** (facture du 01/11/2026 → `2026-10`), sinon c'est le mois courant
 (facture du 31/08/2026 → `2026-08`). CDE reste en trimestres (`2026-T3`).
 

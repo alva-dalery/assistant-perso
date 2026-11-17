@@ -1901,6 +1901,35 @@ function detectProvider(message: GmailMessageDetail): InvoiceProvider | null {
     return null;
 }
 
+function quarterFromText(text: string): { year: number; quarter: number } | null {
+    const direct = text.match(/\bT([1-4])\b[^\d]{0,8}(20\d{2})/i);
+    if (direct) return { quarter: Number(direct[1]), year: Number(direct[2]) };
+
+    const reverse = text.match(/(20\d{2})[^\d]{0,8}\bT([1-4])\b/i);
+    if (reverse) return { year: Number(reverse[1]), quarter: Number(reverse[2]) };
+
+    const trimestre = text.match(/([1-4])(?:er|e|ème|eme)?\s*trimestre[^\d]{0,10}(20\d{2})/i);
+    if (trimestre) return { quarter: Number(trimestre[1]), year: Number(trimestre[2]) };
+
+    const reverseTrim = text.match(/(20\d{2})[^\d]{0,10}([1-4])(?:er|e|ème|eme)?\s*trimestre/i);
+    if (reverseTrim) return { year: Number(reverseTrim[1]), quarter: Number(reverseTrim[2]) };
+
+    return null;
+}
+
+/** Mois écrit en toutes lettres dans l'objet ou le corps (« Mois de Octobre 2026 »). */
+function namedMonthFromText(text: string): { year: number; month: number } | null {
+    const match = text
+        .toLowerCase()
+        .match(
+            /(janvier|fevrier|février|mars|avril|mai|juin|juillet|aout|août|septembre|octobre|novembre|decembre|décembre)\s+(20\d{2})/
+        );
+    if (!match) return null;
+    const month = MONTHS_FR[match[1]];
+    if (!month) return null;
+    return { year: Number(match[2]), month };
+}
+
 /** Date de facture : explicitement citée, sinon date de réception. */
 function invoiceDateOf(message: GmailMessageDetail): { day: number; month: number; year: number } {
     const text = `${message.subject}\n${message.currentText}\n${message.historyText}`;
@@ -1982,13 +2011,21 @@ export function detectInvoiceFromMessage(message: GmailMessageDetail): InvoicePr
     if (!provider) return null;
 
     const date = invoiceDateOf(message);
-    const monthRef = billingMonth(date);
+    const text = `${message.subject}\n${message.currentText}\n${message.historyText}`;
+    // Un mois écrit en toutes lettres (« Mois de Octobre 2026 ») fait foi :
+    // il décrit la période facturée, sans décalage de début de mois.
+    const explicitMonth = namedMonthFromText(text);
+    const monthRef = explicitMonth ?? billingMonth(date);
     const label = PROVIDER_LABEL[provider];
 
     let period: string;
     if (provider === "cde") {
-        const quarter = Math.floor((monthRef.month - 1) / 3) + 1;
-        period = `${monthRef.year}-T${quarter}`;
+        // Un trimestre écrit dans l'objet (« T3 2026 ») fait foi.
+        const explicitQuarter = quarterFromText(text);
+        const year = explicitQuarter?.year ?? monthRef.year;
+        const quarter =
+            explicitQuarter?.quarter ?? Math.floor((monthRef.month - 1) / 3) + 1;
+        period = `${year}-T${quarter}`;
     } else {
         period = `${monthRef.year}-${String(monthRef.month).padStart(2, "0")}`;
     }
