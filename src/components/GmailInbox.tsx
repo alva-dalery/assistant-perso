@@ -7,17 +7,23 @@ import {
     CheckCircle2,
     ChevronDown,
     Download,
+    Droplet,
     ExternalLink,
     Eye,
+    FileText,
     FolderInput,
     KeyRound,
     Loader2,
     Mail,
     PenLine,
     RefreshCw,
+    Router,
     Save,
     Send,
+    Smartphone,
     Trash2,
+    Wifi,
+    Zap,
 } from "lucide-react";
 import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
 
@@ -172,48 +178,42 @@ interface InvoiceRow {
     error?: string;
 }
 
-const INVOICE_LOGOS: Record<
+/** Vignette de facture : une icône par fournisseur (aucun logo externe). */
+const INVOICE_ICONS: Record<
     string,
-    { domain: string; src?: string; label: string; color: string }
+    { Icon: React.ComponentType<{ className?: string }>; color: string; label: string }
 > = {
-    // Logo officiel du site lagoon.nc (SVG), contenu dans le carré.
-    lagoon: { domain: "lagoon.nc", src: "/logos/lagoon.svg", label: "LAGOON", color: "bg-sky-600" },
-    eec: { domain: "engie.nc", label: "EEC", color: "bg-blue-700" },
-    cde: { domain: "cde.nc", label: "CDE", color: "bg-cyan-600" },
-    "opt-internet": { domain: "opt.nc", label: "OPT", color: "bg-emerald-600" },
-    "opt-mobile": { domain: "helia.nc", label: "Helia", color: "bg-orange-500" },
+    // Lagoon : box internet
+    lagoon: { Icon: Router, color: "bg-sky-600", label: "Lagoon — box internet" },
+    // EEC Engie : électricité
+    eec: { Icon: Zap, color: "bg-blue-700", label: "EEC Engie — électricité" },
+    // Calédonienne des eaux : goutte d'eau
+    cde: { Icon: Droplet, color: "bg-cyan-600", label: "Calédonienne des eaux" },
+    // OPT.nc Internet
+    "opt-internet": { Icon: Wifi, color: "bg-emerald-600", label: "OPT.nc Internet" },
+    // OPT.nc Mobile
+    "opt-mobile": { Icon: Smartphone, color: "bg-orange-500", label: "OPT.nc Mobile" },
 };
 
 const ProviderLogo: React.FC<{ provider: string; className?: string }> = ({
     provider,
     className = "",
 }) => {
-    const meta = INVOICE_LOGOS[provider] ?? {
-        domain: "",
-        label: "Facture",
+    const meta = INVOICE_ICONS[provider] ?? {
+        Icon: FileText,
         color: "bg-slate-600",
+        label: "Facture",
     };
-    const [broken, setBroken] = useState(false);
+    const Icon = meta.Icon;
 
     return (
         <span
-            className={`inline-flex items-center justify-center overflow-hidden rounded-lg bg-white border border-slate-200 shrink-0 ${className}`}
+            role="img"
+            aria-label={meta.label}
+            title={meta.label}
+            className={`inline-flex items-center justify-center rounded-lg text-white shrink-0 ${meta.color} ${className}`}
         >
-            {!broken && (meta.src || meta.domain) ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                    src={meta.src ?? `https://logo.clearbit.com/${meta.domain}`}
-                    alt={meta.label}
-                    onError={() => setBroken(true)}
-                    className="h-full w-full object-contain p-0.5"
-                />
-            ) : (
-                <span
-                    className={`h-full w-full flex items-center justify-center text-white text-[9px] font-extrabold ${meta.color}`}
-                >
-                    {meta.label}
-                </span>
-            )}
+            <Icon className="h-1/2 w-1/2" />
         </span>
     );
 };

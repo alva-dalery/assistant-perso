@@ -290,7 +290,7 @@ télécharge donc le PDF joint, en extrait le texte (pdf.js) et applique :
 | `9000019168` | OPT.nc **Internet** |
 | `1.11150452` (ou `1 111 50452`) | OPT.nc **Mobile** |
 
-Le nom du fichier et le logo suivent cette lecture. Si le PDF est illisible, l'objet et le corps de
+Le nom du fichier et l'icône du fournisseur suivent cette lecture. Si le PDF est illisible, l'objet et le corps de
 l'email servent de repli, et le nom proposé reste modifiable avant téléchargement.
 
 **Règle de période** : si un **mois en toutes lettres** est écrit dans l'objet ou le corps
@@ -325,7 +325,15 @@ Quand une facture est ouverte depuis un autre onglet (« Tous », « À traiter 
 présentation en **trois colonnes** : liste des emails, détail (nom du fichier modifiable + boutons)
 et **aperçu complet du PDF**. La section **Ranger**, le bloc **Résumé de l'email** et la barre
 « Information à lire / Répondre quand même » sont masqués : la fiche ne montre que le traitement de
-la facture. Un **logo du fournisseur** est affiché (pour OPT Mobile, le logo **Helia by OPT.nc**).
+la facture. Chaque facture porte une **icône de fournisseur** (aucun logo externe chargé) :
+
+| Fournisseur | Icône |
+| --- | --- |
+| Lagoon | box internet |
+| EEC Engie | éclair (électricité) |
+| Calédonienne des eaux | goutte d'eau |
+| OPT.nc Internet | Wi-Fi (internet) |
+| OPT.nc Mobile | smartphone |
 
 Pour **EEC Engie**, la facture est souvent disponible via un **lien** dans l'email plutôt qu'en
 pièce jointe : l'application crée une entrée virtuelle, affiche le PDF dans l'aperçu via une route
