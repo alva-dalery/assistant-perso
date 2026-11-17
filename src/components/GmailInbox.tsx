@@ -6,6 +6,7 @@ import {
     ArrowLeft,
     CheckCircle2,
     ChevronDown,
+    Download,
     FolderInput,
     KeyRound,
     Loader2,
@@ -136,6 +137,20 @@ interface FolderSuggestion {
     reason: string;
 }
 
+interface InvoiceFile {
+    part: string;
+    original: string;
+    proposed: string;
+    type: string;
+}
+
+interface InvoiceProposal {
+    provider: string;
+    providerLabel: string;
+    period: string;
+    files: InvoiceFile[];
+}
+
 function attachmentUrl(uid: number, file: PartInfo): string {
     const params = new URLSearchParams({
         uid: String(uid),
@@ -210,6 +225,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         total: number;
     } | null>(null);
     const [suggestError, setSuggestError] = useState<string | null>(null);
+    const [invoiceProposal, setInvoiceProposal] = useState<InvoiceProposal | null>(null);
+    const [invoiceNames, setInvoiceNames] = useState<Record<string, string>>({});
+    const [invoiceLoading, setInvoiceLoading] = useState(false);
+    const [invoiceWorking, setInvoiceWorking] = useState(false);
+    const [invoiceError, setInvoiceError] = useState<string | null>(null);
 
     const load = useCallback(
         async (requestedLimit: number) => {
@@ -375,6 +395,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             }
             setDetail(data);
             void suggestFolderFor(data.uid);
+            setInvoiceProposal(null);
+            setInvoiceNames({});
+            setInvoiceError(null);
+            if (data.category === "factures") {
+                void loadInvoice(data.uid);
+            }
             // Proposition immédiate : dès qu'un email attend une réponse, on rédige.
             if (data.needsReply) {
                 void generateDraft(data);
@@ -507,6 +533,94 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         } finally {
             setSuggesting(false);
             setSuggestProgress(null);
+        }
+    }
+
+    async function loadInvoice(uid: number) {
+        setInvoiceLoading(true);
+        setInvoiceError(null);
+        try {
+            const response = await fetch(`/api/gmail/invoice?uid=${uid}`, {
+                cache: "no-store",
+                credentials: "same-origin",
+            });
+            const data = (await response.json()) as {
+                proposal?: InvoiceProposal | null;
+                error?: string;
+            };
+            if (!response.ok) {
+                setInvoiceError(data.error ?? "Analyse de la facture impossible.");
+                return;
+            }
+            if (data.proposal) {
+                setInvoiceProposal(data.proposal);
+                setInvoiceNames(
+                    Object.fromEntries(
+                        data.proposal.files.map((file) => [file.part, file.proposed])
+                    )
+                );
+            }
+        } catch {
+            setInvoiceError("Impossible de joindre l'analyse de facture.");
+        } finally {
+            setInvoiceLoading(false);
+        }
+    }
+
+    async function downloadInvoice() {
+        if (!invoiceProposal || !detail) return;
+        const target = detail;
+        setInvoiceWorking(true);
+        setInvoiceError(null);
+
+        try {
+            for (const file of invoiceProposal.files) {
+                const fileName =
+                    (invoiceNames[file.part] ?? file.proposed).trim() || file.proposed;
+                const url = `/api/gmail/attachment?uid=${target.uid}&part=${encodeURIComponent(
+                    file.part
+                )}&type=${encodeURIComponent("application/pdf")}&name=${encodeURIComponent(
+                    fileName
+                )}`;
+
+                const response = await fetch(url, { credentials: "same-origin" });
+                if (!response.ok) throw new Error("Téléchargement du PDF impossible.");
+
+                const blob = await response.blob();
+                const objectUrl = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = objectUrl;
+                anchor.download = fileName;
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+            }
+
+            const deletion = await fetch("/api/gmail/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({ uid: target.uid }),
+            });
+            const deletionData = (await deletion.json()) as { error?: string };
+            if (!deletion.ok) {
+                setInvoiceError(
+                    deletionData.error ?? "PDF téléchargé, mais suppression du mail impossible."
+                );
+                return;
+            }
+
+            setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
+            setTotal((previous) => Math.max(0, previous - 1));
+            setDetail(null);
+            setFeedback("Facture téléchargée et email supprimé.");
+        } catch (error) {
+            setInvoiceError(
+                error instanceof Error ? error.message : "Téléchargement impossible."
+            );
+        } finally {
+            setInvoiceWorking(false);
         }
     }
 
@@ -953,6 +1067,67 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     )}
                                 </div>
                             </div>
+
+                            {(invoiceLoading || invoiceProposal || invoiceError) && (
+                                <div className="px-4 py-3 border-t border-slate-100 bg-indigo-50/50 space-y-2">
+                                    {invoiceLoading && (
+                                        <p className="flex items-center gap-1.5 text-[11px] text-indigo-800">
+                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                            Recherche de la facture PDF…
+                                        </p>
+                                    )}
+                                    {invoiceProposal && (
+                                        <>
+                                            <p className="text-[11px] font-bold text-indigo-900">
+                                                Facture {invoiceProposal.providerLabel} détectée · période{" "}
+                                                {invoiceProposal.period}
+                                            </p>
+                                            {invoiceProposal.files.map((file) => (
+                                                <input
+                                                    key={file.part}
+                                                    value={invoiceNames[file.part] ?? file.proposed}
+                                                    onChange={(event) =>
+                                                        setInvoiceNames((previous) => ({
+                                                            ...previous,
+                                                            [file.part]: event.target.value,
+                                                        }))
+                                                    }
+                                                    className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-1.5 text-[11px] font-mono focus:outline-none focus:border-indigo-500"
+                                                />
+                                            ))}
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <button
+                                                    onClick={() => void downloadInvoice()}
+                                                    disabled={invoiceWorking}
+                                                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-[11px] font-bold transition-all"
+                                                >
+                                                    {invoiceWorking ? (
+                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                    ) : (
+                                                        <Download className="h-3.5 w-3.5" />
+                                                    )}
+                                                    <span>Valider les noms et télécharger</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setInvoiceProposal(null);
+                                                        setInvoiceError(null);
+                                                    }}
+                                                    className="px-3 py-2 rounded-xl text-slate-500 hover:text-slate-800 text-[11px] font-semibold"
+                                                >
+                                                    Ignorer
+                                                </button>
+                                                <span className="text-[10px] text-slate-500">
+                                                    Le mail sera supprimé automatiquement après le téléchargement.
+                                                </span>
+                                            </div>
+                                        </>
+                                    )}
+                                    {invoiceError && (
+                                        <p className="text-[11px] text-rose-600">{invoiceError}</p>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="px-4 py-3 border-t border-slate-100 bg-white flex flex-wrap items-center gap-2">
                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">

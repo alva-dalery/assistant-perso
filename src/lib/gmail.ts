@@ -1810,3 +1810,186 @@ export async function checkGmailStatus(): Promise<GmailStatus> {
         error,
     };
 }
+
+
+/* ------------------------------------------------------------------ */
+/* Factures fournisseurs (Lagoon, EEC, CDE, OPT)                       */
+/* ------------------------------------------------------------------ */
+
+export type InvoiceProvider = "lagoon" | "eec" | "cde" | "opt-internet" | "opt-mobile";
+
+export interface InvoiceFile {
+    part: string;
+    original: string;
+    proposed: string;
+    type: string;
+}
+
+export interface InvoiceProposal {
+    provider: InvoiceProvider;
+    providerLabel: string;
+    period: string;
+    files: InvoiceFile[];
+}
+
+const MONTHS_FR: Record<string, number> = {
+    janvier: 1,
+    fevrier: 2,
+    février: 2,
+    mars: 3,
+    avril: 4,
+    mai: 5,
+    juin: 6,
+    juillet: 7,
+    aout: 8,
+    août: 8,
+    septembre: 9,
+    octobre: 10,
+    novembre: 11,
+    decembre: 12,
+    décembre: 12,
+};
+
+const PROVIDER_LABEL: Record<InvoiceProvider, string> = {
+    lagoon: "LAGOON",
+    eec: "EEC",
+    cde: "CDE",
+    "opt-internet": "OPT Internet",
+    "opt-mobile": "OPT Mobile",
+};
+
+function onlyDigits(value: string): string {
+    return value.replace(/\D+/g, "");
+}
+
+function detectProvider(message: GmailMessageDetail): InvoiceProvider | null {
+    const haystack = `${message.fromEmail} ${message.fromName} ${message.subject} ${message.currentText} ${message.historyText}`.toLowerCase();
+    const digits = onlyDigits(haystack);
+
+    if (/lagoon/.test(haystack)) return "lagoon";
+    if (/\beec\b|engie/.test(haystack)) return "eec";
+    if (/cal[ée]donienne des eaux|\bcde\b|eaux\.nc/.test(haystack)) return "cde";
+    if (/opt\.nc|\bopt\b/.test(haystack)) {
+        if (digits.includes("111150452") || /mobile|t[ée]l[ée]phonie|forfait/.test(haystack)) {
+            return "opt-mobile";
+        }
+        if (digits.includes("9000019168") || /internet|adsl|fibre/.test(haystack)) {
+            return "opt-internet";
+        }
+        return "opt-internet";
+    }
+    return null;
+}
+
+function monthFromText(text: string): { year: number; month: number } | null {
+    const iso = text.match(/(20\d{2})[-\/.](\d{1,2})/);
+    if (iso) {
+        const year = Number(iso[1]);
+        const month = Number(iso[2]);
+        if (month >= 1 && month <= 12) return { year, month };
+    }
+
+    const french = text.match(/(?:^|\D)(\d{1,2})[\/.](20\d{2})(?!\d)/);
+    if (french) {
+        const month = Number(french[1]);
+        const year = Number(french[2]);
+        if (month >= 1 && month <= 12) return { year, month };
+    }
+
+    const named = text
+        .toLowerCase()
+        .match(/(janvier|fevrier|février|mars|avril|mai|juin|juillet|aout|août|septembre|octobre|novembre|decembre|décembre)\s+(20\d{2})/);
+    if (named) {
+        return { year: Number(named[2]), month: MONTHS_FR[named[1]] ?? 1 };
+    }
+
+    return null;
+}
+
+function quarterFromText(text: string): { year: number; quarter: number } | null {
+    const direct = text.match(/\bT([1-4])\b[^\d]{0,8}(20\d{2})/i);
+    if (direct) return { quarter: Number(direct[1]), year: Number(direct[2]) };
+
+    const reverse = text.match(/(20\d{2})[^\d]{0,8}\bT([1-4])\b/i);
+    if (reverse) return { year: Number(reverse[1]), quarter: Number(reverse[2]) };
+
+    const trimestre = text.match(/([1-4])(?:er|e|ème|eme)?\s*trimestre[^\d]{0,10}(20\d{2})/i);
+    if (trimestre) return { quarter: Number(trimestre[1]), year: Number(trimestre[2]) };
+
+    return null;
+}
+
+function periodFromMessage(
+    message: GmailMessageDetail,
+    provider: InvoiceProvider
+): string {
+    const haystack = `${message.subject}\n${message.currentText}\n${message.historyText}`;
+    const received = new Date(message.date);
+    const fallbackYear = Number.isNaN(received.getTime())
+        ? new Date().getFullYear()
+        : received.getFullYear();
+    const fallbackMonth = Number.isNaN(received.getTime())
+        ? new Date().getMonth() + 1
+        : received.getMonth() + 1;
+
+    if (provider === "cde") {
+        const explicit = quarterFromText(haystack);
+        if (explicit) {
+            return `${explicit.year}-T${explicit.quarter}`;
+        }
+        const month = monthFromText(haystack);
+        const year = month?.year ?? fallbackYear;
+        const monthNumber = month?.month ?? fallbackMonth;
+        const quarter = Math.floor((monthNumber - 1) / 3) + 1;
+        return `${year}-T${quarter}`;
+    }
+
+    const month = monthFromText(haystack);
+    const year = month?.year ?? fallbackYear;
+    const monthNumber = month?.month ?? fallbackMonth;
+    return `${year}-${String(monthNumber).padStart(2, "0")}`;
+}
+
+function pdfFiles(message: GmailMessageDetail): InvoiceFile[] {
+    const pdfs = message.attachmentParts.filter(
+        (part) =>
+            part.type.toLowerCase() === "application/pdf" ||
+            part.filename.toLowerCase().endsWith(".pdf")
+    );
+
+    if (pdfs.length === 0) return [];
+
+    const clean = (value: string) => value.replace(/[\\/:*?"<>|]+/g, "-").trim();
+
+    return pdfs.map((part, index) => ({
+        part: part.part,
+        original: part.filename,
+        type: part.type || "application/pdf",
+        proposed: clean(part.filename || `facture-${index + 1}.pdf`),
+    }));
+}
+
+/**
+ * Détecte une facture d'un fournisseur connu et propose un nom de fichier
+ * normalisé : « 2026-08 - LAGOON - Facture.pdf », « 2026-T3 - CDE - Facture.pdf »…
+ */
+export function detectInvoiceFromMessage(message: GmailMessageDetail): InvoiceProposal | null {
+    const provider = detectProvider(message);
+    if (!provider) return null;
+
+    const files = pdfFiles(message);
+    if (files.length === 0) return null;
+
+    const period = periodFromMessage(message, provider);
+    const label = PROVIDER_LABEL[provider];
+
+    return {
+        provider,
+        providerLabel: label,
+        period,
+        files: files.map((file, index) => ({
+            ...file,
+            proposed: `${period} - ${label} - Facture${files.length > 1 ? ` (${index + 1})` : ""}.pdf`,
+        })),
+    };
+}

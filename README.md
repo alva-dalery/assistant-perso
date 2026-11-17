@@ -141,3 +141,11 @@ disponible.
 
 Les données (livres, films, expositions) sont enregistrées dans le navigateur (`localStorage`) :
 elles restent sur l'appareil et ne sont pas envoyées à un serveur.
+
+### 🧾 Factures fournisseurs (Lagoon, EEC, CDE, OPT)
+
+Les emails de factures de **Lagoon**, **EEC Engie**, **CDE** et **OPT.nc** (Internet et Mobile)
+sont reconnus automatiquement. L'application propose un nom de fichier normalisé
+(`2026-08 - LAGOON - Facture.pdf`, `2026-T3 - CDE - Facture.pdf`, `2026-06 - OPT Internet - Facture.pdf`…),
+vous le validez, le PDF est téléchargé, puis **le mail est envoyé dans la corbeille Gmail**.
+Aucun téléchargement ni suppression sans votre validation.

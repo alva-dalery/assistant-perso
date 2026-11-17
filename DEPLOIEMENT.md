@@ -261,6 +261,30 @@ En local, les mêmes lignes dans `.env.local` (fichier ignoré par Git), puis `n
 - Onglet **Paramètres → Synchronisation** : la carte Google affiche l'adresse réellement connectée
   et le nombre de messages, avec un bouton **Tester la connexion**.
 
+### Factures fournisseurs : téléchargement et suppression
+
+Quand un email classé **Factures** provient d'un fournisseur reconnu **Lagoon**, **EEC Engie**,
+**CDE (Calédonienne des eaux)**, **OPT.nc Internet** (compte 9000019168) ou **OPT.nc Mobile**
+(compte 1.11150452), l'application :
+
+1. détecte le fournisseur (expéditeur, objet, corps, numéro de compte) ;
+2. repère les **pièces jointes PDF** ;
+3. détermine la **période** : mois/année ou trimestre lu dans l'objet ou le corps
+   (`août 2026`, `09/2026`, `T3 2026`, `3e trimestre 2026`), sinon mois/trimestre de réception ;
+4. propose un **nom normalisé**, modifiable avant validation :
+
+| Fournisseur | Exemple de nom proposé |
+| --- | --- |
+| Lagoon | `2026-08 - LAGOON - Facture.pdf` |
+| EEC Engie | `2026-09 - EEC - Facture.pdf` |
+| CDE | `2026-T3 - CDE - Facture.pdf` |
+| OPT Internet | `2026-06 - OPT Internet - Facture.pdf` |
+| OPT Mobile | `2016-06 - OPT Mobile - Facture.pdf` |
+
+Rien n'est téléchargé tant que vous n'avez pas cliqué sur **« Valider les noms et télécharger »**.
+Après le téléchargement réussi, **l'email est déplacé dans la corbeille Gmail** (suppression
+récupérable). Si plusieurs PDF sont joints, ils reçoivent un suffixe `(1)`, `(2)`…
+
 ### Tri automatique et rédaction de réponse
 
 Chaque message est classé **sans IA**, à partir de trois familles d'indices (en-têtes de diffusion,
