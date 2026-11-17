@@ -203,6 +203,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [suggestMeta, setSuggestMeta] = useState<{
         scanned: number;
         withSender: number;
+        errors: number;
+    } | null>(null);
+    const [suggestProgress, setSuggestProgress] = useState<{
+        processed: number;
+        total: number;
     } | null>(null);
     const [suggestError, setSuggestError] = useState<string | null>(null);
 
@@ -420,40 +425,88 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     }
 
     async function suggestFolderFor(uid: number, refresh = false) {
+        const target = detail && detail.uid === uid ? detail : null;
         setSuggesting(true);
         setSuggestedFolders([]);
         setSuggestError(null);
         setSuggestMeta(null);
+        setSuggestProgress({ processed: 0, total: 0 });
+
         try {
-            const response = await fetch(
-                `/api/gmail/suggest-folder?uid=${uid}${refresh ? "&refresh=1" : ""}`,
-                {
-                cache: "no-store",
-                credentials: "same-origin",
-            });
-            const data = (await response.json()) as {
-                suggestions?: FolderSuggestion[];
-                scanned?: number;
-                withSender?: number;
-                error?: string;
-            };
-            if (!response.ok) {
-                setSuggestError(data.error ?? "La recherche de dossier a échoué.");
-                return;
+            let offset = 0;
+            let totalLabels = 0;
+            let processedLabels = 0;
+            let withSender = 0;
+            let errors = 0;
+            let guard = 0;
+            const merged = new Map<string, FolderSuggestion>();
+
+            // Boucle sur tous les lots : plus de plafond de dossiers.
+            while (guard < 200) {
+                guard += 1;
+                const url = new URL("/api/gmail/suggest-folder", window.location.origin);
+                url.searchParams.set("uid", String(uid));
+                if (target) {
+                    url.searchParams.set("sender", target.fromEmail);
+                    url.searchParams.set("name", target.fromName);
+                    url.searchParams.set("subject", target.subject);
+                }
+                url.searchParams.set("offset", String(offset));
+                url.searchParams.set("batch", "15");
+                if (refresh) url.searchParams.set("refresh", "1");
+
+                const response = await fetch(url.toString(), {
+                    cache: "no-store",
+                    credentials: "same-origin",
+                });
+                const data = (await response.json()) as {
+                    suggestions?: FolderSuggestion[];
+                    scanned?: number;
+                    processed?: number;
+                    withSender?: number;
+                    errors?: number;
+                    nextOffset?: number | null;
+                    error?: string;
+                };
+
+                if (!response.ok) {
+                    setSuggestError(data.error ?? "La recherche de dossier a échoué.");
+                    return;
+                }
+
+                totalLabels = data.scanned ?? totalLabels;
+                const batchProcessed = data.processed ?? 0;
+                processedLabels += batchProcessed;
+                withSender += data.withSender ?? 0;
+                errors += data.errors ?? 0;
+
+                for (const suggestion of data.suggestions ?? []) {
+                    const previous = merged.get(suggestion.path);
+                    if (!previous || suggestion.score > previous.score) {
+                        merged.set(suggestion.path, suggestion);
+                    }
+                }
+
+                setSuggestProgress({ processed: processedLabels, total: totalLabels });
+                setSuggestMeta({ scanned: totalLabels, withSender, errors });
+
+                if (data.nextOffset == null) break;
+                offset = data.nextOffset;
             }
-            setSuggestMeta({
-                scanned: data.scanned ?? 0,
-                withSender: data.withSender ?? 0,
-            });
-            const suggestions = data.suggestions ?? [];
-            setSuggestedFolders(suggestions);
-            if (suggestions.length > 0) {
-                setFolderTarget((current) => current || suggestions[0].path);
+
+            const list = [...merged.values()]
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 5);
+
+            setSuggestedFolders(list);
+            if (list.length > 0) {
+                setFolderTarget((current) => current || list[0].path);
             }
         } catch {
             setSuggestError("Impossible de joindre la recherche de dossier.");
         } finally {
             setSuggesting(false);
+            setSuggestProgress(null);
         }
     }
 
@@ -955,7 +1008,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                 {suggesting && (
                                     <p className="flex items-center gap-1.5">
                                         <Loader2 className="h-3 w-3 animate-spin text-teal-600" />
-                                        <span>Recherche d'un dossier habituel…</span>
+                                        <span>
+                                            Analyse des dossiers{" "}
+                                            {suggestProgress && suggestProgress.total > 0
+                                                ? `${suggestProgress.processed}/${suggestProgress.total}`
+                                                : "…"}
+                                        </span>
                                     </p>
                                 )}
                                 {!suggesting && suggestedFolders.length > 0 && (
@@ -981,7 +1039,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     <p>
                                         Aucun dossier existant ne contient déjà d'emails de cet
                                         expéditeur
-                                        {suggestMeta ? ` (${suggestMeta.scanned} dossiers analysés)` : ""}.
+                                        {suggestMeta ? ` (${suggestMeta.scanned} dossiers analysés)` : ""}
+                                        {suggestMeta && suggestMeta.errors > 0
+                                            ? ` — ${suggestMeta.errors} recherche(s) en échec`
+                                            : ""}
+                                        .
                                     </p>
                                 )}
                                 {suggestError && <p className="text-rose-600">{suggestError}</p>}

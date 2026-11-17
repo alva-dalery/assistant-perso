@@ -316,12 +316,15 @@ et affiche « Envoi de N pièce(s) jointe(s) : … » au lieu du message « cont
 
 ### Suggestion de dossier et rangement après envoi
 
-- À l'ouverture d'un email, l'application interroge vos **libellés Gmail** (30 maximum) par une
-  recherche IMAP sur **l'adresse e-mail exacte de l'expéditeur** (priorité absolue) et, en second
-  recours, sur **le domaine**.
+- À l'ouverture d'un email, l'application interroge **tous vos libellés Gmail** par une recherche
+  IMAP sur **l'adresse e-mail exacte de l'expéditeur** (priorité absolue) et, en second recours,
+  sur **le domaine**. Aucun plafond de dossiers : l'analyse se fait **par lots de 15 libellés**,
+  le client enchaînant automatiquement les lots avec une progression « Analyse 45/120 dossiers… ».
+  Les échecs de recherche sont comptés et affichés au lieu d'être ignorés.
 - Le domaine n'est utilisé que s'il est **spécifique** : jamais pour un domaine grand public
   (`gmail.com`, `orange.fr`, `outlook.fr`…) et uniquement si le **nom du dossier correspond au
-  domaine** — `BNC` ↔ `bnc.nc`, `BNC/Compta` ↔ `bnc.nc`. Un dossier comme `# PERSO/###_Perso` qui
+  domaine** — et la recherche par domaine n'est même pas lancée dans les autres dossiers, ce qui
+  divise le coût par deux — `BNC` ↔ `bnc.nc`, `BNC/Compta` ↔ `bnc.nc`. Un dossier comme `# PERSO/###_Perso` qui
   contient simplement des emails du même domaine n'est **pas** proposé.
 - Si plusieurs dossiers correspondent, l'application affiche **jusqu'à 5 suggestions** en pastilles
   cliquables, triées (adresse exacte d'abord, puis domaine), et présélectionne la première. La

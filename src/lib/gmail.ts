@@ -1536,12 +1536,20 @@ export interface FolderSuggestion {
 
 export interface FolderSuggestionResult {
     suggestions: FolderSuggestion[];
+    /** Nombre total de libellés disponibles. */
     scanned: number;
+    /** Nombre de libellés traités dans ce lot. */
+    processed: number;
+    /** Nombre de libellés où l'adresse exacte a été trouvée (tous lots confondus côté client). */
     withSender: number;
+    /** Nombre de recherches ayant échoué (ne plus ignorer silencieusement). */
+    errors: number;
+    /** Offset du lot suivant, ou null si l'analyse est terminée. */
+    nextOffset: number | null;
 }
 
 /** Domaines grand public : un domaine partagé n'aide jamais à classer. */
-const FREEMAIL_DOMAINS = new Set([
+export const FREEMAIL_DOMAINS = new Set([
     "gmail.com",
     "googlemail.com",
     "outlook.com",
@@ -1573,7 +1581,7 @@ const FREEMAIL_DOMAINS = new Set([
     "tutanota.com",
 ]);
 
-function normalizedKey(value: string): string {
+export function normalizedKey(value: string): string {
     return value
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
@@ -1581,24 +1589,20 @@ function normalizedKey(value: string): string {
         .replace(/[^a-z0-9]/g, "");
 }
 
-/**
- * Suggestion de dossier :
- * 1. l'adresse exacte de l'expéditeur est déjà rangée dans le dossier ;
- * 2. sinon, si le domaine est spécifique (pas grand public) et que le nom du
- *    dossier correspond à ce domaine (« BNC » ↔ bnc.nc), on propose le dossier.
- * Un dossier qui contient seulement des emails du même domaine sans rapport
- * avec son nom (ex. # PERSO pour bnc.nc) n'est jamais proposé.
- */
+/** Le libellé porte-t-il le nom du domaine (BNC ↔ bnc.nc) ? */
+export function folderMatchesDomain(label: string, domain: string): boolean {
+    const rootKey = normalizedKey(domain.split(".")[0] ?? "");
+    const folderKey = normalizedKey(label);
+    if (rootKey.length < 3 || folderKey.length < 3) return false;
+    return folderKey.includes(rootKey) || rootKey.includes(folderKey);
+}
+
 export function rankFolderCandidates(
     input: { senderEmail: string; senderName: string; subject: string },
     scans: FolderScan[]
 ): FolderSuggestion[] {
-    const email = input.senderEmail.toLowerCase();
-    const domain = email.split("@")[1] ?? "";
-    const root = domain.split(".")[0] ?? "";
-    const rootKey = normalizedKey(root);
-    const domainIsSpecific =
-        Boolean(domain) && !FREEMAIL_DOMAINS.has(domain) && rootKey.length >= 3;
+    const domain = input.senderEmail.toLowerCase().split("@")[1] ?? "";
+    const domainIsSpecific = Boolean(domain) && !FREEMAIL_DOMAINS.has(domain);
 
     const results: FolderSuggestion[] = [];
 
@@ -1614,13 +1618,7 @@ export function rankFolderCandidates(
         }
 
         if (!domainIsSpecific || scan.domainCount === 0) continue;
-
-        const folderKey = normalizedKey(scan.label);
-        const matchesDomainName =
-            folderKey.length >= 3 &&
-            (folderKey.includes(rootKey) || rootKey.includes(folderKey));
-
-        if (!matchesDomainName) continue;
+        if (!folderMatchesDomain(scan.label, domain)) continue;
 
         results.push({
             path: scan.path,
@@ -1630,49 +1628,81 @@ export function rankFolderCandidates(
         });
     }
 
-    return results.sort((a, b) => b.score - a.score).slice(0, 5);
+    return results.sort((a, b) => b.score - a.score);
+}
+
+const folderListCache = new Map<string, { at: number; value: GmailFolder[] }>();
+const FOLDER_CACHE_TTL_MS = 30_000;
+
+async function suggestableFolders(): Promise<GmailFolder[]> {
+    const cached = folderListCache.get("labels");
+    if (cached && Date.now() - cached.at < FOLDER_CACHE_TTL_MS) return cached.value;
+
+    const folders = (await listFolders())
+        .filter((folder) => folder.kind === "label")
+        .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+
+    folderListCache.set("labels", { at: Date.now(), value: folders });
+    return folders;
 }
 
 const suggestionCache = new Map<string, { at: number; value: FolderSuggestionResult }>();
 const SUGGESTION_TTL_MS = 10 * 60 * 1000;
 
-/** Interroge chaque libellé Gmail par recherche IMAP (adresse exacte + domaine). */
+export const DEFAULT_SUGGESTION_BATCH = 15;
+
+/**
+ * Analyse les libellés Gmail par lots : `offset` + `batch` permettent de tout
+ * parcourir sans jamais dépasser la durée max d'une fonction serverless.
+ * Aucune limite globale : le client enchaîne les lots jusqu'à `nextOffset === null`.
+ */
 export async function suggestFolderForMessage(
     input: { senderEmail: string; senderName: string; subject: string },
-    options?: { refresh?: boolean }
+    options?: { refresh?: boolean; offset?: number; batch?: number }
 ): Promise<FolderSuggestionResult> {
     if (!isGmailConfigured()) throw new Error("Gmail n'est pas configuré.");
 
-    const cacheKey = `${input.senderEmail.toLowerCase()}|${input.subject}`;
+    const folders = await suggestableFolders();
+    const total = folders.length;
+
+    const offset = Math.max(0, Math.trunc(options?.offset ?? 0));
+    const batch = Math.min(Math.max(Math.trunc(options?.batch ?? DEFAULT_SUGGESTION_BATCH), 1), 30);
+    const slice = folders.slice(offset, offset + batch);
+    const nextOffset = offset + slice.length < total ? offset + slice.length : null;
+
+    const cacheKey = `${input.senderEmail.toLowerCase()}|${input.subject}|${offset}|${batch}`;
     const cached = suggestionCache.get(cacheKey);
     if (!options?.refresh && cached && Date.now() - cached.at < SUGGESTION_TTL_MS) {
         return cached.value;
     }
 
-    const folders = (await listFolders())
-        .filter((folder) => folder.kind === "label")
-        .slice(0, 30);
-
-    if (folders.length === 0) {
-        const empty: FolderSuggestionResult = { suggestions: [], scanned: 0, withSender: 0 };
+    if (slice.length === 0) {
+        const empty: FolderSuggestionResult = {
+            suggestions: [],
+            scanned: total,
+            processed: 0,
+            withSender: 0,
+            errors: 0,
+            nextOffset: null,
+        };
         suggestionCache.set(cacheKey, { at: Date.now(), value: empty });
         return empty;
     }
 
     const senderEmail = input.senderEmail.toLowerCase();
     const domain = senderEmail.split("@")[1] ?? "";
-    const baseAddress = senderEmail.includes("+")
-        ? `${senderEmail.split("+")[0]}@${domain}`
-        : null;
-    const searchDomain = Boolean(domain) && !FREEMAIL_DOMAINS.has(domain);
+    const baseAddress = senderEmail.includes("+") ? `${senderEmail.split("+")[0]}@${domain}` : null;
+    const domainIsSpecific = Boolean(domain) && !FREEMAIL_DOMAINS.has(domain);
 
     const client = createImapClient();
     client.on("error", () => undefined);
     await client.connect();
 
     const scans: FolderScan[] = [];
+    let errors = 0;
+
     try {
-        for (const folder of folders) {
+        for (const folder of slice) {
             const lock = await client.getMailboxLock(folder.path, { readOnly: true });
             try {
                 let senderCount = 0;
@@ -1682,6 +1712,7 @@ export async function suggestFolderForMessage(
                     const found = await client.search({ from: input.senderEmail }, { uid: true });
                     senderCount = Array.isArray(found) ? found.length : 0;
                 } catch {
+                    errors += 1;
                     senderCount = 0;
                 }
 
@@ -1690,15 +1721,19 @@ export async function suggestFolderForMessage(
                         const found = await client.search({ from: baseAddress }, { uid: true });
                         senderCount = Array.isArray(found) ? found.length : 0;
                     } catch {
+                        errors += 1;
                         senderCount = 0;
                     }
                 }
 
-                if (searchDomain) {
+                // Le domaine n'est recherché que dans les dossiers dont le nom
+                // correspond au domaine : inutile ailleurs, et coûteux en IMAP.
+                if (domainIsSpecific && folderMatchesDomain(folder.label, domain)) {
                     try {
                         const found = await client.search({ from: `@${domain}` }, { uid: true });
                         domainCount = Array.isArray(found) ? found.length : 0;
                     } catch {
+                        errors += 1;
                         domainCount = 0;
                     }
                 }
@@ -1714,8 +1749,11 @@ export async function suggestFolderForMessage(
 
     const value: FolderSuggestionResult = {
         suggestions: rankFolderCandidates(input, scans),
-        scanned: scans.length,
+        scanned: total,
+        processed: scans.length,
         withSender: scans.filter((scan) => scan.senderCount > 0).length,
+        errors,
+        nextOffset,
     };
 
     suggestionCache.set(cacheKey, { at: Date.now(), value });
