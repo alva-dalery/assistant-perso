@@ -143,7 +143,9 @@ lien, statut, date d'expédition et historique en accordéon.
 ## 📚 Bibliothèque (BM Lyon)
 
 Les emails de la bibliothèque de Lyon (`@bm-lyon.fr`) sont analysés : la liste des livres empruntés
-apparaît en **vignettes de couvertures**, avec auteur et **date de retour** (rouge si dépassée).
+apparaît en **vignettes de couvertures**, avec le **titre complet**, le **prénom et nom de l'auteur**
+et la **date de retour** (rouge si dépassée). Un bouton **« Modifier »** permet de corriger le lien de
+l'image, mémorisé dans le navigateur.
 
 ## 🎭 Culture — expositions, livres et films
 

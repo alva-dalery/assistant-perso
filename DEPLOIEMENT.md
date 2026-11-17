@@ -415,9 +415,19 @@ Trois formats sont reconnus :
 - lignes simples (`Titre - Auteur - à rendre le 12/12/2026`, `Titre (Auteur) - retour le 22 novembre 2026`) ;
 - tableaux (`Titre` / `Auteur` / `Date de retour` en en-tête, puis une ligne par ouvrage).
 
-Jusqu'à 15 ouvrages, dédoublonnés par titre. Les couvertures sont cherchées sur **Google Books** à
-partir du titre et de l'auteur (mise en cache, repli sur une vignette sobre si aucune couverture).
-Aucune analyse n'a lieu pour les autres expéditeurs.
+Jusqu'à 15 ouvrages, dédoublonnés par titre. Pour chaque livre, l'application retrouve
+automatiquement :
+
+- la **couverture** (Google Books puis Open Library, plusieurs formats d'image essayés et mis en
+  cache) ;
+- le **titre complet** catalogué, sous-titre compris ;
+- le **prénom et le nom** de l'auteur (l'auteur cité dans l'email est placé en premier s'il fait
+  partie des contributeurs).
+
+Ces informations remplacent le texte brut de l'email. Un bouton **« Modifier »** sous chaque
+vignette ouvre un champ pour saisir **le lien de l'image** ; le lien est mémorisé dans le navigateur
+(`localStorage`, clé `assistantPerso.loanCovers.v1`) et le bouton **« Auto »** rétablit la
+recherche automatique. Aucune analyse n'a lieu pour les autres expéditeurs.
 
 #### Corriger une étiquette à la main
 

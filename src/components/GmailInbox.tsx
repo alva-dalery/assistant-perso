@@ -33,6 +33,14 @@ import {
 } from "lucide-react";
 import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
 import { addParcel } from "@/lib/trackingMemory";
+import {
+    loadCoverOverrides,
+    loanCoverKey,
+    lookupBook,
+    saveCoverOverrides,
+    titleCase,
+} from "@/lib/loanCovers";
+import type { BookLookup } from "@/lib/loanCovers";
 
 type GmailCategory =
     | "personnel"
@@ -226,75 +234,155 @@ function dueTone(iso: string | null): "overdue" | "soon" | "normal" {
     return "normal";
 }
 
-/** Couvertures Google Books, mises en cache pour éviter les requêtes répétées. */
-const LOAN_COVER_CACHE = new Map<string, string | null>();
+interface LoanCardProps {
+    loan: BookLoan;
+    /** Lien choisi à la main, s'il existe. */
+    override?: string;
+    onSaveCover: (url: string | null) => void;
+}
 
-const LoanCover: React.FC<{ title: string; author: string | null }> = ({ title, author }) => {
-    const key = `${title}|${author ?? ""}`;
-    const [url, setUrl] = useState<string | null>(LOAN_COVER_CACHE.get(key) ?? null);
-    const [loading, setLoading] = useState(!LOAN_COVER_CACHE.has(key));
+const LoanCard: React.FC<LoanCardProps> = ({ loan, override, onSaveCover }) => {
+    const [lookup, setLookup] = useState<BookLookup | null>(null);
+    const [coverIndex, setCoverIndex] = useState(0);
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState(override ?? "");
 
     useEffect(() => {
-        if (LOAN_COVER_CACHE.has(key)) return;
         let cancelled = false;
-        (async () => {
-            try {
-                const params = new URLSearchParams({
-                    q: `intitle:${title}${author ? ` inauthor:${author}` : ""}`,
-                    maxResults: "1",
-                    fields: "items(volumeInfo(imageLinks))",
-                });
-                const response = await fetch(
-                    `https://www.googleapis.com/books/v1/volumes?${params.toString()}`
-                );
-                const data = (await response.json()) as {
-                    items?: {
-                        volumeInfo?: {
-                            imageLinks?: { thumbnail?: string; smallThumbnail?: string };
-                        };
-                    }[];
-                };
-                const links = data.items?.[0]?.volumeInfo?.imageLinks;
-                const found = links?.thumbnail ?? links?.smallThumbnail ?? null;
-                const cleaned = found
-                    ? found.replace(/^http:/, "https:").replace(/&edge=curl/g, "")
-                    : null;
-                LOAN_COVER_CACHE.set(key, cleaned);
-                if (!cancelled) setUrl(cleaned);
-            } catch {
-                LOAN_COVER_CACHE.set(key, null);
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
+        setLookup(null);
+        setCoverIndex(0);
+        void (async () => {
+            const found = await lookupBook(loan.title, loan.author);
+            if (!cancelled) setLookup(found);
         })();
         return () => {
             cancelled = true;
         };
-    }, [key, title, author]);
+    }, [loan.title, loan.author]);
 
-    if (url) {
-        return (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-                src={url}
-                alt={`Couverture de ${title}`}
-                className="h-full w-full object-cover"
-                onError={() => {
-                    LOAN_COVER_CACHE.set(key, null);
-                    setUrl(null);
-                }}
-            />
-        );
-    }
+    useEffect(() => {
+        setDraft(override ?? "");
+    }, [override]);
+
+    const displayTitle = lookup?.title ?? titleCase(loan.title);
+    const displayAuthor =
+        lookup && lookup.authors.length > 0
+            ? lookup.authors.join(", ")
+            : loan.author
+              ? titleCase(loan.author)
+              : null;
+    const coverUrl = override ?? lookup?.covers[coverIndex] ?? null;
+    const searching = lookup === null && !override;
+    const tone = dueTone(loan.dueDate);
 
     return (
-        <div className="h-full w-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400 p-2 text-center">
-            {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+        <div className="rounded-xl bg-white border border-amber-200/70 overflow-hidden flex flex-col">
+            <div className="aspect-[2/3] bg-slate-100 overflow-hidden">
+                {coverUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                        src={coverUrl}
+                        alt={`Couverture de ${displayTitle}`}
+                        className="h-full w-full object-cover"
+                        onError={() => {
+                            if (!override) setCoverIndex((index) => index + 1);
+                        }}
+                    />
+                ) : (
+                    <div className="h-full w-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400 p-2 text-center">
+                        {searching ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <BookOpen className="h-5 w-5" />
+                        )}
+                        <span className="text-[8px] font-bold leading-tight line-clamp-3">
+                            {displayTitle}
+                        </span>
+                    </div>
+                )}
+            </div>
+
+            <div className="p-2 space-y-0.5 flex-1">
+                <p className="text-[11px] font-bold text-slate-800 leading-tight line-clamp-2">
+                    {displayTitle}
+                </p>
+                {displayAuthor && (
+                    <p className="text-[9px] text-slate-500 truncate">{displayAuthor}</p>
+                )}
+                {loan.dueDate ? (
+                    <p
+                        className={`text-[9px] font-bold ${
+                            tone === "overdue"
+                                ? "text-rose-600"
+                                : tone === "soon"
+                                  ? "text-amber-700"
+                                  : "text-slate-500"
+                        }`}
+                    >
+                        À rendre le {formatShortDate(loan.dueDate)}
+                    </p>
+                ) : loan.dueLabel ? (
+                    <p className="text-[9px] font-bold text-slate-500">Retour : {loan.dueLabel}</p>
+                ) : null}
+            </div>
+
+            {editing ? (
+                <form
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        onSaveCover(draft.trim() ? draft.trim() : null);
+                        setEditing(false);
+                    }}
+                    className="p-2 border-t border-amber-200/70 space-y-1"
+                >
+                    <input
+                        autoFocus
+                        value={draft}
+                        onChange={(event) => setDraft(event.target.value)}
+                        placeholder="https://…/couverture.jpg"
+                        inputMode="url"
+                        aria-label={`Lien de l'image de ${displayTitle}`}
+                        className="w-full rounded-lg border border-slate-200 px-1.5 py-1 text-[9px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                    />
+                    <div className="flex items-center gap-1">
+                        <button
+                            type="submit"
+                            className="px-2 py-1 rounded-lg bg-amber-600 text-white text-[9px] font-bold hover:bg-amber-700 transition-all"
+                        >
+                            Enregistrer
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setEditing(false)}
+                            className="px-2 py-1 rounded-lg text-slate-500 text-[9px] font-bold hover:bg-slate-100 transition-all"
+                        >
+                            Annuler
+                        </button>
+                        {override && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    onSaveCover(null);
+                                    setEditing(false);
+                                }}
+                                className="ml-auto text-[9px] font-bold text-amber-700 hover:underline"
+                            >
+                                Auto
+                            </button>
+                        )}
+                    </div>
+                </form>
             ) : (
-                <BookOpen className="h-5 w-5" />
+                <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    title="Modifier le lien de l'image"
+                    className="flex items-center justify-center gap-1 px-2 py-1 border-t border-amber-200/70 text-[9px] font-bold text-amber-700 hover:bg-amber-50 transition-all"
+                >
+                    <PenLine className="h-3 w-3" />
+                    <span>Modifier</span>
+                </button>
             )}
-            <span className="text-[8px] font-bold leading-tight line-clamp-3">{title}</span>
         </div>
     );
 };
@@ -612,6 +700,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [labelOverrides, setLabelOverrides] = useState<Record<number, GmailCategory>>({});
     const [commandFolder, setCommandFolder] = useState("");
     const [commandSaving, setCommandSaving] = useState(false);
+    const [coverOverrides, setCoverOverrides] = useState<Record<string, string>>({});
     /** Étiquettes renvoyées par le serveur, pour pouvoir revenir en « Automatique ». */
     const rawLabelsRef = useRef<
         Record<number, { category: GmailCategory; needsReply: boolean; reason: string }>
@@ -736,6 +825,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
 
     useEffect(() => {
         setStyleSamples(loadSamples().length);
+        setCoverOverrides(loadCoverOverrides());
     }, []);
 
     // Dossier proposé pour ranger une commande : « Commandes et Factures » en priorité.
@@ -1341,6 +1431,19 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 ? "Étiquette automatique rétablie."
                 : `Étiquette modifiée : ${CATEGORY_LABEL[value]}.`
         );
+    }
+
+    /** Enregistre (ou efface) le lien d'image choisi à la main pour un livre. */
+    function persistLoanCover(key: string, url: string | null) {
+        const next = { ...coverOverrides };
+        if (url) {
+            next[key] = url;
+        } else {
+            delete next[key];
+        }
+        setCoverOverrides(next);
+        saveCoverOverrides(next);
+        setFeedback(url ? "Lien de l'image enregistré." : "Couverture automatique rétablie.");
     }
 
     /** Valide un suivi : range l'email dans le dossier choisi et l'ajoute au tableau de bord. */
@@ -2211,47 +2314,16 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
 
                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                             {detail.loans.map((loan, index) => {
-                                                const tone = dueTone(loan.dueDate);
+                                                const key = loanCoverKey(loan.title, loan.author);
                                                 return (
-                                                    <div
-                                                        key={`${loan.title}-${index}`}
-                                                        className="rounded-xl bg-white border border-amber-200/70 overflow-hidden flex flex-col"
-                                                    >
-                                                        <div className="aspect-[2/3] bg-slate-100 overflow-hidden">
-                                                            <LoanCover
-                                                                title={loan.title}
-                                                                author={loan.author}
-                                                            />
-                                                        </div>
-                                                        <div className="p-2 space-y-0.5">
-                                                            <p className="text-[11px] font-bold text-slate-800 leading-tight line-clamp-2">
-                                                                {loan.title}
-                                                            </p>
-                                                            {loan.author && (
-                                                                <p className="text-[9px] text-slate-500 truncate">
-                                                                    {loan.author}
-                                                                </p>
-                                                            )}
-                                                            {loan.dueDate ? (
-                                                                <p
-                                                                    className={`text-[9px] font-bold ${
-                                                                        tone === "overdue"
-                                                                            ? "text-rose-600"
-                                                                            : tone === "soon"
-                                                                              ? "text-amber-700"
-                                                                              : "text-slate-500"
-                                                                    }`}
-                                                                >
-                                                                    À rendre le{" "}
-                                                                    {formatShortDate(loan.dueDate)}
-                                                                </p>
-                                                            ) : loan.dueLabel ? (
-                                                                <p className="text-[9px] font-bold text-slate-500">
-                                                                    Retour : {loan.dueLabel}
-                                                                </p>
-                                                            ) : null}
-                                                        </div>
-                                                    </div>
+                                                    <LoanCard
+                                                        key={`${key}-${index}`}
+                                                        loan={loan}
+                                                        override={coverOverrides[key]}
+                                                        onSaveCover={(url) =>
+                                                            persistLoanCover(key, url)
+                                                        }
+                                                    />
                                                 );
                                             })}
                                         </div>
