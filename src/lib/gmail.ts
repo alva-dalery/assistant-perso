@@ -1996,8 +1996,9 @@ export function detectInvoiceFromMessage(message: GmailMessageDetail): InvoicePr
         period = `${monthRef.year}-T${quarter}`;
         namePeriod = `${monthRef.year}-T${quarter}`;
     } else {
-        period = `${MONTH_LABELS[monthRef.month - 1]} ${monthRef.year}`;
-        namePeriod = `${MONTH_LABELS[monthRef.month - 1]} ${monthRef.year}`;
+        const numeric = `${String(monthRef.month).padStart(2, "0")}-${monthRef.year}`;
+        period = numeric;
+        namePeriod = numeric;
     }
 
     return {

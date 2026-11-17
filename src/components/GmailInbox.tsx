@@ -154,6 +154,48 @@ interface InvoiceProposal {
     files: InvoiceFile[];
 }
 
+const INVOICE_LOGOS: Record<string, { domain: string; label: string; color: string }> = {
+    lagoon: { domain: "lagoon.nc", label: "LAGOON", color: "bg-sky-600" },
+    eec: { domain: "engie.nc", label: "EEC", color: "bg-blue-700" },
+    cde: { domain: "cde.nc", label: "CDE", color: "bg-cyan-600" },
+    "opt-internet": { domain: "opt.nc", label: "OPT", color: "bg-emerald-600" },
+    "opt-mobile": { domain: "helia.nc", label: "Helia", color: "bg-orange-500" },
+};
+
+const ProviderLogo: React.FC<{ provider: string; className?: string }> = ({
+    provider,
+    className = "",
+}) => {
+    const meta = INVOICE_LOGOS[provider] ?? {
+        domain: "",
+        label: "Facture",
+        color: "bg-slate-600",
+    };
+    const [broken, setBroken] = useState(false);
+
+    return (
+        <span
+            className={`inline-flex items-center justify-center overflow-hidden rounded-lg bg-white border border-slate-200 shrink-0 ${className}`}
+        >
+            {!broken && meta.domain ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                    src={`https://logo.clearbit.com/${meta.domain}`}
+                    alt={meta.label}
+                    onError={() => setBroken(true)}
+                    className="h-full w-full object-contain p-0.5"
+                />
+            ) : (
+                <span
+                    className={`h-full w-full flex items-center justify-center text-white text-[9px] font-extrabold ${meta.color}`}
+                >
+                    {meta.label}
+                </span>
+            )}
+        </span>
+    );
+};
+
 function attachmentUrl(uid: number, file: PartInfo): string {
     const params = new URLSearchParams({
         uid: String(uid),
@@ -873,6 +915,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         );
     }
 
+    const invoiceActive = Boolean(invoiceLoading || invoiceProposal);
+
     return (
         <div className="space-y-4">
             {/* Barre d'état */}
@@ -953,7 +997,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
                 {/* Liste */}
-                <div className="lg:col-span-5 space-y-2">
+                <div className={`space-y-2 ${invoiceActive ? "lg:col-span-3" : "lg:col-span-5"}`}>
                     {visibleMessages.length === 0 && !error && (
                         <p className="text-xs text-slate-500 p-4">
                             {filter === "todo"
@@ -1002,7 +1046,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 </div>
 
                 {/* Lecture + réponse */}
-                <div className="lg:col-span-7">
+                <div className={invoiceActive ? "lg:col-span-5" : "lg:col-span-7"}>
                     {loadingDetail && (
                         <div className="h-full min-h-[220px] rounded-2xl bg-white border border-slate-200/70 flex items-center justify-center text-xs text-slate-500">
                             <Loader2 className="h-4 w-4 animate-spin text-teal-600 mr-2" />
@@ -1047,7 +1091,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                 )}
 
                                 {/* Résumé + accordéon vers le message complet */}
-                                <div className="mt-3 rounded-2xl bg-slate-50 border border-slate-200/60 overflow-hidden">
+                                <div className={`mt-3 rounded-2xl bg-slate-50 border border-slate-200/60 overflow-hidden ${invoiceActive ? "hidden" : ""}`}>
                                     <button
                                         onClick={() => setExpanded((value) => !value)}
                                         aria-expanded={expanded}
@@ -1116,25 +1160,19 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     )}
                                     {invoiceProposal && (
                                         <>
-                                            <p className="text-[11px] font-bold text-indigo-900">
-                                                Facture {invoiceProposal.providerLabel} détectée ·{" "}
-                                                {invoiceProposal.period}
-                                                {invoiceProposal.invoiceDate
-                                                    ? ` · facturée le ${formatDate(invoiceProposal.invoiceDate)}`
-                                                    : ""}
-                                            </p>
-
-                                            {invoiceProposal.files.length > 0 && (
-                                                <iframe
-                                                    title="Aperçu de la facture PDF"
-                                                    src={`/api/gmail/attachment?uid=${detail.uid}&part=${encodeURIComponent(
-                                                        invoiceProposal.files[0].part
-                                                    )}&type=application%2Fpdf&name=${encodeURIComponent(
-                                                        invoiceProposal.files[0].proposed
-                                                    )}`}
-                                                    className="w-full h-72 rounded-xl border border-indigo-200 bg-white"
+                                            <p className="flex items-center gap-2 text-[11px] font-bold text-indigo-900">
+                                                <ProviderLogo
+                                                    provider={invoiceProposal.provider}
+                                                    className="h-7 w-7"
                                                 />
-                                            )}
+                                                <span>
+                                                    Facture {invoiceProposal.providerLabel} détectée ·{" "}
+                                                    {invoiceProposal.period}
+                                                    {invoiceProposal.invoiceDate
+                                                        ? ` · facturée le ${formatDate(invoiceProposal.invoiceDate)}`
+                                                        : ""}
+                                                </span>
+                                            </p>
 
                                             {invoiceProposal.files.map((file) => (
                                                 <input
@@ -1150,18 +1188,6 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                                 />
                                             ))}
 
-                                            {invoiceProposal.link && (
-                                                <a
-                                                    href={invoiceProposal.link}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-indigo-200 text-indigo-800 text-[11px] font-bold hover:bg-indigo-50"
-                                                >
-                                                    <ExternalLink className="h-3.5 w-3.5" />
-                                                    <span>Ouvrir la facture (lien de l'email)</span>
-                                                </a>
-                                            )}
-
                                             <div className="flex flex-wrap items-center gap-2">
                                                 {invoiceProposal.files.length > 0 && (
                                                     <button
@@ -1174,7 +1200,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                                         ) : (
                                                             <Download className="h-3.5 w-3.5" />
                                                         )}
-                                                        <span>Valider les noms et télécharger</span>
+                                                        <span>Valider le nom et télécharger</span>
                                                     </button>
                                                 )}
                                                 {invoiceProposal.files.length > 0 && !invoiceProposal.link && (
@@ -1415,7 +1441,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     </div>
                                 </div>
                             ) : (
-                                <div className="p-4 border-t border-slate-100 bg-slate-50/40 flex flex-wrap items-center justify-between gap-3">
+                                <div className={`p-4 border-t border-slate-100 bg-slate-50/40 flex flex-wrap items-center justify-between gap-3 ${invoiceActive ? "hidden" : ""}`}>
                                     <p className="text-[11px] text-slate-500">
                                         {detail.category === "important"
                                             ? "Action à prévoir (paiement, échéance) mais aucune réponse nécessaire."
@@ -1436,6 +1462,21 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                         </div>
                     )}
                 </div>
+                {invoiceActive && invoiceProposal && invoiceProposal.files.length > 0 && (
+                    <div className="lg:col-span-4">
+                        <div className="rounded-2xl bg-white border border-slate-200/70 shadow-sm overflow-hidden h-[70vh] min-h-[420px]">
+                            <iframe
+                                title="Aperçu complet de la facture"
+                                src={`/api/gmail/attachment?uid=${detail?.uid ?? 0}&part=${encodeURIComponent(
+                                    invoiceProposal.files[0].part
+                                )}&type=application%2Fpdf&name=${encodeURIComponent(
+                                    invoiceProposal.files[0].proposed
+                                )}`}
+                                className="w-full h-full"
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
