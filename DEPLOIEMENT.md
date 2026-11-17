@@ -288,12 +288,25 @@ pour un **trimestre explicite** (`T3 2026`) chez CDE. Autrement, on utilise la d
 précédent** (facture du 01/11/2026 → `2026-10`), sinon c'est le mois courant
 (facture du 31/08/2026 → `2026-08`). CDE reste en trimestres (`2026-T3`).
 
-Rien n'est téléchargé tant que vous n'avez pas cliqué sur **« Valider les noms et télécharger »**.
-Pour ces emails, l'interface passe en **trois colonnes** : la liste des emails reçus, le détail
-(nom du fichier + boutons), et l'**aperçu complet du PDF** sur la troisième colonne. La section
-**Ranger**, le bloc **Résumé de l'email** et la barre « Information à lire / Répondre quand même »
-sont masqués : la fiche ne montre que le traitement de la facture. Un **logo du fournisseur**
-est affiché (pour OPT Mobile, le logo **Helia by OPT.nc**).
+Rien n'est téléchargé tant que vous n'avez pas validé. L'onglet **Factures** fonctionne en
+**traitement en lot**, sans ouvrir chaque email :
+
+1. dès l'ouverture de l'onglet, tous les emails de facture sont analysés par paquets de 5 (une seule
+   connexion IMAP par paquet) et le **nom de PDF proposé** apparaît directement dans la liste ;
+2. une **case à cocher** par email et une case **« Tout sélectionner »** permettent de choisir les
+   factures à traiter ;
+3. chaque nom reste **modifiable** dans la liste (champ de saisie) ;
+4. **« Valider les noms et télécharger (n) »** télécharge tous les PDF sélectionnés avec les noms
+   affichés, puis **déplace chaque email correspondant dans la corbeille Gmail** ;
+5. un bouton **« Aperçu »** ouvre le PDF dans un nouvel onglet, uniquement si vous le demandez
+   (aucun aperçu automatique) ;
+6. les emails sans facture reconnue restent visibles avec la mention « Aucune facture reconnue ».
+
+Quand une facture est ouverte depuis un autre onglet (« Tous », « À traiter »…), la fiche garde la
+présentation en **trois colonnes** : liste des emails, détail (nom du fichier modifiable + boutons)
+et **aperçu complet du PDF**. La section **Ranger**, le bloc **Résumé de l'email** et la barre
+« Information à lire / Répondre quand même » sont masqués : la fiche ne montre que le traitement de
+la facture. Un **logo du fournisseur** est affiché (pour OPT Mobile, le logo **Helia by OPT.nc**).
 
 Pour **EEC Engie**, la facture est souvent disponible via un **lien** dans l'email plutôt qu'en
 pièce jointe : l'application crée une entrée virtuelle, affiche le PDF dans l'aperçu via une route

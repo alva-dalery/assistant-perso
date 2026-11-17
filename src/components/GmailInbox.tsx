@@ -92,6 +92,7 @@ type Filter = "todo" | "reply" | "important" | "factures" | "infos" | "later" | 
 
 const PAGE_SIZE = 500;
 const MAX_MESSAGES = 2000;
+const INVOICE_BATCH_CHUNK = 5;
 
 function formatDate(iso: string): string {
     const date = new Date(iso);
@@ -152,6 +153,20 @@ interface InvoiceProposal {
     invoiceDate: string;
     link?: string;
     files: InvoiceFile[];
+}
+
+type InvoiceRowStatus = "pending" | "ready" | "empty" | "error";
+
+interface InvoiceRow {
+    uid: number;
+    subject: string;
+    fromName: string;
+    date: string;
+    proposal: InvoiceProposal | null;
+    name: string;
+    selected: boolean;
+    status: InvoiceRowStatus;
+    error?: string;
 }
 
 const INVOICE_LOGOS: Record<string, { domain: string; label: string; color: string }> = {
@@ -292,6 +307,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [invoiceWorking, setInvoiceWorking] = useState(false);
     const [invoiceError, setInvoiceError] = useState<string | null>(null);
     const [invoicePreviewOk, setInvoicePreviewOk] = useState<boolean | null>(null);
+    const [invoiceRows, setInvoiceRows] = useState<Record<number, InvoiceRow>>({});
+    const [invoiceBatchLoading, setInvoiceBatchLoading] = useState(false);
+    const [invoiceBatchWorking, setInvoiceBatchWorking] = useState(false);
+    const [invoiceBatchMessage, setInvoiceBatchMessage] = useState<string | null>(null);
+    const invoiceRequestedRef = useRef<Set<number>>(new Set());
+    const mountedRef = useRef(true);
 
     const load = useCallback(
         async (requestedLimit: number) => {
@@ -435,6 +456,24 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                 ? later
                                 : messages;
 
+    const invoiceRowList = useMemo(
+        () =>
+            factures
+                .map((message) => invoiceRows[message.uid])
+                .filter((row): row is InvoiceRow => Boolean(row)),
+        [factures, invoiceRows]
+    );
+    const selectableInvoiceRows = useMemo(
+        () => invoiceRowList.filter((row) => row.status === "ready"),
+        [invoiceRowList]
+    );
+    const selectedInvoiceRows = useMemo(
+        () => invoiceRowList.filter((row) => row.selected && row.status === "ready"),
+        [invoiceRowList]
+    );
+    const allInvoicesSelected =
+        selectableInvoiceRows.length > 0 && selectableInvoiceRows.every((row) => row.selected);
+
     const messagesForFilter = (value: Filter) => {
         switch (value) {
             case "todo":
@@ -458,6 +497,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         setFilter(value);
         setInvoiceProposal(null);
         setInvoiceError(null);
+        setInvoicePreviewOk(null);
+        setInvoiceBatchMessage(null);
+        // L'onglet Factures est un écran de traitement en lot : on n'ouvre aucun
+        // email, les noms des PDF se chargent en arrière-plan.
+        if (value === "factures") {
+            setDetail(null);
+            setExpanded(false);
+            return;
+        }
         const list = messagesForFilter(value);
         if (list.length > 0) {
             void openMessage(list[0].uid);
@@ -751,6 +799,262 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         } finally {
             setInvoiceWorking(false);
         }
+    }
+
+    // ----- Onglet Factures : analyse en lot, sans ouvrir chaque email -----
+    useEffect(() => {
+        mountedRef.current = true;
+        if (filter !== "factures") return;
+
+        const pending = factures.filter(
+            (message) => !invoiceRequestedRef.current.has(message.uid)
+        );
+        if (pending.length === 0) return;
+
+        pending.forEach((message) => invoiceRequestedRef.current.add(message.uid));
+        setInvoiceRows((previous) => {
+            const next = { ...previous };
+            pending.forEach((message) => {
+                next[message.uid] = {
+                    uid: message.uid,
+                    subject: message.subject,
+                    fromName: message.fromName,
+                    date: message.date,
+                    proposal: null,
+                    name: "",
+                    selected: false,
+                    status: "pending",
+                };
+            });
+            return next;
+        });
+
+        void (async () => {
+            setInvoiceBatchLoading(true);
+            for (let start = 0; start < pending.length; start += INVOICE_BATCH_CHUNK) {
+                const chunk = pending.slice(start, start + INVOICE_BATCH_CHUNK);
+                try {
+                    const response = await fetch("/api/gmail/invoices", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "same-origin",
+                        body: JSON.stringify({ uids: chunk.map((message) => message.uid) }),
+                    });
+                    const data = (await response.json()) as {
+                        items?: { uid: number; proposal: InvoiceProposal | null; error?: string }[];
+                        error?: string;
+                    };
+                    if (!mountedRef.current) return;
+
+                    if (!response.ok) {
+                        const reason = data.error ?? "Analyse de la facture impossible.";
+                        setInvoiceRows((previous) => {
+                            const next = { ...previous };
+                            chunk.forEach((message) => {
+                                const current = next[message.uid];
+                                if (current) {
+                                    next[message.uid] = {
+                                        ...current,
+                                        status: "error",
+                                        error: reason,
+                                    };
+                                }
+                            });
+                            return next;
+                        });
+                        continue;
+                    }
+
+                    setInvoiceRows((previous) => {
+                        const next = { ...previous };
+                        (data.items ?? []).forEach((item) => {
+                            const current = next[item.uid];
+                            if (!current) return;
+                            next[item.uid] = item.proposal
+                                ? {
+                                    ...current,
+                                    proposal: item.proposal,
+                                    name: item.proposal.files[0]?.proposed ?? "",
+                                    selected: true,
+                                    status: "ready",
+                                    error: undefined,
+                                }
+                                : {
+                                    ...current,
+                                    proposal: null,
+                                    name: "",
+                                    selected: false,
+                                    status: "empty",
+                                    error: item.error,
+                                };
+                        });
+                        return next;
+                    });
+                } catch {
+                    if (!mountedRef.current) return;
+                    setInvoiceRows((previous) => {
+                        const next = { ...previous };
+                        chunk.forEach((message) => {
+                            const current = next[message.uid];
+                            if (current) {
+                                next[message.uid] = {
+                                    ...current,
+                                    status: "error",
+                                    error: "Connexion interrompue pendant l'analyse.",
+                                };
+                            }
+                        });
+                        return next;
+                    });
+                }
+            }
+            if (mountedRef.current) setInvoiceBatchLoading(false);
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filter, factures]);
+
+    useEffect(
+        () => () => {
+            mountedRef.current = false;
+        },
+        []
+    );
+
+    function toggleInvoiceRow(uid: number, selected: boolean) {
+        setInvoiceRows((previous) => {
+            const current = previous[uid];
+            if (!current) return previous;
+            return { ...previous, [uid]: { ...current, selected } };
+        });
+    }
+
+    function renameInvoiceRow(uid: number, name: string) {
+        setInvoiceRows((previous) => {
+            const current = previous[uid];
+            if (!current) return previous;
+            return { ...previous, [uid]: { ...current, name } };
+        });
+    }
+
+    function toggleAllInvoices() {
+        const target = !allInvoicesSelected;
+        setInvoiceRows((previous) => {
+            const next = { ...previous };
+            factures.forEach((message) => {
+                const current = next[message.uid];
+                if (current && current.status === "ready") {
+                    next[message.uid] = { ...current, selected: target };
+                }
+            });
+            return next;
+        });
+    }
+
+    /** Aperçu : PDF joint au message, ou lien fournisseur via la page /facture. */
+    function invoicePreviewHref(row: InvoiceRow): string | null {
+        const proposal = row.proposal;
+        const file = proposal?.files[0];
+        if (!proposal || !file) return null;
+        if (file.part) {
+            return invoiceFileUrl(row.uid, proposal, {
+                ...file,
+                proposed: row.name.trim() || file.proposed,
+            });
+        }
+        if (proposal.link) {
+            return `/facture?url=${encodeURIComponent(proposal.link)}`;
+        }
+        return null;
+    }
+
+    async function downloadSelectedInvoices() {
+        const rows = invoiceRowList.filter((row) => row.selected && row.status === "ready");
+        if (rows.length === 0) {
+            setInvoiceBatchMessage("Sélectionnez au moins une facture à télécharger.");
+            return;
+        }
+
+        setInvoiceBatchWorking(true);
+        setInvoiceBatchMessage(null);
+        let saved = 0;
+        const failures: string[] = [];
+
+        for (const row of rows) {
+            const proposal = row.proposal;
+            if (!proposal) continue;
+            try {
+                for (let index = 0; index < proposal.files.length; index += 1) {
+                    const file = proposal.files[index];
+                    const wanted = index === 0 ? row.name.trim() || file.proposed : file.proposed;
+                    const url = file.part
+                        ? `/api/gmail/attachment?uid=${row.uid}&part=${encodeURIComponent(
+                              file.part
+                          )}&type=${encodeURIComponent("application/pdf")}&name=${encodeURIComponent(
+                              wanted
+                          )}`
+                        : `/api/gmail/invoice/download?dl=1&url=${encodeURIComponent(
+                              proposal.link ?? file.original
+                          )}&name=${encodeURIComponent(wanted)}`;
+
+                    const response = await fetch(url, { credentials: "same-origin" });
+                    if (!response.ok) {
+                        let reason = "";
+                        try {
+                            const payload = (await response.json()) as { error?: string };
+                            reason = payload.error ?? "";
+                        } catch {
+                            reason = "";
+                        }
+                        throw new Error(reason || "Téléchargement du PDF impossible.");
+                    }
+
+                    const blob = await response.blob();
+                    const objectUrl = URL.createObjectURL(blob);
+                    const anchor = document.createElement("a");
+                    anchor.href = objectUrl;
+                    anchor.download = wanted;
+                    document.body.appendChild(anchor);
+                    anchor.click();
+                    anchor.remove();
+                    setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+                }
+
+                const deletion = await fetch("/api/gmail/delete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "same-origin",
+                    body: JSON.stringify({ uid: row.uid }),
+                });
+                if (!deletion.ok) {
+                    const payload = (await deletion.json()) as { error?: string };
+                    throw new Error(payload.error ?? "Suppression du mail impossible.");
+                }
+
+                saved += 1;
+                setMessages((previous) => previous.filter((item) => item.uid !== row.uid));
+                setTotal((previous) => Math.max(0, previous - 1));
+                setInvoiceRows((previous) => {
+                    const next = { ...previous };
+                    delete next[row.uid];
+                    return next;
+                });
+            } catch (error) {
+                failures.push(
+                    `${row.fromName} : ${
+                        error instanceof Error ? error.message : "téléchargement impossible"
+                    }`
+                );
+            }
+        }
+
+        setInvoiceBatchWorking(false);
+        setInvoiceBatchMessage(
+            failures.length === 0
+                ? `${saved} facture${saved > 1 ? "s" : ""} téléchargée${
+                      saved > 1 ? "s" : ""
+                  } et email${saved > 1 ? "s" : ""} supprimé${saved > 1 ? "s" : ""}.`
+                : `${saved} facture(s) traitée(s). Échec(s) : ${failures.join(" · ")}`
+        );
     }
 
     async function moveTo(destination: string) {
@@ -1079,6 +1383,151 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 ))}
             </div>
 
+            {filter === "factures" ? (
+                <div className="space-y-3">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200/70 shadow-sm">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={allInvoicesSelected}
+                                    onChange={toggleAllInvoices}
+                                    disabled={selectableInvoiceRows.length === 0}
+                                    className="h-4 w-4 rounded border-slate-300 accent-teal-600"
+                                />
+                                <span>Tout sélectionner</span>
+                            </label>
+                            <span className="text-[11px] text-slate-500">
+                                {selectedInvoiceRows.length} sélectionnée(s) ·{" "}
+                                {selectableInvoiceRows.length} facture(s) prête(s)
+                                {invoiceBatchLoading && " · analyse en cours…"}
+                            </span>
+                        </div>
+                        <button
+                            onClick={() => void downloadSelectedInvoices()}
+                            disabled={invoiceBatchWorking || selectedInvoiceRows.length === 0}
+                            className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        >
+                            {invoiceBatchWorking ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                                <Download className="h-3.5 w-3.5" />
+                            )}
+                            <span>
+                                {invoiceBatchWorking
+                                    ? "Téléchargement…"
+                                    : `Valider les noms et télécharger (${selectedInvoiceRows.length})`}
+                            </span>
+                        </button>
+                    </div>
+
+                    {invoiceBatchMessage && (
+                        <div className="flex items-start gap-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-[11px] text-slate-700">
+                            <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-teal-600" />
+                            <span>{invoiceBatchMessage}</span>
+                        </div>
+                    )}
+
+                    {invoiceRowList.length === 0 && !invoiceBatchLoading && (
+                        <p className="text-xs text-slate-500 p-4">
+                            Aucune facture parmi les emails chargés.
+                        </p>
+                    )}
+
+                    {invoiceRowList.map((row) => {
+                        const href = invoicePreviewHref(row);
+                        return (
+                            <div
+                                key={row.uid}
+                                className={`p-3.5 rounded-2xl bg-white border flex flex-col md:flex-row md:items-center gap-3 transition-all ${
+                                    row.selected
+                                        ? "border-teal-500 shadow-sm ring-2 ring-teal-50"
+                                        : "border-slate-200/70"
+                                }`}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={row.selected}
+                                    onChange={(event) =>
+                                        toggleInvoiceRow(row.uid, event.target.checked)
+                                    }
+                                    disabled={row.status !== "ready"}
+                                    aria-label={`Sélectionner la facture de ${row.fromName}`}
+                                    className="h-4 w-4 rounded border-slate-300 accent-teal-600 shrink-0"
+                                />
+
+                                {row.proposal ? (
+                                    <ProviderLogo
+                                        provider={row.proposal.provider}
+                                        className="h-9 w-9"
+                                    />
+                                ) : (
+                                    <span className="h-9 w-9 rounded-lg bg-slate-100 border border-slate-200 shrink-0" />
+                                )}
+
+                                <div className="min-w-0 md:w-60 md:shrink-0">
+                                    <p className="text-xs font-bold text-slate-800 truncate">
+                                        {row.fromName}
+                                    </p>
+                                    <p className="text-[10px] text-slate-500 truncate">
+                                        {row.subject}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400">
+                                        {formatDate(row.date)} · {formatRelative(row.date)}
+                                    </p>
+                                </div>
+
+                                <div className="flex-1 min-w-0">
+                                    {row.status === "pending" && (
+                                        <p className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin text-teal-600" />
+                                            Analyse de la facture…
+                                        </p>
+                                    )}
+                                    {row.status === "ready" && row.proposal && (
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                            <input
+                                                value={row.name}
+                                                onChange={(event) =>
+                                                    renameInvoiceRow(row.uid, event.target.value)
+                                                }
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50/60 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:border-teal-400"
+                                            />
+                                            <span className="text-[10px] text-slate-400 shrink-0">
+                                                {row.proposal.providerLabel}
+                                                {row.proposal.period
+                                                    ? ` · ${row.proposal.period}`
+                                                    : ""}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {row.status === "empty" && (
+                                        <p className="text-[11px] text-slate-500">
+                                            Aucune facture reconnue dans cet email
+                                            {row.error ? ` · ${row.error}` : ""}
+                                        </p>
+                                    )}
+                                    {row.status === "error" && (
+                                        <p className="text-[11px] text-rose-700">{row.error}</p>
+                                    )}
+                                </div>
+
+                                {href && (
+                                    <a
+                                        href={href}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-[11px] font-bold hover:bg-slate-100 transition-all shrink-0"
+                                    >
+                                        <ExternalLink className="h-3.5 w-3.5" />
+                                        <span>Aperçu</span>
+                                    </a>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            ) : (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
                 {/* Liste */}
                 <div className={`space-y-2 ${invoiceActive ? "lg:col-span-3" : "lg:col-span-5"}`}>
@@ -1566,6 +2015,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                     </div>
                 )}
             </div>
+            )}
         </div>
     );
 };

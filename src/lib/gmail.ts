@@ -2202,3 +2202,81 @@ export async function checkInvoiceLink(
     if (ranged.ok) return ranged;
     return attempt({});
 }
+
+
+/**
+ * Analyse en lot les emails de factures avec une seule connexion IMAP :
+ * seuls 20 Ko de texte sont lus par message, ce qui rend le chargement rapide.
+ */
+export async function detectInvoicesForUids(
+    uids: number[]
+): Promise<Array<{ uid: number; proposal: InvoiceProposal | null; error?: string }>> {
+    const unique = [...new Set(uids.filter((uid) => Number.isInteger(uid) && uid > 0))].slice(0, 25);
+    if (unique.length === 0) return [];
+
+    return withInbox(async (client) => {
+        const results: Array<{ uid: number; proposal: InvoiceProposal | null; error?: string }> = [];
+
+        for (const uid of unique) {
+            try {
+                const message = await client.fetchOne(
+                    String(uid),
+                    {
+                        envelope: true,
+                        internalDate: true,
+                        flags: true,
+                        bodyStructure: true,
+                        headers: HEADERS_TO_FETCH,
+                    },
+                    { uid: true }
+                );
+
+                if (!message) throw new Error("Message introuvable dans la boîte de réception.");
+
+                const part =
+                    findPart(message.bodyStructure, "text/plain") ??
+                    findPart(message.bodyStructure, "text/html");
+
+                let text = "";
+                if (part) {
+                    const download = await client.download(String(uid), part.part ?? "1", {
+                        uid: true,
+                    });
+                    if (download && download.content) {
+                        text = await readLimited(download.content, 20_000);
+                        if (part.type === "text/html") text = htmlToText(text);
+                    }
+                }
+
+                const breakdown = splitThread(text);
+                const attachmentParts = collectParts(message.bodyStructure);
+                const images = attachmentParts.filter(
+                    (item) => item.type.startsWith("image/") && item.inline
+                );
+
+                const detail = {
+                    ...toSummary(message, message.headers?.toString("utf8") ?? ""),
+                    to: "",
+                    cc: "",
+                    text,
+                    summary: "",
+                    currentText: breakdown.currentText,
+                    historyText: breakdown.historyText,
+                    exchanges: breakdown.exchanges,
+                    attachments: attachmentParts.map((item) => item.filename),
+                    inlineImages: images.map((item) => item.filename),
+                    attachmentParts,
+                    images,
+                    messageId: "",
+                    inReplyTo: "",
+                } as GmailMessageDetail;
+
+                results.push({ uid, proposal: detectInvoiceFromMessage(detail) });
+            } catch (error) {
+                results.push({ uid, proposal: null, error: describeGmailError(error) });
+            }
+        }
+
+        return results;
+    });
+}
