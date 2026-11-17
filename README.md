@@ -123,4 +123,21 @@ vouvoiement et tutoiement.
 
 Détails et dépannage : [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 
+---
 
+## 🎭 Culture — expositions, livres et films
+
+Nouveau module accessible depuis la barre latérale :
+
+- **Expositions** : titres, lieu, ville, dates et lien, avec filtre par ville et bouton de recherche web.
+- **Livres** : grille de **couvertures** (et non une liste de titres), filtres `À lire`, `En cours`,
+  `Ma bibliothèque`.
+- **Films** : même principe, filtres `À voir`, `En cours`, `Ma collection`.
+
+L'ajout se fait via un formulaire : titre, auteur/réalisateur, ISBN ou URL d'image. Le bouton
+**Chercher la couverture** interroge Google Books (livres) ou l'API iTunes (films) pour récupérer
+automatiquement la couverture/affiche. Un visuel de remplacement s'affiche si aucune image n'est
+disponible.
+
+Les données (livres, films, expositions) sont enregistrées dans le navigateur (`localStorage`) :
+elles restent sur l'appareil et ne sont pas envoyées à un serveur.

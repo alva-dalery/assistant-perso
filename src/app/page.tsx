@@ -15,6 +15,7 @@ import { CoursesModule } from "@/components/modules/CoursesModule";
 import { SportModule } from "@/components/modules/SportModule";
 import { LitigesModule } from "@/components/modules/LitigesModule";
 import { ProjetsModule } from "@/components/modules/ProjetsModule";
+import { CultureModule } from "@/components/modules/CultureModule";
 import { ParametresModule } from "@/components/modules/ParametresModule";
 
 import {
@@ -220,6 +221,12 @@ export default function Home() {
                       showToast(`🎉 Séance "${title}" terminée (+${mins} min d'activité) !`);
                     }}
                   />
+                </div>
+              )}
+
+              {currentModule === "culture" && (
+                <div className="w-full pt-2">
+                  <CultureModule />
                 </div>
               )}
 

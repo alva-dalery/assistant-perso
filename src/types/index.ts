@@ -7,6 +7,7 @@ export type ModuleType =
   | "sport"
   | "litiges"
   | "projets"
+  | "culture"
   | "parametres";
 
 export type EnergyLevel = "low" | "medium" | "high";
@@ -135,3 +136,37 @@ export interface PersonalProject {
   tasks: ProjectTask[];
 }
 
+
+export type CultureStatus = "wishlist" | "reading" | "owned";
+
+export interface BookItem {
+  id: string;
+  title: string;
+  author: string;
+  isbn?: string;
+  coverUrl?: string;
+  status: CultureStatus;
+  notes?: string;
+}
+
+export interface MovieItem {
+  id: string;
+  title: string;
+  director?: string;
+  year?: string;
+  coverUrl?: string;
+  status: CultureStatus;
+  notes?: string;
+}
+
+export interface ExpoItem {
+  id: string;
+  title: string;
+  venue: string;
+  city: string;
+  startDate: string;
+  endDate: string;
+  link?: string;
+  imageUrl?: string;
+  notes?: string;
+}

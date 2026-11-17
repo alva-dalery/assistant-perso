@@ -14,6 +14,7 @@ import {
   PlusCircle,
   BatteryMedium,
   Zap,
+  BookOpen,
 } from "lucide-react";
 import { ModuleType, EnergyLevel } from "@/types";
 
@@ -75,6 +76,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: "sport" as ModuleType,
       label: "Sport",
       icon: Dumbbell,
+      badge: null,
+    },
+    {
+      id: "culture" as ModuleType,
+      label: "Culture",
+      icon: BookOpen,
       badge: null,
     },
     {

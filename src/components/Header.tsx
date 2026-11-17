@@ -16,7 +16,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<string>("Secrétariat");
 
-  const filterTags = ["Secrétariat", "Dressing", "Santé", "Food", "Sport", "Litiges"];
+  const filterTags = ["Secrétariat", "Dressing", "Santé", "Food", "Sport", "Culture", "Litiges"];
 
   return (
     <header className="w-full flex items-center justify-between gap-4 py-3.5 px-4 md:px-8 select-none">

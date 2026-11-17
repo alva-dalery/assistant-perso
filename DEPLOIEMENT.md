@@ -435,6 +435,8 @@ aussi **À traiter** au prochain rafraîchissement.
 - Le middleware ajoute `X-Robots-Tag: noindex`, donc l'application ne sera pas indexée par Google.
 - HTTPS est fourni par Vercel/Cloudflare : le mot de passe circule chiffré.
 - Le plan Vercel **Hobby** est gratuit et suffisant pour un usage personnel.
+- Le module **Culture** (livres, films, expositions) stocke ses données dans le `localStorage` du
+  navigateur : rien n'est envoyé au serveur, mais rien n'est partagé entre appareils non plus.
 
 ---
 
