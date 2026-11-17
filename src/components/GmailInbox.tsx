@@ -206,6 +206,22 @@ function attachmentUrl(uid: number, file: PartInfo): string {
     return `/api/gmail/attachment?${params.toString()}`;
 }
 
+function invoiceFileUrl(uid: number, proposal: InvoiceProposal, file: InvoiceFile): string {
+    if (file.part) {
+        return attachmentUrl(uid, {
+            part: file.part,
+            filename: file.proposed,
+            type: "application/pdf",
+            size: null,
+            inline: false,
+        });
+    }
+    if (proposal.link) {
+        return `/api/gmail/invoice/download?url=${encodeURIComponent(proposal.link)}`;
+    }
+    return "";
+}
+
 function replySubject(subject: string): string {
     return /^re\s*:/i.test(subject) ? subject : `Re: ${subject}`;
 }
@@ -418,6 +434,37 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                 ? later
                                 : messages;
 
+    const messagesForFilter = (value: Filter) => {
+        switch (value) {
+            case "todo":
+                return toReview;
+            case "reply":
+                return toReply;
+            case "important":
+                return important;
+            case "factures":
+                return factures;
+            case "infos":
+                return infos;
+            case "later":
+                return later;
+            default:
+                return messages;
+        }
+    };
+
+    const changeFilter = (value: Filter) => {
+        setFilter(value);
+        setInvoiceProposal(null);
+        setInvoiceError(null);
+        const list = messagesForFilter(value);
+        if (list.length > 0) {
+            void openMessage(list[0].uid);
+        } else {
+            setDetail(null);
+        }
+    };
+
     async function openMessage(uid: number) {
         setLoadingDetail(true);
         setDetail(null);
@@ -622,11 +669,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             for (const file of invoiceProposal.files) {
                 const fileName =
                     (invoiceNames[file.part] ?? file.proposed).trim() || file.proposed;
-                const url = `/api/gmail/attachment?uid=${target.uid}&part=${encodeURIComponent(
-                    file.part
-                )}&type=${encodeURIComponent("application/pdf")}&name=${encodeURIComponent(
-                    fileName
-                )}`;
+                const url = file.part
+                    ? `/api/gmail/attachment?uid=${target.uid}&part=${encodeURIComponent(
+                          file.part
+                      )}&type=${encodeURIComponent("application/pdf")}&name=${encodeURIComponent(
+                          fileName
+                      )}`
+                    : `/api/gmail/invoice/download?url=${encodeURIComponent(
+                          invoiceProposal.link ?? file.original
+                      )}`;
 
                 const response = await fetch(url, { credentials: "same-origin" });
                 if (!response.ok) throw new Error("Téléchargement du PDF impossible.");
@@ -984,7 +1035,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 ).map(([value, label]) => (
                     <button
                         key={value}
-                        onClick={() => setFilter(value)}
+                        onClick={() => changeFilter(value)}
                         className={`px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all ${filter === value
                                 ? "bg-white text-slate-900 shadow-sm"
                                 : "text-slate-500 hover:text-slate-800"
@@ -1203,24 +1254,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                                         <span>Valider le nom et télécharger</span>
                                                     </button>
                                                 )}
-                                                {invoiceProposal.files.length > 0 && !invoiceProposal.link && (
+                                                {invoiceProposal.files.length > 0 && (
                                                     <span className="text-[10px] text-slate-500">
                                                         Le mail sera supprimé automatiquement après le téléchargement.
                                                     </span>
-                                                )}
-                                                {invoiceProposal.link && (
-                                                    <button
-                                                        onClick={() => void deleteAfterLink()}
-                                                        disabled={invoiceWorking}
-                                                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-60 text-[11px] font-bold"
-                                                    >
-                                                        {invoiceWorking ? (
-                                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                                        ) : (
-                                                            <Trash2 className="h-3.5 w-3.5" />
-                                                        )}
-                                                        <span>Facture récupérée — supprimer le mail</span>
-                                                    </button>
                                                 )}
                                                 <button
                                                     onClick={() => {
@@ -1235,7 +1272,20 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         </>
                                     )}
                                     {invoiceError && (
-                                        <p className="text-[11px] text-rose-600">{invoiceError}</p>
+                                        <div className="text-[11px] text-rose-600 space-y-1">
+                                            <p>{invoiceError}</p>
+                                            {invoiceProposal?.link && (
+                                                <a
+                                                    href={invoiceProposal.link}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="inline-flex items-center gap-1 font-bold underline"
+                                                >
+                                                    <ExternalLink className="h-3 w-3" />
+                                                    Ouvrir le lien manuellement
+                                                </a>
+                                            )}
+                                        </div>
                                     )}
                                 </div>
                             )}
@@ -1467,11 +1517,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                         <div className="rounded-2xl bg-white border border-slate-200/70 shadow-sm overflow-hidden h-[70vh] min-h-[420px]">
                             <iframe
                                 title="Aperçu complet de la facture"
-                                src={`/api/gmail/attachment?uid=${detail?.uid ?? 0}&part=${encodeURIComponent(
-                                    invoiceProposal.files[0].part
-                                )}&type=application%2Fpdf&name=${encodeURIComponent(
-                                    invoiceProposal.files[0].proposed
-                                )}`}
+                                src={invoiceFileUrl(
+                                    detail?.uid ?? 0,
+                                    invoiceProposal,
+                                    invoiceProposal.files[0]
+                                )}
                                 className="w-full h-full"
                             />
                         </div>

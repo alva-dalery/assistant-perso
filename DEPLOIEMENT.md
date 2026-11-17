@@ -275,16 +275,16 @@ Quand un email classé **Factures** provient d'un fournisseur reconnu **Lagoon**
 
 | Fournisseur | Exemple de nom proposé |
 | --- | --- |
-| Lagoon | `08-2026 - LAGOON - Facture.pdf` |
-| EEC Engie | `09-2026 - EEC - Facture.pdf` |
+| Lagoon | `2026-08 - LAGOON - Facture.pdf` |
+| EEC Engie | `2026-09 - EEC - Facture.pdf` |
 | CDE | `2026-T3 - CDE - Facture.pdf` |
-| OPT Internet | `06-2026 - OPT Internet - Facture.pdf` |
-| OPT Mobile | `06-2026 - OPT Mobile - Facture.pdf` |
+| OPT Internet | `2026-06 - OPT Internet - Facture.pdf` |
+| OPT Mobile | `2026-06 - OPT Mobile - Facture.pdf` |
 
 **Règle de période** : on utilise la date de facture (celle citée dans l'email, sinon la date de
 réception). Si cette date tombe dans les **5 premiers jours** du mois, la période est le **mois
-précédent** (facture du 01/11/2026 → `10-2026`), sinon c'est le mois courant
-(facture du 31/08/2026 → `08-2026`). CDE reste en trimestres (`2026-T3`).
+précédent** (facture du 01/11/2026 → `2026-10`), sinon c'est le mois courant
+(facture du 31/08/2026 → `2026-08`). CDE reste en trimestres (`2026-T3`).
 
 Rien n'est téléchargé tant que vous n'avez pas cliqué sur **« Valider les noms et télécharger »**.
 Pour ces emails, l'interface passe en **trois colonnes** : la liste des emails reçus, le détail
@@ -294,8 +294,11 @@ sont masqués : la fiche ne montre que le traitement de la facture. Un **logo du
 est affiché (pour OPT Mobile, le logo **Helia by OPT.nc**).
 
 Pour **EEC Engie**, la facture est souvent disponible via un **lien** dans l'email plutôt qu'en
-pièce jointe : le panneau propose alors « Facture récupérée — supprimer le mail »
-(confirmation obligatoire).
+pièce jointe : l'application crée une entrée virtuelle, affiche le PDF dans l'aperçu via une route
+proxy (`/api/gmail/invoice/download`) restreinte aux domaines des fournisseurs (`*.engie.nc`,
+`*.eec.nc`, `*.opt.nc`, `*.lagoon.nc`, `*.cde.nc`, `*.helia.nc`), permet de **renommer** le fichier,
+puis le télécharge et supprime le mail comme pour une pièce jointe. Si le fournisseur refuse l'accès
+(authentification), un lien de secours « Ouvrir le lien manuellement » apparaît.
 Après le téléchargement réussi, **l'email est déplacé dans la corbeille Gmail** (suppression
 récupérable). Si plusieurs PDF sont joints, ils reçoivent un suffixe `(1)`, `(2)`…
 

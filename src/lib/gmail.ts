@@ -1981,25 +1981,31 @@ export function detectInvoiceFromMessage(message: GmailMessageDetail): InvoicePr
     const provider = detectProvider(message);
     if (!provider) return null;
 
-    const files = pdfFiles(message);
-    const link = invoiceLink(message);
-    if (files.length === 0 && !link) return null;
-
     const date = invoiceDateOf(message);
     const monthRef = billingMonth(date);
     const label = PROVIDER_LABEL[provider];
 
     let period: string;
-    let namePeriod: string;
     if (provider === "cde") {
         const quarter = Math.floor((monthRef.month - 1) / 3) + 1;
         period = `${monthRef.year}-T${quarter}`;
-        namePeriod = `${monthRef.year}-T${quarter}`;
     } else {
-        const numeric = `${String(monthRef.month).padStart(2, "0")}-${monthRef.year}`;
-        period = numeric;
-        namePeriod = numeric;
+        period = `${monthRef.year}-${String(monthRef.month).padStart(2, "0")}`;
     }
+
+    const link = invoiceLink(message);
+    const pdfs = pdfFiles(message);
+
+    // Certains fournisseurs (EEC Engie) envoient un lien plutôt qu'une pièce jointe :
+    // on crée alors une entrée virtuelle pour le renommage et l'aperçu.
+    const prepared: InvoiceFile[] =
+        pdfs.length > 0
+            ? pdfs
+            : link
+              ? [{ part: "", original: link, type: "application/pdf", proposed: "" }]
+              : [];
+
+    if (prepared.length === 0) return null;
 
     return {
         provider,
@@ -2007,11 +2013,65 @@ export function detectInvoiceFromMessage(message: GmailMessageDetail): InvoicePr
         period,
         invoiceDate: isoDate(date),
         link,
-        files: files.map((file, index) => ({
+        files: prepared.map((file, index) => ({
             ...file,
-            proposed: `${namePeriod} - ${label} - Facture${
-                files.length > 1 ? ` (${index + 1})` : ""
+            proposed: `${period} - ${label} - Facture${
+                prepared.length > 1 ? ` (${index + 1})` : ""
             }.pdf`,
         })),
     };
+}
+
+const INVOICE_ALLOWED_HOSTS = ["engie.nc", "eec.nc", "opt.nc", "lagoon.nc", "cde.nc", "helia.nc"];
+
+function isAllowedInvoiceUrl(value: string): boolean {
+    try {
+        const parsed = new URL(value);
+        if (parsed.protocol !== "https:") return false;
+        const host = parsed.hostname.toLowerCase();
+        return INVOICE_ALLOWED_HOSTS.some(
+            (domain) => host === domain || host.endsWith(`.${domain}`)
+        );
+    } catch {
+        return false;
+    }
+}
+
+/** Récupère le PDF d'une facture en ligne (domaines fournisseurs uniquement). */
+export async function downloadInvoiceLink(
+    url: string
+): Promise<{ buffer: Buffer; contentType: string }> {
+    if (!isAllowedInvoiceUrl(url)) {
+        throw new Error("Lien de facture non autorisé (domaine inconnu).");
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000);
+
+    try {
+        const response = await fetch(url, {
+            redirect: "follow",
+            signal: controller.signal,
+            headers: { "User-Agent": "AssistantPerso/1.0" },
+        });
+
+        if (!response.ok) {
+            throw new Error(`Le fournisseur a refusé le fichier (${response.status}).`);
+        }
+        if (!isAllowedInvoiceUrl(response.url)) {
+            throw new Error("Le lien redirige vers un domaine non autorisé.");
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        if (arrayBuffer.byteLength > 15 * 1024 * 1024) {
+            throw new Error("Fichier trop volumineux (15 Mo maximum).");
+        }
+
+        return {
+            buffer: Buffer.from(arrayBuffer),
+            contentType: response.headers.get("content-type") ?? "application/pdf",
+        };
+    } finally {
+        clearTimeout(timer);
+    }
 }
