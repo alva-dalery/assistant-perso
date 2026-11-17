@@ -372,9 +372,29 @@ La fiche du message affiche alors une carte **Suivi de colis** avec :
 | Livraison prévue | date annoncée dans l'email, si présente |
 | Lien | bouton **« Suivre le colis »** : lien de l'email, sinon page du transporteur avec le numéro |
 
+La détection passe **avant** le tri « diffusion de masse » : une boutique comme **Kapten & Son** qui
+expédie ses emails via une régie marketing (en-têtes `List-Unsubscribe`, Klaviyo…) reste bien dans
+**Commandes** et non dans *Newsletter/pubs*. En complément, **le corps du message est relu** à
+l'ouverture : si un email classé par défaut en newsletter/pub/infos contient un vrai suivi de colis
+(numéro + transporteur), il est reclassé en **Commande**.
+
 Ces notifications ne demandent pas de réponse : aucun brouillon n'est proposé, mais le bouton
 **« Répondre quand même »** reste disponible. Une vraie question d'un expéditeur (« Question sur ma
 commande ? ») reste classée **Répondre**.
+
+#### Corriger une étiquette à la main
+
+Chaque email peut être reclassé manuellement, dans **tous les onglets** :
+
+- dans la liste, un sélecteur **Auto / Répondre / Important / Factures / Commande / Infos / Newsletter /
+  Publicité** est affiché sous chaque email ;
+- dans la fiche de lecture, le même sélecteur est proposé sous la ligne « Tri automatique » ;
+- dans l'onglet **Factures**, le sélecteur est présent sur chaque ligne.
+
+Le choix est prioritaire sur le tri automatique, s'applique immédiatement (compteurs et onglets
+recalculés) et est **mémorisé dans le navigateur** (`localStorage`, clé `assistantPerso.labels.v1`).
+Repasser sur **Auto** rétablit le classement automatique d'origine. Un email classé à la main en
+« Répondre » passe dans l'onglet **Répondre** et propose un brouillon à l'ouverture.
 
 ### Tri automatique et rédaction de réponse
 

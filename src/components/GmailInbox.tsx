@@ -107,6 +107,57 @@ const CATEGORY_STYLE: Record<GmailCategory, string> = {
     promotion: "bg-amber-50 text-amber-700 border-amber-200",
 };
 
+/** Ordre d'affichage des étiquettes modifiables. */
+const CATEGORY_ORDER: GmailCategory[] = [
+    "personnel",
+    "important",
+    "factures",
+    "commande",
+    "infos",
+    "newsletter",
+    "promotion",
+];
+
+const LABEL_STORAGE_KEY = "assistantPerso.labels.v1";
+
+function loadLabelOverrides(): Record<number, GmailCategory> {
+    if (typeof window === "undefined") return {};
+    try {
+        const raw = window.localStorage.getItem(LABEL_STORAGE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const result: Record<number, GmailCategory> = {};
+        for (const [key, value] of Object.entries(parsed)) {
+            const uid = Number(key);
+            if (Number.isInteger(uid) && uid > 0 && typeof value === "string" && value in CATEGORY_LABEL) {
+                result[uid] = value as GmailCategory;
+            }
+        }
+        return result;
+    } catch {
+        return {};
+    }
+}
+
+function saveLabelOverrides(overrides: Record<number, GmailCategory>) {
+    try {
+        window.localStorage.setItem(LABEL_STORAGE_KEY, JSON.stringify(overrides));
+    } catch {
+        // Stockage indisponible : l'étiquette reste valable pour la session.
+    }
+}
+
+/** Applique une étiquette choisie à la main (prioritaire sur le tri automatique). */
+function applyLabelOverride<T extends InboxMessage>(message: T, category?: GmailCategory): T {
+    if (!category) return message;
+    return {
+        ...message,
+        category,
+        needsReply: message.answered ? false : category === "personnel",
+        reason: "Étiquette choisie manuellement",
+    };
+}
+
 type Filter =
     | "todo"
     | "reply"
@@ -348,6 +399,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [invoiceBatchMessage, setInvoiceBatchMessage] = useState<string | null>(null);
     const invoiceRequestedRef = useRef<Set<number>>(new Set());
     const mountedRef = useRef(true);
+    const [labelOverrides, setLabelOverrides] = useState<Record<number, GmailCategory>>({});
+    /** Étiquettes renvoyées par le serveur, pour pouvoir revenir en « Automatique ». */
+    const rawLabelsRef = useRef<
+        Record<number, { category: GmailCategory; needsReply: boolean; reason: string }>
+    >({});
 
     const load = useCallback(
         async (requestedLimit: number) => {
@@ -386,7 +442,22 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 }
                 const incoming = messagesData.messages ?? [];
                 const totalAvailable = messagesData.total ?? 0;
-                setMessages(incoming);
+                const overrides = loadLabelOverrides();
+                rawLabelsRef.current = Object.fromEntries(
+                    incoming.map((message) => [
+                        message.uid,
+                        {
+                            category: message.category,
+                            needsReply: message.needsReply,
+                            reason: message.reason,
+                        },
+                    ])
+                );
+                const labelled = incoming.map((message) =>
+                    applyLabelOverride(message, overrides[message.uid])
+                );
+                setLabelOverrides(overrides);
+                setMessages(labelled);
                 setTotal(totalAvailable);
 
                 // Extension automatique à toute la boîte (plafond 2000).
@@ -402,7 +473,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 // Première ouverture : on sélectionne directement le premier email
                 // qui attend une réponse, et la proposition est rédigée aussitôt.
                 if (!autoOpenedRef.current) {
-                    const firstToReply = incoming.find((message) => message.needsReply);
+                    const firstToReply = labelled.find((message) => message.needsReply);
                     if (firstToReply) {
                         autoOpenedRef.current = true;
                         void openMessage(firstToReply.uid);
@@ -577,18 +648,19 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                 setError(data.error ?? "Impossible d'ouvrir ce message.");
                 return;
             }
-            setDetail(data);
+            const labelled = applyLabelOverride(data, labelOverrides[data.uid]);
+            setDetail(labelled);
             void suggestFolderFor(data.uid);
             setInvoiceProposal(null);
             setInvoiceNames({});
             setInvoiceError(null);
             setInvoicePreviewOk(null);
-            if (data.category === "factures") {
+            if (labelled.category === "factures") {
                 void loadInvoice(data.uid);
             }
             // Proposition immédiate : dès qu'un email attend une réponse, on rédige.
-            if (data.needsReply) {
-                void generateDraft(data);
+            if (labelled.needsReply) {
+                void generateDraft(labelled);
             }
         } catch {
             setError("Impossible de charger le message.");
@@ -1008,6 +1080,35 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             return `/facture?url=${encodeURIComponent(proposal.link)}`;
         }
         return null;
+    }
+
+    /** Change l'étiquette d'un email : « auto » rétablit le tri automatique. */
+    function changeMessageCategory(uid: number, value: "auto" | GmailCategory) {
+        const overrides = { ...labelOverrides };
+        if (value === "auto") {
+            delete overrides[uid];
+        } else {
+            overrides[uid] = value;
+        }
+        setLabelOverrides(overrides);
+        saveLabelOverrides(overrides);
+
+        const restore = <T extends InboxMessage>(message: T): T => {
+            const raw = rawLabelsRef.current[uid];
+            const base = raw ? { ...message, ...raw } : message;
+            return applyLabelOverride(base, overrides[uid]);
+        };
+
+        setMessages((previous) =>
+            previous.map((message) => (message.uid === uid ? restore(message) : message))
+        );
+        setDetail((previous) => (previous && previous.uid === uid ? restore(previous) : previous));
+
+        setFeedback(
+            value === "auto"
+                ? "Étiquette automatique rétablie."
+                : `Étiquette modifiée : ${CATEGORY_LABEL[value]}.`
+        );
     }
 
     async function copyTrackingNumber(value: string) {
@@ -1569,6 +1670,27 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     )}
                                 </div>
 
+                                <select
+                                    value={labelOverrides[row.uid] ?? "auto"}
+                                    onChange={(event) => {
+                                        const value = event.target.value;
+                                        changeMessageCategory(
+                                            row.uid,
+                                            value === "auto" ? "auto" : (value as GmailCategory)
+                                        );
+                                    }}
+                                    aria-label={`Modifier l'étiquette de ${row.fromName}`}
+                                    title="Modifier l'étiquette"
+                                    className="rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-[9px] font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-100 shrink-0"
+                                >
+                                    <option value="auto">Auto</option>
+                                    {CATEGORY_ORDER.map((value) => (
+                                        <option key={value} value={value}>
+                                            {CATEGORY_LABEL[value]}
+                                        </option>
+                                    ))}
+                                </select>
+
                                 {href && (
                                     <a
                                         href={href}
@@ -1597,10 +1719,18 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                         </p>
                     )}
                     {visibleMessages.map((message) => (
-                        <button
+                        <div
                             key={message.uid}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => void openMessage(message.uid)}
-                            className={`w-full text-left p-3.5 rounded-2xl border transition-all ${detail?.uid === message.uid
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    void openMessage(message.uid);
+                                }
+                            }}
+                            className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${detail?.uid === message.uid
                                     ? "bg-white border-teal-500 shadow-md ring-2 ring-teal-50"
                                     : "bg-white/80 border-slate-200/70 hover:bg-white hover:border-slate-300"
                                 }`}
@@ -1631,8 +1761,31 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                         Répondu
                                     </span>
                                 )}
+                                <select
+                                    value={labelOverrides[message.uid] ?? "auto"}
+                                    onClick={(event) => event.stopPropagation()}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                    onKeyDown={(event) => event.stopPropagation()}
+                                    onChange={(event) => {
+                                        const value = event.target.value;
+                                        changeMessageCategory(
+                                            message.uid,
+                                            value === "auto" ? "auto" : (value as GmailCategory)
+                                        );
+                                    }}
+                                    aria-label={`Modifier l'étiquette de ${message.fromName}`}
+                                    title="Modifier l'étiquette"
+                                    className="ml-auto max-w-[9.5rem] rounded-lg border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-100"
+                                >
+                                    <option value="auto">Auto</option>
+                                    {CATEGORY_ORDER.map((value) => (
+                                        <option key={value} value={value}>
+                                            {CATEGORY_LABEL[value]}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
-                        </button>
+                        </div>
                     ))}
                 </div>
 
@@ -1675,6 +1828,33 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                     {formatDate(detail.date)} · {formatRelative(detail.date)}
                                 </p>
                                 <p className="text-[10px] text-slate-400 mt-1">Tri automatique : {detail.reason}</p>
+
+                                <label className="mt-2 flex items-center gap-2 text-[10px] font-bold text-slate-400">
+                                    <span className="uppercase tracking-wider">Étiquette</span>
+                                    <select
+                                        value={labelOverrides[detail.uid] ?? "auto"}
+                                        onChange={(event) => {
+                                            const value = event.target.value;
+                                            changeMessageCategory(
+                                                detail.uid,
+                                                value === "auto" ? "auto" : (value as GmailCategory)
+                                            );
+                                        }}
+                                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-100"
+                                    >
+                                        <option value="auto">Automatique</option>
+                                        {CATEGORY_ORDER.map((value) => (
+                                            <option key={value} value={value}>
+                                                {CATEGORY_LABEL[value]}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {labelOverrides[detail.uid] && (
+                                        <span className="text-[9px] font-bold text-teal-700">
+                                            modifiée à la main
+                                        </span>
+                                    )}
+                                </label>
 
                                 {detail.tracking && (
                                     <div className="mt-3 rounded-2xl bg-violet-50/70 border border-violet-200/70 p-3 space-y-2.5">

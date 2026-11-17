@@ -127,9 +127,13 @@ Détails et dépannage : [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 
 ## 📦 Suivi de colis (étiquette « Commande »)
 
-Les emails d'expédition et de livraison reçoivent l'étiquette **Commande** et un onglet dédié.
-La fiche du message affiche le transporteur, le numéro de suivi (avec bouton de copie), le statut,
-la date de livraison annoncée et un bouton **« Suivre le colis »**.
+Les emails d'expédition et de livraison reçoivent l'étiquette **Commande** et un onglet dédié
+(prioritaire sur la détection newsletter, y compris pour les boutiques qui expédient via une régie
+marketing). La fiche du message affiche le transporteur, le numéro de suivi (avec bouton de copie),
+le statut, la date de livraison annoncée et un bouton **« Suivre le colis »**.
+
+Chaque email peut aussi être **reclassé à la main** (liste, fiche et onglet Factures) : le choix est
+mémorisé dans le navigateur, et l'option **Auto** rétablit le classement automatique.
 
 ## 🎭 Culture — expositions, livres et films
 

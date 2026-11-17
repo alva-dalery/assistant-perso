@@ -261,7 +261,13 @@ const CARRIERS: CarrierRule[] = [
 
 /** Objet typique d'une notification d'expédition ou de livraison. */
 const STRONG_TRACKING_SUBJECT =
-    /(suivi de (?:votre |mon )?colis|votre colis|colis (?:n[°o]|num[ée]ro)|num[ée]ro de suivi|tracking (?:number|no|num[ée]ro)|exp[ée]dition de votre commande|votre commande a (?:bien )?[ée]t[ée] exp[ée]di[ée]e?|votre commande est (?:en route|exp[ée]di[ée]e?|arriv[ée]e?|livr[ée]e?)|en cours de livraison|a (?:bien )?[ée]t[ée] livr[ée]e?|livraison (?:pr[ée]vue|aujourd|demain|imminente)|pris en charge par|shipment (?:notification|confirmation|update)|your (?:package|parcel|order) (?:is|has|was)|package (?:delivered|shipped|arrived)|order (?:shipped|delivered|arrived)|on the way)/i;
+    /(suivi de (?:votre |mon )?colis|votre colis|colis (?:n[°o]|num[ée]ro|exp[ée]di|livr[ée]|en route|en cours)|num[ée]ro de suivi|tracking (?:number|no|num[ée]ro)|commande (?:exp[ée]di[ée]e?|livr[ée]e?|confirm[ée]e|en route|en cours)|votre commande[^.\n]{0,40}(?:est|a [ée]t[ée]|vient d.[êe]tre|sera)[^.\n]{0,25}(?:exp[ée]di|en route|en cours|arriv|livr|pr[êe]te|confirm|pr[ée]par)|exp[ée]dition de votre commande|en cours de livraison|livraison (?:pr[ée]vue|aujourd|demain|imminente)|pris en charge par|shipment (?:notification|confirmation|update)|shipping (?:confirmation|update|notification)|(?:your|the) (?:package|parcel|order) (?:is|has|was|will)[^.\n]{0,45}(?:on its way|shipped|dispatched|delivered|arriving|delivery)|order (?:shipped|dispatched|delivered|confirmed)|out for delivery|on (?:its|the) way)/i;
+
+/** Raison affichée pour un email classé « Commande ». */
+function trackingReason(fromEmail: string): string {
+    const carrier = CARRIERS.find((rule) => rule.sender.test(fromEmail))?.name;
+    return carrier ? `Suivi de colis — ${carrier}` : "Suivi de colis (aucune réponse attendue)";
+}
 
 /** Expéditeur identifiable comme transporteur ou marchand. */
 const CARRIER_SENDER =
@@ -427,7 +433,17 @@ export function classifyMessage(
             subject.trim()
         );
 
-    // 1. Diffusion de masse : jamais de réponse attendue.
+    // 1. Suivi de colis : prioritaire, même quand la boutique passe par une régie
+    //    marketing (List-Unsubscribe, Klaviyo…) — c'est une commande, pas une pub.
+    if (!promoSubject && STRONG_TRACKING_SUBJECT.test(subject)) {
+        return {
+            category: "commande",
+            needsReply: false,
+            reason: trackingReason(fromEmail),
+        };
+    }
+
+    // 2. Diffusion de masse : jamais de réponse attendue.
     if (hasListHeaders || isMarketing || isBulk) {
         if (promoSubject) {
             return {
@@ -469,18 +485,12 @@ export function classifyMessage(
         };
     }
 
-    // 4. Suivi de colis : étiquette « Commande » (aucune réponse attendue).
-    if (
-        STRONG_TRACKING_SUBJECT.test(subject) ||
-        (CARRIER_SENDER.test(fromEmail) && TRACKING_TOPIC.test(subject))
-    ) {
-        const carrier = CARRIERS.find((rule) => rule.sender.test(fromEmail))?.name;
+    // 5. Suivi de colis repéré via l'expéditeur transporteur (objet moins explicite).
+    if (CARRIER_SENDER.test(fromEmail) && TRACKING_TOPIC.test(subject)) {
         return {
             category: "commande",
             needsReply: false,
-            reason: carrier
-                ? `Suivi de colis — ${carrier}`
-                : "Suivi de colis (aucune réponse attendue)",
+            reason: trackingReason(fromEmail),
         };
     }
 
@@ -1142,8 +1152,23 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             text: breakdown.currentText || visibleText,
         });
 
+        const base = toSummary(message, message.headers?.toString("utf8") ?? "");
+        // Le corps du message peut révéler un suivi qu'un en-tête de diffusion
+        // masquait (boutiques qui expédient via une régie marketing).
+        const trackingUpgrade: Partial<GmailClassification> =
+            tracking && ["newsletter", "promotion", "infos", "important"].includes(base.category)
+                ? {
+                      category: "commande",
+                      needsReply: false,
+                      reason: tracking.carrier
+                          ? `Suivi de colis — ${tracking.carrier}`
+                          : "Suivi de colis (aucune réponse attendue)",
+                  }
+                : {};
+
         return {
-            ...toSummary(message, message.headers?.toString("utf8") ?? ""),
+            ...base,
+            ...trackingUpgrade,
             to: addressList(envelope?.to),
             cc: addressList(envelope?.cc),
             text: visibleText,
