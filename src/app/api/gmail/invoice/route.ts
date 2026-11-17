@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import {
+    analyzeInvoice,
     describeGmailError,
-    detectInvoiceFromMessage,
     getMessage,
     isGmailConfigured,
 } from "@/lib/gmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 45;
 
 export async function GET(request: Request) {
     if (!isGmailConfigured()) {
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
 
     try {
         const message = await getMessage(uid);
-        const proposal = detectInvoiceFromMessage(message);
+        const proposal = await analyzeInvoice(message);
         return NextResponse.json(
             { proposal },
             { headers: { "Cache-Control": "no-store" } }

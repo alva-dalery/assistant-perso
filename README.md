@@ -150,6 +150,10 @@ sont reconnus automatiquement. L'application propose un nom de fichier normalis�
 vous le validez, le PDF est téléchargé, puis **le mail est envoyé dans la corbeille Gmail**.
 Aucun téléchargement ni suppression sans votre validation.
 
+**OPT.nc Internet vs Mobile** : les deux factures se ressemblent, seul le **n° de compte du PDF** les
+distingue. Le PDF est donc lu automatiquement : compte `9000019168` → OPT Internet,
+compte `1.11150452` → OPT Mobile.
+
 L'onglet **Factures** traite tout **en lot** : chaque email affiche directement son nom de PDF proposé,
 avec une case à cocher par ligne et une case **« Tout sélectionner »**. Le bouton
 **« Valider les noms et télécharger (n) »** télécharge tous les PDF sélectionnés puis supprime les

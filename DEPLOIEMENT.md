@@ -281,6 +281,18 @@ Quand un email classé **Factures** provient d'un fournisseur reconnu **Lagoon**
 | OPT Internet | `2026-06 - OPT Internet - Facture.pdf` |
 | OPT Mobile | `2026-06 - OPT Mobile - Facture.pdf` |
 
+**OPT.nc Internet ou Mobile ?** Les emails des deux offres se ressemblent et l'objet ne permet pas de
+les distinguer : la différence se lit dans le **n° de compte imprimé dans le PDF**. L'application
+télécharge donc le PDF joint, en extrait le texte (pdf.js) et applique :
+
+| N° de compte lu dans le PDF | Fournisseur retenu |
+| --- | --- |
+| `9000019168` | OPT.nc **Internet** |
+| `1.11150452` (ou `1 111 50452`) | OPT.nc **Mobile** |
+
+Le nom du fichier et le logo suivent cette lecture. Si le PDF est illisible, l'objet et le corps de
+l'email servent de repli, et le nom proposé reste modifiable avant téléchargement.
+
 **Règle de période** : si un **mois en toutes lettres** est écrit dans l'objet ou le corps
 (« Facture : Mois de Octobre 2026 [Ref. …] »), c'est lui qui fait foi, sans décalage. Même logique
 pour un **trimestre explicite** (`T3 2026`) chez CDE. Autrement, on utilise la date de facture

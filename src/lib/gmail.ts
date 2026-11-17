@@ -2,6 +2,7 @@ import { ImapFlow } from "imapflow";
 import type { FetchMessageObject, MessageStructureObject } from "imapflow";
 import nodemailer from "nodemailer";
 import type { Readable } from "node:stream";
+import { extractText, getDocumentProxy } from "unpdf";
 
 /**
  * Connexion Gmail personnelle via IMAP / SMTP et un mot de passe d'application.
@@ -1882,6 +1883,39 @@ function onlyDigits(value: string): string {
     return value.replace(/\D+/g, "");
 }
 
+/** OPT.nc Internet et Mobile se distinguent uniquement par le n° de compte du PDF. */
+const OPT_ACCOUNTS: Array<{ digits: string; provider: InvoiceProvider }> = [
+    { digits: "9000019168", provider: "opt-internet" },
+    { digits: "111150452", provider: "opt-mobile" },
+];
+
+/** Vrai si le nombre apparaît isolé (pas noyé dans un nombre plus long). */
+function containsNumber(haystack: string, digits: string): boolean {
+    let index = haystack.indexOf(digits);
+    while (index !== -1) {
+        const before = haystack[index - 1];
+        const after = haystack[index + digits.length];
+        if ((!before || !/[0-9]/.test(before)) && (!after || !/[0-9]/.test(after))) {
+            return true;
+        }
+        index = haystack.indexOf(digits, index + 1);
+    }
+    return false;
+}
+
+/**
+ * Lit le n° de compte OPT.nc dans le texte du PDF :
+ *   9000019168 → OPT.nc Internet · 1.11150452 → OPT.nc Mobile.
+ */
+export function optVariantFromText(text: string): InvoiceProvider | null {
+    // Les factures écrivent souvent « 1.11150452 » ou « 1 111 50452 ».
+    const compact = text.replace(/[^0-9A-Za-z]/g, "");
+    for (const account of OPT_ACCOUNTS) {
+        if (containsNumber(compact, account.digits)) return account.provider;
+    }
+    return null;
+}
+
 function detectProvider(message: GmailMessageDetail): InvoiceProvider | null {
     const haystack = `${message.fromEmail} ${message.fromName} ${message.subject} ${message.currentText} ${message.historyText}`.toLowerCase();
     const digits = onlyDigits(haystack);
@@ -2006,8 +2040,65 @@ function invoiceLink(message: GmailMessageDetail): string | undefined {
     );
 }
 
-export function detectInvoiceFromMessage(message: GmailMessageDetail): InvoiceProposal | null {
-    const provider = detectProvider(message);
+const MAX_INVOICE_PDF_BYTES = 8 * 1024 * 1024;
+
+/** Extrait le texte d'un PDF (pdf.js via unpdf) : sert au n° de compte OPT.nc. */
+async function readPdfText(buffer: Buffer): Promise<string> {
+    if (buffer.length === 0) return "";
+    const pdf = await getDocumentProxy(new Uint8Array(buffer));
+    try {
+        const { text } = await extractText(pdf, { mergePages: true });
+        return Array.isArray(text) ? text.join("\n") : text;
+    } finally {
+        await pdf.cleanup?.();
+    }
+}
+
+/** Première pièce jointe PDF d'un message. */
+function firstPdfPart(message: GmailMessageDetail): GmailPartInfo | null {
+    return (
+        message.attachmentParts.find(
+            (part) =>
+                part.type.toLowerCase() === "application/pdf" ||
+                part.filename.toLowerCase().endsWith(".pdf")
+        ) ?? null
+    );
+}
+
+/** Texte du PDF joint (téléchargé à la demande) ; null s'il est illisible. */
+async function invoicePdfText(message: GmailMessageDetail): Promise<string | null> {
+    const part = firstPdfPart(message);
+    if (!part || !part.part) return null;
+    if (part.size && part.size > MAX_INVOICE_PDF_BYTES) return null;
+    try {
+        const { buffer } = await downloadPart(message.uid, part.part);
+        return await readPdfText(buffer);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Analyse complète d'une facture. Pour OPT.nc, le PDF joint est lu afin de
+ * distinguer Internet (compte 9000019168) de Mobile (compte 1.11150452) :
+ * l'objet de l'email ne permet pas de les différencier.
+ */
+export async function analyzeInvoice(
+    message: GmailMessageDetail
+): Promise<InvoiceProposal | null> {
+    const guess = detectProvider(message);
+    if (!guess) return null;
+    const needsPdf = guess === "opt-internet" || guess === "opt-mobile";
+    const pdfText = needsPdf ? await invoicePdfText(message) : null;
+    return detectInvoiceFromMessage(message, pdfText ?? undefined);
+}
+
+export function detectInvoiceFromMessage(
+    message: GmailMessageDetail,
+    pdfText?: string
+): InvoiceProposal | null {
+    // Pour OPT.nc, le n° de compte lu dans le PDF fait foi sur l'objet de l'email.
+    const provider = (pdfText ? optVariantFromText(pdfText) : null) ?? detectProvider(message);
     if (!provider) return null;
 
     const date = invoiceDateOf(message);
@@ -2271,7 +2362,41 @@ export async function detectInvoicesForUids(
                     inReplyTo: "",
                 } as GmailMessageDetail;
 
-                results.push({ uid, proposal: detectInvoiceFromMessage(detail) });
+                const guess = detectProvider(detail);
+                const pdfPart = firstPdfPart(detail);
+                let pdfText: string | null = null;
+
+                // OPT.nc : seul le PDF indique Internet ou Mobile.
+                if ((guess === "opt-internet" || guess === "opt-mobile") && pdfPart?.part) {
+                    try {
+                        const download = await client.download(String(uid), pdfPart.part, {
+                            uid: true,
+                        });
+                        if (download?.content) {
+                            const chunks: Buffer[] = [];
+                            let size = 0;
+                            for await (const chunk of download.content as AsyncIterable<
+                                Buffer | string
+                            >) {
+                                if (size >= MAX_INVOICE_PDF_BYTES) break;
+                                const chunkBuffer = Buffer.isBuffer(chunk)
+                                    ? chunk
+                                    : Buffer.from(chunk);
+                                chunks.push(chunkBuffer);
+                                size += chunkBuffer.length;
+                            }
+                            download.content.destroy();
+                            pdfText = await readPdfText(Buffer.concat(chunks));
+                        }
+                    } catch {
+                        pdfText = null;
+                    }
+                }
+
+                results.push({
+                    uid,
+                    proposal: detectInvoiceFromMessage(detail, pdfText ?? undefined),
+                });
             } catch (error) {
                 results.push({ uid, proposal: null, error: describeGmailError(error) });
             }
