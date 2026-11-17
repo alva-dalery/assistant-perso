@@ -291,6 +291,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [invoiceLoading, setInvoiceLoading] = useState(false);
     const [invoiceWorking, setInvoiceWorking] = useState(false);
     const [invoiceError, setInvoiceError] = useState<string | null>(null);
+    const [invoicePreviewOk, setInvoicePreviewOk] = useState<boolean | null>(null);
 
     const load = useCallback(
         async (requestedLimit: number) => {
@@ -490,6 +491,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             setInvoiceProposal(null);
             setInvoiceNames({});
             setInvoiceError(null);
+            setInvoicePreviewOk(null);
             if (data.category === "factures") {
                 void loadInvoice(data.uid);
             }
@@ -651,6 +653,28 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                         data.proposal.files.map((file) => [file.part, file.proposed])
                     )
                 );
+
+                // Facture uniquement accessible par lien : on vérifie que le PDF
+                // est réellement récupérable avant d'afficher un aperçu cassé.
+                const first = data.proposal.files[0];
+                if (data.proposal.link && first && !first.part) {
+                    const check = await fetch(
+                        `/api/gmail/invoice/download?check=1&url=${encodeURIComponent(
+                            data.proposal.link
+                        )}`,
+                        { cache: "no-store", credentials: "same-origin" }
+                    );
+                    const result = (await check.json()) as { ok?: boolean; error?: string };
+                    setInvoicePreviewOk(Boolean(result.ok));
+                    if (!result.ok) {
+                        setInvoiceError(
+                            result.error ??
+                                "La facture n'a pas pu être chargée depuis le lien du fournisseur."
+                        );
+                    }
+                } else {
+                    setInvoicePreviewOk(true);
+                }
             }
         } catch {
             setInvoiceError("Impossible de joindre l'analyse de facture.");
@@ -680,7 +704,16 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                       )}`;
 
                 const response = await fetch(url, { credentials: "same-origin" });
-                if (!response.ok) throw new Error("Téléchargement du PDF impossible.");
+                if (!response.ok) {
+                    let detail = "";
+                    try {
+                        const payload = (await response.json()) as { error?: string };
+                        detail = payload.error ?? "";
+                    } catch {
+                        detail = "";
+                    }
+                    throw new Error(detail || "Téléchargement du PDF impossible.");
+                }
 
                 const blob = await response.blob();
                 const objectUrl = URL.createObjectURL(blob);
@@ -1512,7 +1545,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                         </div>
                     )}
                 </div>
-                {invoiceActive && invoiceProposal && invoiceProposal.files.length > 0 && (
+                {invoiceActive &&
+                    invoiceProposal &&
+                    invoiceProposal.files.length > 0 &&
+                    (invoiceProposal.files[0].part || invoicePreviewOk === true) && (
                     <div className="lg:col-span-4">
                         <div className="rounded-2xl bg-white border border-slate-200/70 shadow-sm overflow-hidden h-[70vh] min-h-[420px]">
                             <iframe

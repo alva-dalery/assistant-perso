@@ -299,8 +299,13 @@ Pour **EEC Engie**, la facture est souvent disponible via un **lien** dans l'ema
 pièce jointe : l'application crée une entrée virtuelle, affiche le PDF dans l'aperçu via une route
 proxy (`/api/gmail/invoice/download`) restreinte aux domaines des fournisseurs (`*.engie.nc`,
 `*.eec.nc`, `*.opt.nc`, `*.lagoon.nc`, `*.cde.nc`, `*.helia.nc`), permet de **renommer** le fichier,
-puis le télécharge et supprime le mail comme pour une pièce jointe. Si le fournisseur refuse l'accès
-(authentification), un lien de secours « Ouvrir le lien manuellement » apparaît.
+puis le télécharge et supprime le mail comme pour une pièce jointe.
+
+Avant d'afficher l'aperçu, l'application **vérifie que le lien renvoie réellement un fichier PDF**
+(lecture des 5 premiers octets `%PDF-`). Si le fournisseur renvoie une page HTML (session expirée,
+connexion requise) ou un statut d'erreur, l'aperçu n'est pas affiché, un message explicite apparaît
+et un lien de secours **« Ouvrir le lien manuellement »** est proposé. Le proxy tente aussi de
+basculer un lien `http://` en `https://`.
 Après le téléchargement réussi, **l'email est déplacé dans la corbeille Gmail** (suppression
 récupérable). Si plusieurs PDF sont joints, ils reçoivent un suffixe `(1)`, `(2)`…
 

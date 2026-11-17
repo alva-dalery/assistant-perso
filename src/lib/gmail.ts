@@ -2061,10 +2061,10 @@ export function detectInvoiceFromMessage(message: GmailMessageDetail): InvoicePr
 
 const INVOICE_ALLOWED_HOSTS = ["engie.nc", "eec.nc", "opt.nc", "lagoon.nc", "cde.nc", "helia.nc"];
 
-function isAllowedInvoiceUrl(value: string): boolean {
+function allowedInvoiceHost(value: string): boolean {
     try {
         const parsed = new URL(value);
-        if (parsed.protocol !== "https:") return false;
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
         const host = parsed.hostname.toLowerCase();
         return INVOICE_ALLOWED_HOSTS.some(
             (domain) => host === domain || host.endsWith(`.${domain}`)
@@ -2074,28 +2074,38 @@ function isAllowedInvoiceUrl(value: string): boolean {
     }
 }
 
-/** Récupère le PDF d'une facture en ligne (domaines fournisseurs uniquement). */
+/**
+ * Récupère le PDF d'une facture en ligne (domaines fournisseurs uniquement).
+ * Vérifie que la réponse est bien un PDF : un lien de portail qui renvoie une
+ * page HTML (session expirée, authentification) produit une erreur explicite
+ * au lieu d'un aperçu cassé.
+ */
 export async function downloadInvoiceLink(
     url: string
 ): Promise<{ buffer: Buffer; contentType: string }> {
-    if (!isAllowedInvoiceUrl(url)) {
+    if (!allowedInvoiceHost(url)) {
         throw new Error("Lien de facture non autorisé (domaine inconnu).");
     }
 
+    // Les fournisseurs publient parfois un lien http : on tente https d'abord.
+    const securedUrl = url.startsWith("http://") ? `https://${url.slice("http://".length)}` : url;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20_000);
 
     try {
-        const response = await fetch(url, {
+        const response = await fetch(securedUrl, {
             redirect: "follow",
             signal: controller.signal,
-            headers: { "User-Agent": "AssistantPerso/1.0" },
+            headers: {
+                "User-Agent": "AssistantPerso/1.0",
+                Accept: "application/pdf,*/*;q=0.8",
+            },
         });
 
         if (!response.ok) {
             throw new Error(`Le fournisseur a refusé le fichier (${response.status}).`);
         }
-        if (!isAllowedInvoiceUrl(response.url)) {
+        if (!allowedInvoiceHost(response.url)) {
             throw new Error("Le lien redirige vers un domaine non autorisé.");
         }
 
@@ -2104,11 +2114,85 @@ export async function downloadInvoiceLink(
             throw new Error("Fichier trop volumineux (15 Mo maximum).");
         }
 
-        return {
-            buffer: Buffer.from(arrayBuffer),
-            contentType: response.headers.get("content-type") ?? "application/pdf",
-        };
+        const buffer = Buffer.from(arrayBuffer);
+        const header = buffer.subarray(0, 5).toString("latin1");
+        const declared = (response.headers.get("content-type") ?? "").toLowerCase();
+
+        if (header !== "%PDF-" && !declared.includes("application/pdf")) {
+            if (declared.includes("text/html") || header.startsWith("<")) {
+                throw new Error(
+                    "Le lien ouvre une page web et non un PDF : une connexion au site du fournisseur est probablement requise."
+                );
+            }
+            throw new Error("Le lien ne renvoie pas un fichier PDF exploitable.");
+        }
+
+        return { buffer, contentType: "application/pdf" };
     } finally {
         clearTimeout(timer);
+    }
+}
+
+
+/** Vérifie qu'un lien de facture renvoie bien un PDF (sans bloquer l'aperçu). */
+export async function checkInvoiceLink(
+    url: string
+): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const secured = url.startsWith("http://") ? `https://${url.slice("http://".length)}` : url;
+        if (!allowedInvoiceHost(secured)) {
+            return { ok: false, error: "Lien de facture non autorisé." };
+        }
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12_000);
+
+        try {
+            const response = await fetch(secured, {
+                redirect: "follow",
+                signal: controller.signal,
+                headers: {
+                    "User-Agent": "AssistantPerso/1.0",
+                    Accept: "application/pdf,*/*;q=0.8",
+                    Range: "bytes=0-4",
+                },
+            });
+
+            if (!response.ok) {
+                return {
+                    ok: false,
+                    error: `Le fournisseur a refusé le fichier (${response.status}).`,
+                };
+            }
+            if (!allowedInvoiceHost(response.url)) {
+                return { ok: false, error: "Le lien redirige vers un domaine non autorisé." };
+            }
+
+            const buffer = Buffer.from(await response.arrayBuffer());
+            const header = buffer.subarray(0, 5).toString("latin1");
+            const declared = (response.headers.get("content-type") ?? "").toLowerCase();
+
+            if (header === "%PDF-" || declared.includes("application/pdf")) {
+                return { ok: true };
+            }
+            if (declared.includes("text/html") || header.startsWith("<")) {
+                return {
+                    ok: false,
+                    error:
+                        "Le lien ouvre une page web et non un PDF : une connexion au site du fournisseur est probablement requise.",
+                };
+            }
+            return { ok: false, error: "Le lien ne renvoie pas un fichier PDF." };
+        } finally {
+            clearTimeout(timer);
+        }
+    } catch (error) {
+        return {
+            ok: false,
+            error:
+                error instanceof Error && error.name === "AbortError"
+                    ? "Le site du fournisseur ne répond pas."
+                    : "Vérification du lien impossible.",
+        };
     }
 }
