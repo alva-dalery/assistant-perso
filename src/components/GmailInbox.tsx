@@ -1309,13 +1309,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                             <p>{invoiceError}</p>
                                             {invoiceProposal?.link && (
                                                 <a
-                                                    href={invoiceProposal.link}
+                                                    href={`/facture?url=${encodeURIComponent(
+                                                        invoiceProposal.link
+                                                    )}`}
                                                     target="_blank"
                                                     rel="noreferrer"
                                                     className="inline-flex items-center gap-1 font-bold underline"
                                                 >
                                                     <ExternalLink className="h-3 w-3" />
-                                                    Ouvrir le lien manuellement
+                                                    Ouvrir la facture dans le navigateur
                                                 </a>
                                             )}
                                         </div>

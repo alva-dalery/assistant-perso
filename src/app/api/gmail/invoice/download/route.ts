@@ -21,6 +21,10 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams;
     const url = params.get("url") ?? "";
     const check = params.get("check") === "1";
+    const forceDownload = params.get("dl") === "1";
+    const requestedName = (params.get("name") || "facture.pdf")
+        .replace(/[^\w.\- ]/g, "_")
+        .slice(0, 120);
 
     if (!url) {
         return NextResponse.json({ error: "Paramètre url manquant." }, { status: 400 });
@@ -36,7 +40,9 @@ export async function GET(request: Request) {
         return new NextResponse(new Uint8Array(buffer), {
             headers: {
                 "Content-Type": contentType.includes("pdf") ? "application/pdf" : contentType,
-                "Content-Disposition": "inline",
+                "Content-Disposition": forceDownload
+                    ? `attachment; filename="${requestedName}"`
+                    : "inline",
                 "Cache-Control": "private, no-store",
                 "X-Content-Type-Options": "nosniff",
             },

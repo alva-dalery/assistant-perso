@@ -304,7 +304,9 @@ puis le télécharge et supprime le mail comme pour une pièce jointe.
 Avant d'afficher l'aperçu, l'application **vérifie que le lien renvoie réellement un fichier PDF**
 (lecture des 5 premiers octets `%PDF-`). Si le fournisseur renvoie une page HTML (session expirée,
 connexion requise) ou un statut d'erreur, l'aperçu n'est pas affiché, un message explicite apparaît
-et un lien de secours **« Ouvrir le lien manuellement »** est proposé. Le proxy tente aussi de
+et un lien de secours **« Ouvrir la facture dans le navigateur »** est proposé : il ouvre la page
+interne `/facture`, qui affiche le PDF en plein écran dans un vrai onglet web (et propose un bouton
+« Télécharger le PDF » si vous le souhaitez, avec le nom de fichier choisi). Le proxy tente aussi de
 basculer un lien `http://` en `https://`.
 Après le téléchargement réussi, **l'email est déplacé dans la corbeille Gmail** (suppression
 récupérable). Si plusieurs PDF sont joints, ils reçoivent un suffixe `(1)`, `(2)`…

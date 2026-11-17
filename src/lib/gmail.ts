@@ -2138,15 +2138,16 @@ export async function downloadInvoiceLink(
 export async function checkInvoiceLink(
     url: string
 ): Promise<{ ok: boolean; error?: string }> {
-    try {
-        const secured = url.startsWith("http://") ? `https://${url.slice("http://".length)}` : url;
-        if (!allowedInvoiceHost(secured)) {
-            return { ok: false, error: "Lien de facture non autorisé." };
-        }
+    const secured = url.startsWith("http://") ? `https://${url.slice("http://".length)}` : url;
+    if (!allowedInvoiceHost(secured)) {
+        return { ok: false, error: "Lien de facture non autorisé." };
+    }
 
+    const attempt = async (
+        extraHeaders: Record<string, string>
+    ): Promise<{ ok: boolean; error?: string }> => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 12_000);
-
         try {
             const response = await fetch(secured, {
                 redirect: "follow",
@@ -2154,7 +2155,7 @@ export async function checkInvoiceLink(
                 headers: {
                     "User-Agent": "AssistantPerso/1.0",
                     Accept: "application/pdf,*/*;q=0.8",
-                    Range: "bytes=0-4",
+                    ...extraHeaders,
                 },
             });
 
@@ -2183,16 +2184,21 @@ export async function checkInvoiceLink(
                 };
             }
             return { ok: false, error: "Le lien ne renvoie pas un fichier PDF." };
+        } catch (error) {
+            return {
+                ok: false,
+                error:
+                    error instanceof Error && error.name === "AbortError"
+                        ? "Le site du fournisseur ne répond pas."
+                        : "Vérification du lien impossible.",
+            };
         } finally {
             clearTimeout(timer);
         }
-    } catch (error) {
-        return {
-            ok: false,
-            error:
-                error instanceof Error && error.name === "AbortError"
-                    ? "Le site du fournisseur ne répond pas."
-                    : "Vérification du lien impossible.",
-        };
-    }
+    };
+
+    // Certains serveurs refusent les requêtes « Range » : on retente sans.
+    const ranged = await attempt({ Range: "bytes=0-4" });
+    if (ranged.ok) return ranged;
+    return attempt({});
 }
