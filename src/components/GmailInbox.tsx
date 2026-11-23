@@ -20,7 +20,6 @@ import {
     Library,
     Loader2,
     Mail,
-    MoreHorizontal,
     Package,
     PenLine,
     RefreshCw,
@@ -552,7 +551,7 @@ interface LabelMenuProps {
     align?: "left" | "right";
 }
 
-/** Bouton « … » qui ouvre la liste des catégories à appliquer à l'email. */
+/** Pastille d'étiquette cliquable avec flèche pour changer la catégorie de l'email. */
 const LabelMenu: React.FC<LabelMenuProps> = ({
     value,
     override,
@@ -596,15 +595,18 @@ const LabelMenu: React.FC<LabelMenuProps> = ({
                 }}
                 aria-haspopup="menu"
                 aria-expanded={open}
-                aria-label="Changer la catégorie"
-                title="Changer la catégorie"
-                className={`h-7 w-7 flex items-center justify-center rounded-lg transition-all ${
-                    override
-                        ? "text-teal-700 bg-teal-50 hover:bg-teal-100"
-                        : "text-slate-400 hover:text-slate-800 hover:bg-slate-100"
+                aria-label={`Changer l'étiquette (${CATEGORY_LABEL[value]})`}
+                title="Changer l'étiquette"
+                className={`inline-flex items-center gap-1 text-[9px] pl-2 pr-1.5 py-0.5 rounded-full border font-bold transition-all hover:brightness-95 ${CATEGORY_STYLE[value]} ${
+                    override ? "ring-1 ring-teal-500/40" : ""
                 }`}
             >
-                <MoreHorizontal className="h-4 w-4" />
+                <span>{CATEGORY_LABEL[value]}</span>
+                <ChevronDown
+                    className={`h-2.5 w-2.5 shrink-0 transition-transform ${
+                        open ? "rotate-180" : ""
+                    }`}
+                />
             </button>
 
             {open && (
@@ -3143,22 +3145,17 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                             </div>
                             <p className="text-[11px] font-medium text-slate-600 truncate">{message.subject}</p>
                             <div className="mt-1.5 flex items-center gap-1.5">
-                                <span
-                                    className={`text-[9px] px-2 py-0.5 rounded-full border font-bold ${CATEGORY_STYLE[message.category]}`}
-                                >
-                                    {CATEGORY_LABEL[message.category]}
-                                </span>
+                                <LabelMenu
+                                    align="left"
+                                    value={message.category}
+                                    override={labelOverrides[message.uid]}
+                                    onSelect={(value) => changeMessageCategory(message.uid, value)}
+                                />
                                 {message.answered && (
                                     <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold">
                                         Répondu
                                     </span>
                                 )}
-                                <LabelMenu
-                                    className="ml-auto"
-                                    value={message.category}
-                                    override={labelOverrides[message.uid]}
-                                    onSelect={(value) => changeMessageCategory(message.uid, value)}
-                                />
                             </div>
                         </div>
                     ))}
@@ -3185,21 +3182,18 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                             <div className="p-4 border-b border-slate-100">
                                 <div className="flex items-start justify-between gap-3 mb-1">
                                     <p className="text-sm font-extrabold text-slate-900">{detail.subject}</p>
-                                    <span
-                                        className={`text-[9px] px-2 py-0.5 rounded-full border font-bold shrink-0 ${CATEGORY_STYLE[detail.category]}`}
-                                    >
-                                        {CATEGORY_LABEL[detail.category]}
-                                    </span>
-                                    <LabelMenu
-                                        value={detail.category}
-                                        override={labelOverrides[detail.uid]}
-                                        onSelect={(value) => changeMessageCategory(detail.uid, value)}
-                                    />
-                                    {detail.answered && (
-                                        <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold shrink-0">
-                                            Répondu
-                                        </span>
-                                    )}
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                        <LabelMenu
+                                            value={detail.category}
+                                            override={labelOverrides[detail.uid]}
+                                            onSelect={(value) => changeMessageCategory(detail.uid, value)}
+                                        />
+                                        {detail.answered && (
+                                            <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold shrink-0">
+                                                Répondu
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                                 <p className="text-[11px] text-slate-500">
                                     De <span className="font-semibold text-slate-700">{detail.fromName}</span>
