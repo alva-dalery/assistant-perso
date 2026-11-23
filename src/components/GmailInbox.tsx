@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
 import { addParcel } from "@/lib/trackingMemory";
-import { getAiHeaders, getShip24Headers } from "@/lib/aiClient";
+import { getAiHeaders, getLaPosteHeaders } from "@/lib/aiClient";
 import {
     coverSrc,
     loadCoverOverrides,
@@ -1120,7 +1120,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    ...getShip24Headers(),
+                    ...getLaPosteHeaders(),
                 },
                 credentials: "same-origin",
                 body: JSON.stringify({ trackingNumber }),
@@ -2454,7 +2454,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                     <span>
                                                         {fetchingHistory
                                                             ? "Chargement..."
-                                                            : "Historique (Ship24)"}
+                                                            : "Historique (La Poste)"}
                                                     </span>
                                                 </button>
                                             )}

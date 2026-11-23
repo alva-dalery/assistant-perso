@@ -1,42 +1,43 @@
 import { NextResponse } from "next/server";
+import { callDeepSeekJson, DeepSeekError } from "@/lib/ai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 25;
+export const maxDuration = 30;
 
-interface Ship24Event {
+interface LaPosteEvent {
+  date?: string;
+  label?: string;
+  site?: string;
   status?: string;
-  location?: string | null;
-  occurrenceDatetime?: string;
-  courierCode?: string;
-  statusMilestone?: string;
 }
 
-interface Ship24Tracking {
+interface LaPosteTimelineStep {
+  id?: number;
+  label?: string;
+  shortLabel?: string;
+  date?: string;
+  status?: boolean;
+}
+
+interface LaPosteResponse {
   shipment?: {
-    statusMilestone?: string;
+    idShip?: string;
+    product?: string;
+    isFinal?: boolean;
+    timeline?: LaPosteTimelineStep[];
+    event?: LaPosteEvent[];
   };
-  events?: Ship24Event[];
+  returnMessage?: string;
 }
 
-const MILESTONE_FR: Record<string, string> = {
-  delivered: "Livré",
-  out_for_delivery: "En cours de livraison",
-  transit: "En transit",
-  in_transit: "En transit",
-  pick_up: "Pris en charge",
-  info_received: "Information reçue",
-  exception: "Anomalie signalée",
-  undelivered: "Échec de livraison",
-};
-
-function resolveShip24Key(request: Request): {
+function resolveLaPosteKey(request: Request): {
   apiKey: string;
   source: "env" | "header" | "none";
 } {
-  const envKey = (process.env.SHIP24_API_KEY ?? "").trim();
+  const envKey = (process.env.LAPOSTE_API_KEY ?? "").trim();
   if (envKey) return { apiKey: envKey, source: "env" };
-  const headerKey = (request.headers.get("x-ship24-api-key") ?? "").trim();
+  const headerKey = (request.headers.get("x-laposte-api-key") ?? "").trim();
   if (headerKey) return { apiKey: headerKey, source: "header" };
   return { apiKey: "", source: "none" };
 }
@@ -54,7 +55,7 @@ function formatEventDate(iso?: string): string {
 }
 
 export async function GET(request: Request) {
-  const { apiKey, source } = resolveShip24Key(request);
+  const { apiKey, source } = resolveLaPosteKey(request);
   return NextResponse.json(
     { configured: Boolean(apiKey), source },
     { headers: { "Cache-Control": "no-store" } }
@@ -62,25 +63,71 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { apiKey } = resolveShip24Key(request);
+  let body: { trackingNumber?: string; rawText?: string };
+  try {
+    body = (await request.json()) as { trackingNumber?: string; rawText?: string };
+  } catch {
+    return NextResponse.json({ error: "Corps JSON invalide." }, { status: 400 });
+  }
+
+  // Option 1 (0 € supplémentaire) : extraction structurée par DeepSeek depuis un texte collé
+  const rawText = (body.rawText ?? "").trim();
+  if (rawText) {
+    try {
+      const { data } = await callDeepSeekJson<{
+        status: string | null;
+        carrier: string | null;
+        history: string[];
+      }>({
+        request,
+        messages: [
+          {
+            role: "system",
+            content: `Tu extrais l'historique d'un suivi de colis à partir d'un texte copié-collé depuis la page du transporteur ou du marchand.
+Réponds uniquement en JSON :
+{
+  "status": "Statut actuel court (ex: Livré, En transit, En cours de livraison, Pris en charge) ou null",
+  "carrier": "Nom du transporteur (ex: La Poste / Colissimo) ou null",
+  "history": ["Date — Étape (Lieu si présent)", "... du plus récent au plus ancien"]
+}`,
+          },
+          { role: "user", content: rawText.slice(0, 6000) },
+        ],
+        temperature: 0.1,
+        maxTokens: 700,
+      });
+
+      return NextResponse.json(
+        {
+          ok: true,
+          status: data.status || null,
+          carrier: data.carrier || null,
+          history: Array.isArray(data.history) ? data.history.slice(0, 15) : [],
+        },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    } catch (err) {
+      const msg =
+        err instanceof DeepSeekError
+          ? err.message
+          : "Impossible d'analyser ce texte de suivi.";
+      return NextResponse.json({ error: msg }, { status: 502 });
+    }
+  }
+
+  // Option 2 : API officielle gratuite La Poste Suivi v2 (X-Okapi-Key)
+  const { apiKey } = resolveLaPosteKey(request);
   if (!apiKey) {
     return NextResponse.json(
       {
         error:
-          "Suivi en direct non configuré : ajoutez votre clé API Ship24 (gratuite 100 colis/mois sur ship24.com) dans Paramètres → IA & Clés ou SHIP24_API_KEY sur Vercel.",
+          "Clé gratuite La Poste non configurée : créez-en une gratuitement (sans carte bancaire) sur developer.laposte.fr et ajoutez-la dans Paramètres → IA & Clés, ou collez directement le texte de suivi ci-dessous.",
       },
       { status: 400, headers: { "Cache-Control": "no-store" } }
     );
   }
 
-  let body: { trackingNumber?: string };
-  try {
-    body = (await request.json()) as { trackingNumber?: string };
-  } catch {
-    return NextResponse.json({ error: "Corps JSON invalide." }, { status: 400 });
-  }
-
-  const trackingNumber = (body.trackingNumber ?? "").trim();
+  const trackingNumber = (body.trackingNumber ?? "").trim().replace(/\s+/g, "");
   if (!trackingNumber || trackingNumber.length < 5) {
     return NextResponse.json(
       { error: "Numéro de suivi manquant ou invalide." },
@@ -88,112 +135,96 @@ export async function POST(request: Request) {
     );
   }
 
-  const endpoints = [
-    "https://api.ship24.com/public/v1/trackers/track",
-    "https://api.ship24.com/v1/trackers/track",
-  ];
-
-  let lastStatus = 502;
-  let lastErrorText = "";
-
-  for (const endpoint of endpoints) {
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
+  try {
+    const response = await fetch(
+      `https://api.laposte.fr/suivi/v2/idships/${encodeURIComponent(trackingNumber)}?lang=fr_FR`,
+      {
+        method: "GET",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
+          "X-Okapi-Key": apiKey,
           Accept: "application/json",
         },
-        body: JSON.stringify({ trackingNumber }),
         cache: "no-store",
-        signal: AbortSignal.timeout(15_000),
-      });
-
-      if (response.status === 404) {
-        lastStatus = 404;
-        continue;
+        signal: AbortSignal.timeout(12_000),
       }
+    );
 
-      if (!response.ok) {
-        lastStatus = response.status;
-        lastErrorText = await response.text().catch(() => "");
-        break;
-      }
+    const payload = (await response.json().catch(() => ({}))) as LaPosteResponse;
 
-      const payload = (await response.json()) as {
-        data?: { trackings?: Ship24Tracking[] };
-        trackings?: Ship24Tracking[];
-      };
-
-      const tracking =
-        payload.data?.trackings?.[0] ?? payload.trackings?.[0] ?? null;
-
-      if (!tracking) {
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
         return NextResponse.json(
-          {
-            ok: true,
-            status: null,
-            carrier: null,
-            history: [],
-            note: "Colis enregistré sur Ship24, aucune étape remontée par le transporteur pour le moment.",
-          },
-          { headers: { "Cache-Control": "no-store" } }
+          { error: "Clé La Poste (X-Okapi-Key) invalide ou non abonnée à l'API Suivi v2." },
+          { status: 401 }
         );
       }
-
-      const rawEvents = Array.isArray(tracking.events) ? tracking.events : [];
-      const sortedEvents = [...rawEvents].sort((a, b) =>
-        (b.occurrenceDatetime ?? "").localeCompare(a.occurrenceDatetime ?? "")
-      );
-
-      const history = sortedEvents
-        .map((ev) => {
-          const when = formatEventDate(ev.occurrenceDatetime);
-          const label = ev.status?.trim() || MILESTONE_FR[ev.statusMilestone ?? ""] || "Mise à jour";
-          const loc = ev.location?.trim() ? ` (${ev.location.trim()})` : "";
-          return when ? `${when} — ${label}${loc}` : `${label}${loc}`;
-        })
-        .slice(0, 15);
-
-      const milestone =
-        tracking.shipment?.statusMilestone || sortedEvents[0]?.statusMilestone || "";
-      const status = MILESTONE_FR[milestone] ?? null;
-      const courierCode = sortedEvents[0]?.courierCode?.trim() || null;
-
+      if (response.status === 404) {
+        return NextResponse.json(
+          {
+            error:
+              payload.returnMessage ||
+              "Numéro introuvable chez La Poste / Colissimo (vérifiez le numéro ou le transporteur).",
+          },
+          { status: 404 }
+        );
+      }
       return NextResponse.json(
         {
-          ok: true,
-          status,
-          carrier: courierCode,
-          history,
+          error:
+            payload.returnMessage || `Erreur API La Poste (${response.status}).`,
         },
-        { headers: { "Cache-Control": "no-store" } }
+        { status: 502 }
       );
-    } catch {
-      lastStatus = 502;
     }
-  }
 
-  if (lastStatus === 401 || lastStatus === 403) {
+    const shipment = payload.shipment;
+    if (!shipment) {
+      return NextResponse.json({
+        ok: true,
+        status: null,
+        carrier: "La Poste / Colissimo",
+        history: [],
+        note: "Colis reconnu, aucune étape disponible pour le moment.",
+      });
+    }
+
+    const events = Array.isArray(shipment.event) ? shipment.event : [];
+    const sortedEvents = [...events].sort((a, b) =>
+      (b.date ?? "").localeCompare(a.date ?? "")
+    );
+
+    const history = sortedEvents
+      .map((ev) => {
+        const when = formatEventDate(ev.date);
+        const label = (ev.label ?? "").trim();
+        const site = ev.site?.trim() ? ` (${ev.site.trim()})` : "";
+        return when ? `${when} — ${label}${site}` : `${label}${site}`;
+      })
+      .filter(Boolean)
+      .slice(0, 15);
+
+    const completedSteps = (shipment.timeline ?? []).filter((step) => step.status);
+    const latestStep = completedSteps[completedSteps.length - 1];
+    const status = latestStep?.shortLabel?.trim() || latestStep?.label?.trim() || null;
+
+    const product = (shipment.product ?? "").toLowerCase();
+    const carrier = product.includes("chronopost")
+      ? "Chronopost"
+      : "La Poste / Colissimo";
+
     return NextResponse.json(
-      { error: "Clé API Ship24 invalide ou expirée." },
-      { status: 401 }
+      {
+        ok: true,
+        status,
+        carrier,
+        history,
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch {
+    return NextResponse.json(
+      { error: "Impossible de joindre api.laposte.fr pour le moment." },
+      { status: 502 }
     );
   }
-  if (lastStatus === 402 || lastStatus === 429) {
-    return NextResponse.json(
-      { error: "Quota Ship24 atteint pour ce mois." },
-      { status: lastStatus }
-    );
-  }
-
-  return NextResponse.json(
-    {
-      error: lastErrorText
-        ? `Erreur Ship24 (${lastStatus}) : ${lastErrorText.slice(0, 160)}`
-        : `Impossible de récupérer l'historique Ship24 (${lastStatus}).`,
-    },
-    { status: 502 }
-  );
 }
