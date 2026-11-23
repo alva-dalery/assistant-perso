@@ -341,10 +341,18 @@ const TRACKING_STATUS: Array<{ label: string; match: RegExp }> = [
         match: /(colis (?:a [ée]t[ée] |a bien [ée]t[ée] )?livr[ée]|livr[ée] le|delivered|remis au destinataire)/i,
     },
     {
+        label: "Échec de livraison",
+        match: /([ée]chec de livraison|n'a pas pu [êe]tre livr[ée]|livraison (?:impossible|infructueuse)|delivery (?:failed|unsuccessful|attempt))/i,
+    },
+    {
         label: "Disponible en point relais",
         match: /(disponible en point|available for pickup|en attente de retrait|pr[êe]t [àa] [êe]tre retir[ée])/i,
     },
-    { label: "En cours de livraison", match: /(en cours de livraison|out for delivery)/i },
+    { label: "En cours de livraison", match: /(en cours de livraison|out for delivery|sera livr[ée])/i },
+    {
+        label: "Retard signalé",
+        match: /(retard de livraison|livraison retard[ée]e|prend un peu de temps|un peu de retard|delayed)/i,
+    },
     {
         label: "En transit",
         match: /(en cours d.acheminement|en transit|in transit|a quitt[ée]|en route)/i,
@@ -354,7 +362,6 @@ const TRACKING_STATUS: Array<{ label: string; match: RegExp }> = [
         match: /(pris en charge|colis accept[ée]|en pr[ée]paration|pr[ée]paration de votre commande|order processed|shipment information received)/i,
     },
     { label: "Expédié", match: /(exp[ée]di[ée]|shipped|dispatched)/i },
-    { label: "Retard signalé", match: /(retard de livraison|livraison retard[ée]e|delayed)/i },
     {
         label: "Commande confirmée",
         match: /(commande\s+(?:confirm[ée]e|enregistr[ée]e|re[çc]ue|valid[ée]e)|merci pour (?:votre|ta) commande|order\s+confirmed|thank you for your order)/i,
@@ -687,26 +694,43 @@ export function extractTracking(input: {
             ? new Intl.DateTimeFormat("fr-FR", {
                   day: "numeric",
                   month: "short",
-                  year: "numeric",
-              }).format(parsedDate)
+              })
+                  .format(parsedDate)
+                  .replace(/\.$/, "")
             : null;
-    const cleanSubject = input.subject.replace(/\s+/g, " ").trim().slice(0, 90);
-    const statusPart = status
-        ? carrier
-            ? `${status} (${carrier.name})`
-            : status
-        : carrier
-          ? `Suivi (${carrier.name})`
-          : "Mise à jour commande";
-    const emailEvent = [
-        datePrefix,
-        cleanSubject ? `${statusPart} — ${cleanSubject}` : statusPart,
-    ]
-        .filter(Boolean)
-        .join(" · ");
 
-    const bodyEvents = trackingHistory(body);
-    const history = Array.from(new Set([emailEvent, ...bodyEvents])).slice(0, 10);
+    const fullText = `${input.subject}\n${body}`;
+    const conciseEvent = (() => {
+        const scheduledMatch = fullText.match(
+            /(sera livr[ée][^\n.!?]{0,65})/i
+        );
+        if (scheduledMatch) {
+            return scheduledMatch[1].replace(/\s+/g, " ").trim().replace(/^./, (c) => c.toUpperCase());
+        }
+        const failDetailMatch = fullText.match(
+            /([ée]chec de livraison[^\n.!?]{0,50}|colis n['’]a pas pu [êe]tre livr[ée][^\n.!?]{0,30})/i
+        );
+        if (failDetailMatch) {
+            return failDetailMatch[1].replace(/\s+/g, " ").trim().replace(/^./, (c) => c.toUpperCase());
+        }
+        if (/prend un peu de temps/i.test(fullText)) return "Colis prend un peu de temps";
+        if (status === "Retard signalé") return "Colis prend un peu de temps";
+        if (status === "En transit" || status === "Expédié") return "Colis en route";
+        if (status === "Pris en charge") return "Colis en préparation";
+        if (status === "Livré") return "Colis livré";
+        if (status) return status;
+
+        // Dernier recours : objet nettoyé (sans nom de boutique ni n° de commande), court.
+        const cleanedSubj = input.subject
+            .replace(/^[^-–—:]{2,35}\s*[-–—:]\s*/, "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 60);
+        return cleanedSubj || "Mise à jour commande";
+    })();
+
+    const emailEvent = datePrefix ? `${datePrefix} · ${conciseEvent}` : conciseEvent;
+    const history = [emailEvent];
 
     return {
         store: storeFromSender(input.fromName, input.fromEmail),
