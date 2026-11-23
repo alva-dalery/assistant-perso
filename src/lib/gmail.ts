@@ -215,7 +215,7 @@ interface CarrierRule {
 
 const CARRIERS: CarrierRule[] = [
     {
-        name: "La Poste / Colissimo",
+        name: "Colissimo",
         sender: /(laposte|colissimo|colisprive)/i,
         host: /(laposte\.fr|colissimo)/i,
         number: /\b[A-Z]{2}\d{9}[A-Z]{2}\b|\b[6-9][A-Z]\d{11,12}\b/,
@@ -336,7 +336,7 @@ const SIGNATURE_CARRIERS: Array<{ pattern: RegExp; name: string }> = [
     { pattern: /^TB[AC]\d{10,14}$/i, name: "Amazon" },
     { pattern: /^JD\d{16,20}$/i, name: "DHL" },
     { pattern: /^LP\d{14,16}$/i, name: "AliExpress / Cainiao" },
-    { pattern: /^[689][A-Z][0-9A-Z]{11,13}$/i, name: "La Poste / Colissimo" },
+    { pattern: /^[689][A-Z][0-9A-Z]{11,13}$/i, name: "Colissimo" },
 ];
 
 const TRACKING_STATUS: Array<{ label: string; match: RegExp }> = [

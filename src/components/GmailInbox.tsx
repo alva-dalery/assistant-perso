@@ -1636,7 +1636,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 /colissimo|la poste/i.test(cleanedCarrier) ||
                 /^[689][A-Z][0-9A-Z]{11,13}$/.test(cleanedNum) ||
                 /^[A-Z]{2}\d{9}[A-Z]{2}$/.test(cleanedNum);
-            const nextCarrier = cleanedCarrier || (isColissimo ? "La Poste / Colissimo" : prev.tracking.carrier);
+            const nextCarrier = cleanedCarrier || (isColissimo ? "Colissimo" : prev.tracking.carrier);
             const nextUrl =
                 cleanedNum && isColissimo
                     ? `https://www.laposte.fr/outils/suivre-vos-envois?code=${encodeURIComponent(cleanedNum)}`

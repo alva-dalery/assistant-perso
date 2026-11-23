@@ -177,7 +177,7 @@ export async function POST(request: Request) {
 Réponds uniquement en JSON :
 {
   "status": "Statut actuel court (ex: Livré, En transit, En cours de livraison, Pris en charge) ou null",
-  "carrier": "Nom du transporteur (ex: La Poste / Colissimo) ou null",
+  "carrier": "Nom du transporteur (ex: Colissimo) ou null",
   "history": ["Date — Étape (Lieu si présent)", "... du plus récent au plus ancien"]
 }`,
           },
@@ -255,7 +255,7 @@ Réponds uniquement en JSON :
         const product = (payload.shipment.product ?? "").toLowerCase();
         const carrier = product.includes("chronopost")
           ? "Chronopost"
-          : "La Poste / Colissimo";
+          : "Colissimo";
 
         return NextResponse.json(
           { ok: true, status, carrier, history },

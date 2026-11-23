@@ -64,11 +64,17 @@ function sanitize(value: unknown): SavedParcel | null {
             ? rawCity
             : null;
 
+    const rawCarrier = text(raw.carrier);
+    const normalizedCarrier =
+        rawCarrier && /^la poste\s*\/\s*colissimo$/i.test(rawCarrier)
+            ? "Colissimo"
+            : rawCarrier;
+
     return {
         uid,
         store: text(raw.store) ?? "Colis",
         orderNumber: text(raw.orderNumber),
-        carrier: text(raw.carrier),
+        carrier: normalizedCarrier,
         numbers: strings(raw.numbers),
         url: text(raw.url),
         status: text(raw.status),

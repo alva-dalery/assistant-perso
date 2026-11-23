@@ -868,7 +868,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           const next = updateParcel(parcel.uid, {
                             store: store || parcel.store,
                             numbers: num ? [num] : parcel.numbers,
-                            carrier: car || (isColissimo ? "La Poste / Colissimo" : parcel.carrier),
+                            carrier: car || (isColissimo ? "Colissimo" : parcel.carrier),
                             productTitle: title || null,
                             deliveryCity: city || null,
                             url: nextUrl,
