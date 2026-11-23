@@ -139,10 +139,10 @@ function formatDeliveryDisplay(
     const diffDays = Math.round(
       (targetDate.getTime() - todayMidnight.getTime()) / 86_400_000
     );
-    if (diffDays === 0) return { headline: withTime("Aujourd'hui"), detail: dateOnly };
-    if (diffDays === 1) return { headline: withTime("Demain"), detail: dateOnly };
-    if (diffDays === 2) return { headline: withTime("Dans 2 jours"), detail: dateOnly };
-    if (diffDays === 3) return { headline: withTime("Dans 3 jours"), detail: dateOnly };
+    if (diffDays === 0) return { headline: withTime("Aujourd'hui"), detail: null };
+    if (diffDays === 1) return { headline: withTime("Demain"), detail: null };
+    if (diffDays === 2) return { headline: withTime("Après-demain"), detail: null };
+    if (diffDays === 3) return { headline: withTime("Dans 3 jours"), detail: null };
   }
 
   return { headline: withTime(dateOnly), detail: null };
