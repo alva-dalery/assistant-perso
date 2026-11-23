@@ -217,6 +217,22 @@ function statusRank(status: string | null | undefined): number {
     return 1;
 }
 
+const GENERIC_CARRIER_STORE_RE =
+    /^(?:colis|la poste|colissimo|la poste\s*\/\s*colissimo|chronopost|ups|dhl|fedex|dpd|gls|mondial\s*relay|relais\s*colis|colis\s*priv[ée])$/i;
+
+function pickPreferredStore(existingStore: string, incomingStore?: string | null): string {
+    const inc = (incomingStore ?? "").trim();
+    const ext = existingStore.trim();
+    if (!inc || inc === "Colis") return ext || "Colis";
+    if (!ext || ext === "Colis") return inc;
+    const extIsCarrier = GENERIC_CARRIER_STORE_RE.test(ext);
+    const incIsCarrier = GENERIC_CARRIER_STORE_RE.test(inc);
+    // Ne jamais écraser un vrai nom de marchand (ex. Kapten & Son) par un transporteur (La Poste / Colissimo)
+    if (!extIsCarrier && incIsCarrier) return ext;
+    if (extIsCarrier && !incIsCarrier) return inc;
+    return inc;
+}
+
 function mergeParcelData(
     existing: SavedParcel,
     incoming: Partial<SavedParcel> & { replaceImages?: boolean }
@@ -248,10 +264,7 @@ function mergeParcelData(
         : existing.estimatedDelivery || incoming.estimatedDelivery || null;
     return {
         ...existing,
-        store:
-            incoming.store && incoming.store.trim() && incoming.store !== "Colis"
-                ? incoming.store
-                : existing.store,
+        store: pickPreferredStore(existing.store, incoming.store),
         orderNumber: incoming.orderNumber || existing.orderNumber || null,
         carrier: incoming.carrier || existing.carrier,
         numbers: uniqueStrings([...incomingNumbers, ...existing.numbers], 5),

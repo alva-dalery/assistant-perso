@@ -205,6 +205,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
   const [editParcelCarrier, setEditParcelCarrier] = useState("");
   const [editParcelTitle, setEditParcelTitle] = useState("");
   const [editParcelCity, setEditParcelCity] = useState("");
+  const [editParcelStore, setEditParcelStore] = useState("");
   const [refreshingParcelUid, setRefreshingParcelUid] = useState<number | null>(null);
   const [parcelErrors, setParcelErrors] = useState<Record<number, string>>({});
 
@@ -689,6 +690,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                                 setEditParcelCarrier(parcel.carrier ?? "");
                                 setEditParcelTitle(parcel.productTitle ?? "");
                                 setEditParcelCity(parcel.deliveryCity ?? "");
+                                setEditParcelStore(parcel.store ?? "");
                               }}
                               title="Modifier l'intitulé du produit"
                               className="text-left text-[11px] font-semibold text-slate-700 hover:text-violet-700 truncate block max-w-full"
@@ -696,10 +698,15 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                               {parcel.productTitle}
                             </button>
                           )}
-                          {parcel.deliveryCity && (
+                          {(parcel.deliveryCity || parcel.carrier) && (
                             <p className="text-[10px] text-slate-500 truncate flex items-center gap-1 mt-0.5">
-                              <MapPin className="h-2.5 w-2.5 text-violet-600 shrink-0" />
-                              <span>{parcel.deliveryCity}</span>
+                              {parcel.deliveryCity && (
+                                <span className="inline-flex items-center gap-0.5 text-slate-600 font-semibold">
+                                  <MapPin className="h-2.5 w-2.5 text-violet-600 shrink-0" />
+                                  <span>{parcel.deliveryCity}</span>
+                                </span>
+                              )}
+                              {parcel.carrier && <span>({parcel.carrier})</span>}
                             </p>
                           )}
                         </div>
@@ -804,6 +811,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                             setEditParcelCarrier(parcel.carrier ?? "");
                             setEditParcelTitle(parcel.productTitle ?? "");
                             setEditParcelCity(parcel.deliveryCity ?? "");
+                            setEditParcelStore(parcel.store ?? "");
                           }
                         }}
                         title="Modifier le colis"
@@ -828,6 +836,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           const car = editParcelCarrier.trim();
                           const title = editParcelTitle.trim();
                           const city = editParcelCity.trim();
+                          const store = editParcelStore.trim();
                           const isColissimo =
                             /colissimo|la poste/i.test(car) ||
                             /^[689][A-Z][0-9A-Z]{11,13}$/.test(num) ||
@@ -837,6 +846,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                               ? `https://www.laposte.fr/outils/suivre-vos-envois?code=${encodeURIComponent(num)}`
                               : parcel.url;
                           const next = updateParcel(parcel.uid, {
+                            store: store || parcel.store,
                             numbers: num ? [num] : parcel.numbers,
                             carrier: car || (isColissimo ? "La Poste / Colissimo" : parcel.carrier),
                             productTitle: title || null,
@@ -850,10 +860,17 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                       >
                         <input
                           type="text"
+                          value={editParcelStore}
+                          onChange={(e) => setEditParcelStore(e.target.value)}
+                          placeholder="Expéditeur (ex: Kapten & Son)"
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 font-semibold"
+                        />
+                        <input
+                          type="text"
                           value={editParcelTitle}
                           onChange={(e) => setEditParcelTitle(e.target.value)}
                           placeholder="Intitulé du produit"
-                          className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 font-semibold"
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 font-semibold"
                         />
                         <input
                           type="text"
