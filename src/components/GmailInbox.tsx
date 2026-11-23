@@ -967,14 +967,22 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setCoverOverrides(loadCoverOverrides());
     }, []);
 
-    // Dossier proposé pour ranger une commande : « Commandes/factures » ou « Commandes et Factures » en priorité.
+    // Dossier proposé pour ranger une commande : « Commandes et factures » ou « Commandes/factures » en priorité.
     const defaultCommandFolder = useMemo(() => {
         if (folders.length === 0) return "";
         const score = (folder: { path: string; label: string }) => {
-            const value = `${folder.label} ${folder.path}`.toLowerCase();
-            if (/commande/.test(value) && /facture/.test(value)) return 3;
-            if (/commande/.test(value)) return 2;
-            if (/facture/.test(value)) return 1;
+            const value = `${folder.label} ${folder.path}`
+                .toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "");
+            const hasCmd = /commande/.test(value);
+            const hasFac = /facture/.test(value);
+            if (hasCmd && hasFac) {
+                // Préférer le dossier principal « Commandes et factures » aux sous-dossiers
+                return folder.label.includes("/") ? 3 : 4;
+            }
+            if (hasCmd) return 2;
+            if (hasFac) return 1;
             return 0;
         };
         const best = [...folders].sort((a, b) => score(b) - score(a))[0];
@@ -982,10 +990,16 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     }, [folders]);
 
     useEffect(() => {
-        if (!detail || (!detail.tracking && detail.category !== "commande")) return;
-        if (commandFolder && folders.some((folder) => folder.path === commandFolder)) return;
-        setCommandFolder(defaultCommandFolder);
-    }, [detail, folders, commandFolder, defaultCommandFolder]);
+        if (!detail) return;
+        if (detail.tracking || detail.category === "commande") {
+            if (!commandFolder || !folders.some((folder) => folder.path === commandFolder)) {
+                setCommandFolder(defaultCommandFolder);
+            }
+            if (!detail.tracking && !folderTarget && defaultCommandFolder) {
+                setFolderTarget(defaultCommandFolder);
+            }
+        }
+    }, [detail, folders, commandFolder, folderTarget, defaultCommandFolder]);
 
     const toReply = useMemo(() => messages.filter((message) => message.needsReply), [messages]);
     const toRead = useMemo(
@@ -3902,7 +3916,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                             {!(invoiceLoading || invoiceProposal) && (
                                 <>
                             <div className="px-4 py-3 border-t border-slate-100 bg-white flex flex-wrap items-center gap-2">
-                                {detail.category !== "commande" && (
+                                {detail && !detail.tracking && (
                                     <>
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                             Ranger
@@ -3955,7 +3969,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     </span>
                                 )}
                             </div>
-                            {detail.category !== "commande" && (
+                            {detail && !detail.tracking && (
                             <div className="px-4 pb-3 bg-white text-[10px] text-slate-500 space-y-0.5">
                                 {suggesting && (
                                     <p className="flex items-center gap-1.5">
