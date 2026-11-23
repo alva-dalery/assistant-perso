@@ -3531,80 +3531,34 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             </div>
                                         </div>
 
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            {detail.tracking.url && (
-                                                <a
-                                                    href={detail.tracking.url}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 text-white text-[11px] font-bold hover:bg-violet-700 transition-all"
-                                                >
-                                                    <ExternalLink className="h-3.5 w-3.5" />
-                                                    <span>Suivre le colis</span>
-                                                </a>
-                                            )}
-                                            {detail.tracking.numbers.length > 0 && (
-                                                <button
-                                                    onClick={() =>
-                                                        void copyTrackingNumber(
-                                                            detail.tracking?.numbers[0] ?? ""
-                                                        )
-                                                    }
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-violet-200 text-violet-700 text-[11px] font-bold hover:bg-violet-50 transition-all"
-                                                >
-                                                    <Copy className="h-3.5 w-3.5" />
-                                                    <span>Copier le numéro</span>
-                                                </button>
-                                            )}
-                                            {detail.tracking.numbers.length > 0 && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                        void fetchTrackingHistory(
-                                                            detail.uid,
-                                                            detail.tracking!.numbers[0]
-                                                        )
-                                                    }
-                                                    disabled={fetchingHistory}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-violet-200 text-violet-700 text-[11px] font-bold hover:bg-violet-50 disabled:opacity-50 transition-all"
-                                                >
-                                                    {fetchingHistory ? (
-                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                                    ) : (
-                                                        <Package className="h-3.5 w-3.5" />
-                                                    )}
-                                                    <span>
-                                                        {fetchingHistory
-                                                            ? "Chargement..."
-                                                            : "Historique (La Poste)"}
-                                                    </span>
-                                                </button>
-                                            )}
-                                            {detail.tracking.url && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                        void resolveTrackingFromUrl(
-                                                            detail.uid,
-                                                            detail.tracking!.url!
-                                                        )
-                                                    }
-                                                    disabled={resolvingTracking}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-violet-200 text-violet-700 text-[11px] font-bold hover:bg-violet-50 disabled:opacity-50 transition-all"
-                                                >
-                                                    {resolvingTracking ? (
-                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                                    ) : (
-                                                        <RefreshCw className="h-3.5 w-3.5" />
-                                                    )}
-                                                    <span>
-                                                        {resolvingTracking
-                                                            ? "Recherche n°..."
-                                                            : "Récupérer n° transporteur"}
-                                                    </span>
-                                                </button>
-                                            )}
-                                        </div>
+                                        {(detail.tracking.url || detail.tracking.numbers.length > 0) && (
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                {detail.tracking.url && (
+                                                    <a
+                                                        href={detail.tracking.url}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 text-white text-[11px] font-bold hover:bg-violet-700 transition-all"
+                                                    >
+                                                        <ExternalLink className="h-3.5 w-3.5" />
+                                                        <span>Suivre le colis</span>
+                                                    </a>
+                                                )}
+                                                {detail.tracking.numbers.length > 0 && (
+                                                    <button
+                                                        onClick={() =>
+                                                            void copyTrackingNumber(
+                                                                detail.tracking?.numbers[0] ?? ""
+                                                            )
+                                                        }
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-violet-200 text-violet-700 text-[11px] font-bold hover:bg-violet-50 transition-all"
+                                                    >
+                                                        <Copy className="h-3.5 w-3.5" />
+                                                        <span>Copier le numéro</span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
 
                                         {trackingResolveNote && (
                                             <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
