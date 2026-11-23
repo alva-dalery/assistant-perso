@@ -935,20 +935,25 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setCoverOverrides(loadCoverOverrides());
     }, []);
 
-    // Dossier proposé pour ranger une commande : « Commandes et Factures » en priorité.
-    useEffect(() => {
-        if (!detail || detail.category !== "commande") return;
-        const score = (label: string) => {
-            const value = label.toLowerCase();
+    // Dossier proposé pour ranger une commande : « Commandes/factures » ou « Commandes et Factures » en priorité.
+    const defaultCommandFolder = useMemo(() => {
+        if (folders.length === 0) return "";
+        const score = (folder: { path: string; label: string }) => {
+            const value = `${folder.label} ${folder.path}`.toLowerCase();
             if (/commande/.test(value) && /facture/.test(value)) return 3;
             if (/commande/.test(value)) return 2;
             if (/facture/.test(value)) return 1;
             return 0;
         };
+        const best = [...folders].sort((a, b) => score(b) - score(a))[0];
+        return best && score(best) > 0 ? best.path : "";
+    }, [folders]);
+
+    useEffect(() => {
+        if (!detail || (!detail.tracking && detail.category !== "commande")) return;
         if (commandFolder && folders.some((folder) => folder.path === commandFolder)) return;
-        const best = [...folders].sort((a, b) => score(b.label) - score(a.label))[0];
-        setCommandFolder(best && score(best.label) > 0 ? best.path : "");
-    }, [detail, folders, commandFolder]);
+        setCommandFolder(defaultCommandFolder);
+    }, [detail, folders, commandFolder, defaultCommandFolder]);
 
     const toReply = useMemo(() => messages.filter((message) => message.needsReply), [messages]);
     const toRead = useMemo(
@@ -1856,12 +1861,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         const target = detail;
         const tracking = target?.tracking;
         if (!target || !tracking) return;
-        if (!commandFolder) {
+        const destination = commandFolder || defaultCommandFolder;
+        if (!destination) {
             setFeedback("Choisissez d'abord le dossier de rangement.");
             return;
         }
-
-        const destination = commandFolder;
         const label =
             folders.find((folder) => folder.path === destination)?.label ?? destination;
         const storeName = tracking.store?.trim() || target.fromName || tracking.carrier || "Colis";
@@ -3044,7 +3048,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                         <div className="pt-2 border-t border-violet-200/70 space-y-1.5">
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                                                 <select
-                                                    value={commandFolder}
+                                                    value={commandFolder || defaultCommandFolder}
                                                     onChange={(event) =>
                                                         setCommandFolder(event.target.value)
                                                     }
@@ -3060,7 +3064,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                 </select>
                                                 <button
                                                     onClick={() => void validateCommand()}
-                                                    disabled={commandSaving || !commandFolder}
+                                                    disabled={
+                                                        commandSaving ||
+                                                        !(commandFolder || defaultCommandFolder)
+                                                    }
                                                     className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 text-white text-[11px] font-bold hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                                                 >
                                                     {commandSaving ? (
