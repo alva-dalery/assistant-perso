@@ -1762,9 +1762,26 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             { replaceImages: Boolean(tracking.images && tracking.images.length > 0) }
         );
 
+        const remainingVisible = visibleMessages.filter((item) => item.uid !== target.uid);
+        const oldestNext = remainingVisible.reduce<(typeof remainingVisible)[number] | null>(
+            (oldest, item) => {
+                if (!oldest) return item;
+                const tOldest = Date.parse(oldest.date);
+                const tItem = Date.parse(item.date);
+                if (Number.isNaN(tItem)) return oldest;
+                if (Number.isNaN(tOldest)) return item;
+                return tItem < tOldest ? item : oldest;
+            },
+            null
+        );
+
         setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
         setTotal((previous) => Math.max(0, previous - 1));
-        setDetail(null);
+        if (oldestNext) {
+            void openMessage(oldestNext.uid);
+        } else {
+            setDetail(null);
+        }
         setFeedback(
             alreadyTracked
                 ? `Suivi mis à jour. Rangement dans « ${label} » en cours…`
