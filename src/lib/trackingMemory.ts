@@ -495,7 +495,7 @@ export function learnOrderGroupRule(input: {
     targetStore: string;
 }): void {
     if (typeof window === "undefined") return;
-    if (!input.targetOrderNumber && !input.targetTrackingNumber) return;
+    if (!input.targetStore && !input.targetOrderNumber && !input.targetTrackingNumber) return;
 
     const rule: OrderGroupRule = {
         fromEmail: input.fromEmail.trim().toLowerCase(),
