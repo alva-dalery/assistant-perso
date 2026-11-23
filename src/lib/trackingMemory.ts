@@ -214,6 +214,10 @@ function mergeParcelData(
     const incomingNumbers = incoming.numbers ?? [];
     const incomingImages = incoming.images ?? [];
     const incomingHistory = incoming.history ?? [];
+    const replaceTarget = (incoming as { replaceHistoryTarget?: string }).replaceHistoryTarget;
+    const baseExistingHistory = replaceTarget
+        ? existing.history.filter((h) => h !== replaceTarget)
+        : existing.history;
     const mergedImages = incoming.replaceImages
         ? uniqueStrings(incomingImages, 4)
         : uniqueStrings([...(existing.images ?? []), ...incomingImages], 4);
@@ -247,7 +251,7 @@ function mergeParcelData(
             incoming.productTitle !== undefined
                 ? incoming.productTitle || existing.productTitle || null
                 : existing.productTitle || null,
-        history: uniqueStrings([...incomingHistory, ...existing.history], 20),
+        history: uniqueStrings([...incomingHistory, ...baseExistingHistory], 20),
         savedAt: new Date().toISOString(),
     };
 }
@@ -255,12 +259,16 @@ function mergeParcelData(
 /** Ajoute (ou fusionne avec une commande existante) un colis, en tête de liste. */
 export function addParcel(
     parcel: SavedParcel,
-    options?: { replaceImages?: boolean }
+    options?: { replaceImages?: boolean; replaceHistoryTarget?: string }
 ): SavedParcel[] {
     const current = loadParcels();
     const existing = current.find((item) => isSameOrder(item, parcel));
     const merged = existing
-        ? mergeParcelData(existing, { ...parcel, replaceImages: options?.replaceImages })
+        ? mergeParcelData(existing, {
+              ...parcel,
+              replaceImages: options?.replaceImages,
+              replaceHistoryTarget: options?.replaceHistoryTarget,
+          } as Partial<SavedParcel> & { replaceImages?: boolean; replaceHistoryTarget?: string })
         : parcel;
     const rest = current.filter((item) => item.uid !== merged.uid && item !== existing);
     const next = [merged, ...rest].slice(0, MAX_PARCELS);
@@ -289,6 +297,117 @@ export function syncExistingParcel(
     saveParcels(next);
     notifyTrackingChange();
     return merged;
+}
+
+// ----- Mémoire d'apprentissage des intitulés d'historique -----
+
+const HISTORY_SAMPLES_KEY = "assistantPerso.trackingHistoryStyle.v1";
+const MAX_HISTORY_SAMPLES = 50;
+
+export interface HistoryLabelSample {
+    store: string;
+    subjectPattern: string;
+    autoLabel: string;
+    userLabel: string;
+    savedAt: string;
+}
+
+function splitDatePrefix(entry: string): { prefix: string; label: string } {
+    const cleaned = entry.trim();
+    const match = cleaned.match(/^(\d{1,2}\s+[a-zA-Zéèêëàâùûîïôöç.]{2,8}\s*·\s*)(.+)$/);
+    if (match) {
+        return { prefix: match[1], label: match[2].trim() };
+    }
+    return { prefix: "", label: cleaned };
+}
+
+function normalizeSubjectPattern(subject: string): string {
+    return subject
+        .toLowerCase()
+        .replace(/#[a-z0-9._-]+/gi, "#")
+        .replace(/\b[a-z0-9._-]*\d[a-z0-9._-]*\b/gi, "#")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 100);
+}
+
+export function loadHistorySamples(): HistoryLabelSample[] {
+    if (typeof window === "undefined") return [];
+    try {
+        const raw = window.localStorage.getItem(HISTORY_SAMPLES_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw) as unknown;
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter(
+            (item): item is HistoryLabelSample =>
+                Boolean(
+                    item &&
+                        typeof item === "object" &&
+                        typeof (item as HistoryLabelSample).userLabel === "string" &&
+                        (item as HistoryLabelSample).userLabel.trim()
+                )
+        );
+    } catch {
+        return [];
+    }
+}
+
+export function learnHistoryLabel(input: {
+    store: string;
+    subject: string;
+    autoEntry: string;
+    userEntry: string;
+}): void {
+    if (typeof window === "undefined") return;
+    const autoParts = splitDatePrefix(input.autoEntry);
+    const userParts = splitDatePrefix(input.userEntry);
+    if (!userParts.label || userParts.label === autoParts.label) return;
+
+    const sample: HistoryLabelSample = {
+        store: normalizeStore(input.store),
+        subjectPattern: normalizeSubjectPattern(input.subject),
+        autoLabel: autoParts.label.toLowerCase(),
+        userLabel: userParts.label,
+        savedAt: new Date().toISOString(),
+    };
+
+    const existing = loadHistorySamples().filter(
+        (s) =>
+            !(
+                s.store === sample.store &&
+                s.subjectPattern === sample.subjectPattern &&
+                s.autoLabel === sample.autoLabel
+            )
+    );
+    const next = [sample, ...existing].slice(0, MAX_HISTORY_SAMPLES);
+    try {
+        window.localStorage.setItem(HISTORY_SAMPLES_KEY, JSON.stringify(next));
+    } catch {
+        // ignore storage quota errors
+    }
+}
+
+export function applyLearnedHistoryLabel(
+    autoEntry: string,
+    context: { store: string; subject: string }
+): { value: string; learned: boolean } {
+    if (!autoEntry) return { value: "", learned: false };
+    const { prefix, label } = splitDatePrefix(autoEntry);
+    const normStore = normalizeStore(context.store);
+    const normSubj = normalizeSubjectPattern(context.subject);
+    const normAuto = label.toLowerCase();
+
+    const samples = loadHistorySamples();
+    const match =
+        samples.find((s) => s.store === normStore && s.subjectPattern === normSubj) ??
+        samples.find((s) => s.store === normStore && s.autoLabel === normAuto) ??
+        samples.find((s) => s.autoLabel === normAuto);
+
+    if (!match) return { value: autoEntry, learned: false };
+    return {
+        value: prefix ? `${prefix}${match.userLabel}` : match.userLabel,
+        learned: true,
+    };
 }
 
 export function removeParcel(uid: number): SavedParcel[] {

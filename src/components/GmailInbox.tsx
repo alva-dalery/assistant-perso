@@ -32,7 +32,13 @@ import {
     Zap,
 } from "lucide-react";
 import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
-import { addParcel, findMatchingParcel, syncExistingParcel } from "@/lib/trackingMemory";
+import {
+    addParcel,
+    applyLearnedHistoryLabel,
+    findMatchingParcel,
+    learnHistoryLabel,
+    syncExistingParcel,
+} from "@/lib/trackingMemory";
 import { getAiHeaders, getLaPosteHeaders } from "@/lib/aiClient";
 import {
     coverSrc,
@@ -751,6 +757,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [selectedTrackingImages, setSelectedTrackingImages] = useState<string[]>([]);
     const [manualProductTitle, setManualProductTitle] = useState("");
     const [productTitleEdited, setProductTitleEdited] = useState(false);
+    const [manualHistoryEntry, setManualHistoryEntry] = useState("");
+    const [autoHistoryEntry, setAutoHistoryEntry] = useState("");
+    const [historyEntryLearned, setHistoryEntryLearned] = useState(false);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(Boolean(inboxSessionCache?.messages.length));
     const autoAllRef = useRef(false);
@@ -1153,6 +1162,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setEditingTracking(false);
         setManualTrackingNumber("");
         setManualTrackingCarrier("");
+        setManualHistoryEntry("");
+        setAutoHistoryEntry("");
+        setHistoryEntryLearned(false);
         try {
             const data = cached ?? (await fetchMessageDetail(uid));
             if (!data) {
@@ -1187,11 +1199,27 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     existingMatch?.productTitle || labelled.tracking.productTitle || ""
                 );
                 setProductTitleEdited(false);
+                const storeNameForHistory =
+                    labelled.tracking.store?.trim() ||
+                    labelled.fromName ||
+                    labelled.tracking.carrier ||
+                    "Colis";
+                const rawHistoryEntry = labelled.tracking.history?.[0] ?? "";
+                const learnedSuggestion = applyLearnedHistoryLabel(rawHistoryEntry, {
+                    store: storeNameForHistory,
+                    subject: labelled.subject,
+                });
+                setAutoHistoryEntry(rawHistoryEntry);
+                setManualHistoryEntry(learnedSuggestion.value);
+                setHistoryEntryLearned(learnedSuggestion.learned);
+                const mergedInitialHistory = learnedSuggestion.value
+                    ? [learnedSuggestion.value, ...(labelled.tracking.history?.slice(1) ?? [])]
+                    : (labelled.tracking.history ?? []);
                 // Si cette commande existe déjà dans le tableau de bord, on la met à jour
                 // automatiquement avec les nouvelles infos (lien de suivi, numéro, statut).
                 syncExistingParcel({
                     uid: labelled.uid,
-                    store: labelled.tracking.store?.trim() || labelled.fromName || labelled.tracking.carrier || "Colis",
+                    store: storeNameForHistory,
                     orderNumber: labelled.tracking.orderNumber ?? null,
                     carrier: labelled.tracking.carrier,
                     numbers: labelled.tracking.numbers,
@@ -1200,7 +1228,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     estimatedDelivery: labelled.tracking.estimatedDelivery ?? null,
                     shippedAt: labelled.date,
                     subject: labelled.subject,
-                    history: labelled.tracking.history ?? [],
+                    history: mergedInitialHistory,
                     productTitle: existingMatch?.productTitle || labelled.tracking.productTitle || null,
                 });
                 if (labelled.tracking.url && labelled.tracking.numbers.length === 0) {
@@ -1897,6 +1925,19 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         const hasExistingImages = Boolean(existingMatch?.images && existingMatch.images.length > 0);
         const removedSummary = messages.find((item) => item.uid === target.uid) ?? null;
 
+        const finalHistoryEntry = manualHistoryEntry.trim();
+        if (finalHistoryEntry && autoHistoryEntry) {
+            learnHistoryLabel({
+                store: storeName,
+                subject: target.subject,
+                autoEntry: autoHistoryEntry,
+                userEntry: finalHistoryEntry,
+            });
+        }
+        const finalHistory = finalHistoryEntry
+            ? [finalHistoryEntry, ...(tracking.history?.slice(1) ?? [])]
+            : (tracking.history ?? []);
+
         addParcel(
             {
                 uid: target.uid,
@@ -1912,7 +1953,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 subject: target.subject,
                 folder: destination,
                 folderLabel: label,
-                history: tracking.history ?? [],
+                history: finalHistory,
                 images: hasExistingImages ? existingMatch!.images! : selectedTrackingImages,
                 productTitle:
                     existingMatch?.productTitle?.trim() ||
@@ -1924,6 +1965,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             {
                 replaceImages:
                     !hasExistingImages && Boolean(tracking.images && tracking.images.length > 0),
+                replaceHistoryTarget: autoHistoryEntry || undefined,
             }
         );
 
@@ -2742,6 +2784,57 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                 </div>
                                             </div>
                                         )}
+
+                                        <div>
+                                            <div className="flex items-center justify-between gap-2 mb-1">
+                                                <label className="block text-[9px] uppercase tracking-wider text-slate-400 font-bold">
+                                                    Étape d'historique pour cet email
+                                                </label>
+                                                {historyEntryLearned && (
+                                                    <span className="text-[9px] font-bold text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded-full">
+                                                        Appris de vos corrections
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <input
+                                                type="text"
+                                                value={manualHistoryEntry}
+                                                onChange={(e) => {
+                                                    setManualHistoryEntry(e.target.value);
+                                                    setHistoryEntryLearned(false);
+                                                }}
+                                                onBlur={() => {
+                                                    const cleaned = manualHistoryEntry.trim();
+                                                    const storeName =
+                                                        detail.tracking?.store?.trim() ||
+                                                        detail.fromName ||
+                                                        detail.tracking?.carrier ||
+                                                        "Colis";
+                                                    if (cleaned && autoHistoryEntry) {
+                                                        learnHistoryLabel({
+                                                            store: storeName,
+                                                            subject: detail.subject,
+                                                            autoEntry: autoHistoryEntry,
+                                                            userEntry: cleaned,
+                                                        });
+                                                    }
+                                                    if (matchingExisting && cleaned) {
+                                                        syncExistingParcel({
+                                                            uid: detail.uid,
+                                                            store: storeName,
+                                                            orderNumber:
+                                                                detail.tracking?.orderNumber ?? null,
+                                                            numbers: detail.tracking?.numbers ?? [],
+                                                            url: detail.tracking?.url ?? null,
+                                                            shippedAt: detail.date,
+                                                            history: [cleaned],
+                                                        });
+                                                    }
+                                                }}
+                                                placeholder="Ex : 23 nov · Colis en route"
+                                                className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-violet-200/80 text-[11px] font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-100"
+                                            />
+                                        </div>
 
                                         {!hasExistingTitle && (
                                         <div>
