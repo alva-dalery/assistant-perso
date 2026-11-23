@@ -156,10 +156,18 @@ const NC_INVOICE_PROVIDER =
 
 /** Alertes de sécurité, partages de données de compte, connexions, codes 2FA. */
 const ALERT_SUBJECT =
-    /(alerte de s[ée]curit[ée]|security alert|alerte|suspicious|connexion (?:inhabituelle|d[ée]tect[ée]e|nouvelle|non reconnue)|nouvelle connexion|new sign-?in|tentative de connexion|mot de passe|password|code de v[ée]rification|code de s[ée]curit[ée]|2fa|double authentification|partage de donn[ée]es|donn[ée]es de compte|acc[èe]s (?:accord[ée]|partag[ée]|r[ée]voqu[ée])|autorisation|confidentialit[ée]|compte compromis|activity alert)/i;
+    /(alerte de s[ée]curit[ée]|security alert|alerte|suspicious|connexion (?:inhabituelle|d[ée]tect[ée]e|nouvelle|non reconnue)|nouvelle connexion|new sign-?in|tentative de connexion|mot de passe|password|code de v[ée]rification|code de s[ée]curit[ée]|2fa|double authentification|partag[ée].{0,45}donn[ée]es.{0,45}compte|partage de donn[ée]es|donn[ée]es de (?:votre )?compte|acc[èe]s (?:accord[ée]|partag[ée]|r[ée]voqu[ée])|autorisation d.acc[èe]s|compte compromis|activity alert|nouvel appareil|appareil connect[ée])/i;
 
 const ALERT_SENDER =
     /(security|alert|alerts|account-security|accounts\.google\.com|security-noreply)/i;
+
+/** Emails de bienvenue / création de compte (à lire, jamais à répondre). */
+const WELCOME_SUBJECT =
+    /(bienvenue|welcome\b|merci pour votre inscription|votre compte est (?:pr[êe]t|cr[ée][ée]|activ[ée])|activer votre compte|confirmez votre (?:adresse|inscription|email)|premiers pas|getting started)/i;
+
+/** Documents de référence, CGU/CGV, échéanciers, contrats (à lire). */
+const REGULATORY_OR_ECHEANCIER =
+    /(mise [àa] jour de (?:nos|vos) (?:documents|conditions|tarifs|politique|services)|documents? de r[ée]f[ée]rence|conditions g[ée]n[ée]rales|cgu\b|cgv\b|politique de confidentialit[ée]|[ée]ch[ée]ancier|contrat\s*n[°o.]|relev[ée] (?:annuel|mensuel|de compte)|avis d.information)/i;
 
 /** Administratif important : impôts, cotisations, assurances, convocations. */
 const IMPORTANT_SUBJECT =
@@ -657,15 +665,51 @@ function headerValue(headers: string, name: string): string {
     return match ? match[1].trim() : "";
 }
 
+function decodeQuotedPrintableSnippet(raw: string): string {
+    const joined = raw.replace(/=\r?\n/g, "");
+    try {
+        const bytes: number[] = [];
+        for (let i = 0; i < joined.length; i += 1) {
+            if (
+                joined[i] === "=" &&
+                i + 2 < joined.length &&
+                /^[0-9A-Fa-f]{2}$/.test(joined.slice(i + 1, i + 3))
+            ) {
+                bytes.push(parseInt(joined.slice(i + 1, i + 3), 16));
+                i += 2;
+            } else {
+                const code = joined.charCodeAt(i);
+                if (code < 128) {
+                    bytes.push(code);
+                } else {
+                    const utf8 = Buffer.from(joined[i], "utf8");
+                    for (const b of utf8) bytes.push(b);
+                }
+            }
+        }
+        return Buffer.from(bytes).toString("utf8");
+    } catch {
+        return joined;
+    }
+}
+
+function extractBodySnippet(raw: string): string {
+    if (!raw) return "";
+    const decoded = decodeQuotedPrintableSnippet(raw);
+    const withoutHeaders = decoded
+        .replace(/^--[^\n]+$/gm, " ")
+        .replace(/^(?:Content-Type|Content-Transfer-Encoding|Content-Disposition|MIME-Version):[^\n]*$/gim, " ");
+    return htmlToText(withoutHeaders).slice(0, 1200);
+}
+
 /**
- * Classe un message sans IA : en-têtes de diffusion + forme de l'adresse + objet.
- * Quatre familles : à traiter (réponse), important (à régler), infos (à lire),
- * newsletters/pubs (à ignorer).
+ * Classe un message en inspectant en-têtes, expéditeur, objet ET extrait du contenu.
  */
 export function classifyMessage(
     fromEmail: string,
     subject: string,
-    headers: string
+    headers: string,
+    bodySnippet = ""
 ): GmailClassification {
     const hasListHeaders =
         Boolean(headerValue(headers, "list-unsubscribe")) ||
@@ -691,17 +735,41 @@ export function classifyMessage(
 
     const localPart = (fromEmail.split("@")[0] ?? "").toLowerCase();
     const looksAutomated = NO_REPLY_LOCAL.test(localPart);
+    const snippetHead = bodySnippet.slice(0, 600);
+    const combinedText = `${subject}\n${snippetHead}`;
+
     const promoSubject = PROMO_SUBJECT.test(subject);
     const hasSeveralRecipients = /,/.test(headerValue(headers, "to"));
     const isQuestion =
         subject.includes("?") ||
+        snippetHead.includes("?") ||
         /^(question|demande|renseignements?|peux-tu|pouvez-vous|pourriez-vous|merci de|besoin de|confirmer|valider)\b/i.test(
             subject.trim()
+        ) ||
+        /\b(peux-tu|pouvez-vous|pourriez-vous|dis-moi|dites-moi|qu'en penses-tu|merci de me|merci de nous|merci d'avance)\b/i.test(
+            snippetHead
         );
 
-    // 1. Suivi de colis : prioritaire, même quand la boutique passe par une régie
-    //    marketing (List-Unsubscribe, Klaviyo…) — c'est une commande, pas une pub.
-    if (!promoSubject && STRONG_TRACKING_SUBJECT.test(subject)) {
+    // 1. Alertes de sécurité, connexions et partages de données de compte (prioritaire même si list-headers).
+    if (
+        ALERT_SUBJECT.test(subject) ||
+        ALERT_SUBJECT.test(snippetHead) ||
+        ALERT_SENDER.test(fromEmail)
+    ) {
+        return {
+            category: "alertes",
+            needsReply: false,
+            reason: "Alerte de sécurité ou partage de données de compte",
+        };
+    }
+
+    // 2. Suivi de colis / commandes.
+    if (
+        !promoSubject &&
+        (STRONG_TRACKING_SUBJECT.test(subject) ||
+            STRONG_TRACKING_SUBJECT.test(snippetHead) ||
+            (CARRIER_SENDER.test(fromEmail) && TRACKING_TOPIC.test(combinedText)))
+    ) {
         return {
             category: "commande",
             needsReply: false,
@@ -709,10 +777,21 @@ export function classifyMessage(
         };
     }
 
-    // 1b. Factures EEC, Calédonienne des eaux, OPT et Lagoon (prioritaires sur les en-têtes techniques).
+    // 3. Échéanciers annuels, contrats, documents de référence (à lire, pas facture ni pub).
+    if (REGULATORY_OR_ECHEANCIER.test(subject) || REGULATORY_OR_ECHEANCIER.test(snippetHead)) {
+        return {
+            category: "infos",
+            needsReply: false,
+            reason: "Document contractuel, échéancier ou mise à jour réglementaire (à lire)",
+        };
+    }
+
+    // 4. Factures EEC, Calédonienne des eaux, OPT et Lagoon.
     if (
-        FACTURE_SUBJECT.test(subject) &&
-        (NC_INVOICE_PROVIDER.test(fromEmail) || NC_INVOICE_PROVIDER.test(subject))
+        (NC_INVOICE_PROVIDER.test(fromEmail) ||
+            NC_INVOICE_PROVIDER.test(subject) ||
+            NC_INVOICE_PROVIDER.test(bodySnippet)) &&
+        (FACTURE_SUBJECT.test(subject) || FACTURE_SUBJECT.test(bodySnippet))
     ) {
         return {
             category: "factures",
@@ -721,16 +800,16 @@ export function classifyMessage(
         };
     }
 
-    // 1c. Alertes de sécurité, connexions et partages de données de compte.
-    if (ALERT_SUBJECT.test(subject) || ALERT_SENDER.test(fromEmail)) {
+    // 5. Emails de bienvenue / création de compte (jamais à répondre).
+    if (WELCOME_SUBJECT.test(subject) || WELCOME_SUBJECT.test(snippetHead)) {
         return {
-            category: "alertes",
+            category: "infos",
             needsReply: false,
-            reason: "Alerte de sécurité ou partage de données de compte",
+            reason: "Message de bienvenue ou activation de compte (à lire)",
         };
     }
 
-    // 2. Diffusion de masse : jamais de réponse attendue.
+    // 6. Diffusion de masse : newsletters et publicités.
     if (hasListHeaders || isMarketing || isBulk) {
         if (promoSubject) {
             return {
@@ -754,44 +833,34 @@ export function classifyMessage(
         };
     }
 
-    // 2. Une vraie question posée par une personne : réponse attendue.
+    // 7. Vrai email d'une personne réelle avec question ou demande directe.
     if (isQuestion && !looksAutomated && !isAuto) {
         return {
             category: "personnel",
             needsReply: true,
-            reason: "Question posée directement, réponse attendue",
+            reason: "Question ou demande directe, réponse attendue",
         };
     }
 
-    // 3. Factures et paiements.
-    if (FACTURE_SUBJECT.test(subject)) {
+    // 8. Autres factures / paiements automatiques (hors EEC/CDE/OPT/Lagoon) -> à lire si automatisé.
+    if (FACTURE_SUBJECT.test(subject) && (looksAutomated || isAuto)) {
         return {
-            category: "factures",
+            category: "infos",
             needsReply: false,
-            reason: "Facture ou paiement à régler (aucune réponse attendue)",
+            reason: "Notification de paiement ou reçu automatique (à lire)",
         };
     }
 
-    // 5. Suivi de colis repéré via l'expéditeur transporteur (objet moins explicite).
-    if (CARRIER_SENDER.test(fromEmail) && TRACKING_TOPIC.test(subject)) {
-        return {
-            category: "commande",
-            needsReply: false,
-            reason: trackingReason(fromEmail),
-        };
-    }
-
-    // 5. Administratif important (impôts, cotisations, assurances…).
-    if (IMPORTANT_SUBJECT.test(subject)) {
+    // 9. Administratif important ou infos automatiques -> À lire.
+    if (IMPORTANT_SUBJECT.test(subject) && (looksAutomated || isAuto)) {
         return {
             category: "important",
             needsReply: false,
-            reason: "Démarche administrative importante (aucune réponse attendue)",
+            reason: "Notification administrative importante (à lire)",
         };
     }
 
-    // 4. À lire sans réponse : abonnements, réunions, confirmations.
-    if (INFO_SUBJECT.test(subject)) {
+    if (INFO_SUBJECT.test(subject) && (looksAutomated || isAuto)) {
         return {
             category: "infos",
             needsReply: false,
@@ -799,7 +868,6 @@ export function classifyMessage(
         };
     }
 
-    // 5. Notifications techniques.
     if (looksAutomated || isAuto) {
         return {
             category: "infos",
@@ -816,14 +884,7 @@ export function classifyMessage(
         };
     }
 
-    if (hasSeveralRecipients) {
-        return {
-            category: "infos",
-            needsReply: false,
-            reason: "Message envoyé à plusieurs destinataires",
-        };
-    }
-
+    // 10. Expéditeur humain identifié : par défaut à répondre.
     return {
         category: "personnel",
         needsReply: true,
@@ -1311,7 +1372,8 @@ function collectInlineImages(structure: MessageStructureObject | undefined): str
 
 function toSummary(
     message: FetchMessageObject,
-    headers = message.headers ? message.headers.toString("utf8") : ""
+    headers = message.headers ? message.headers.toString("utf8") : "",
+    bodySnippet?: string
 ): GmailMessageSummary {
     const envelope = message.envelope;
     const from = envelope?.from?.[0];
@@ -1320,7 +1382,9 @@ function toSummary(
     const date = rawDate instanceof Date ? rawDate : new Date(rawDate ?? Date.now());
     const subject = envelope?.subject?.trim() || "(sans objet)";
     const fromEmail = from?.address ?? "";
-    const classification = classifyMessage(fromEmail, subject, headers);
+    const rawPart = message.bodyParts?.get("TEXT")?.toString("utf8") ?? "";
+    const snippet = bodySnippet !== undefined ? bodySnippet : extractBodySnippet(rawPart);
+    const classification = classifyMessage(fromEmail, subject, headers, snippet);
     const answered = message.flags ? message.flags.has("\\Answered") : false;
     const finalClassification = answered
         ? {
@@ -1433,6 +1497,7 @@ export async function listInbox(
             internalDate: true,
             flags: true,
             headers: HEADERS_TO_FETCH,
+            bodyParts: [{ key: "TEXT", start: 0, maxLength: 2048 }],
         })) {
             messages.push(toSummary(message));
         }
@@ -1542,7 +1607,11 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             text: breakdown.currentText || visibleText,
         });
 
-        const base = toSummary(message, message.headers?.toString("utf8") ?? "");
+        const base = toSummary(
+            message,
+            message.headers?.toString("utf8") ?? "",
+            breakdown.currentText || fullText
+        );
         // Le corps du message peut révéler un suivi qu'un en-tête de diffusion
         // masquait (boutiques qui expédient via une régie marketing).
         const trackingUpgrade: Partial<GmailClassification> =
