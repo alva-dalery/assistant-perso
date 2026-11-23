@@ -3470,11 +3470,26 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                 <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
                                                     Numéro de suivi
                                                 </p>
-                                                <p className="font-mono text-slate-800 break-all select-all">
-                                                    {detail.tracking.numbers.length > 0
-                                                        ? detail.tracking.numbers.join(" · ")
-                                                        : "Non détecté"}
-                                                </p>
+                                                <div className="flex items-center gap-1.5">
+                                                    <p className="font-mono text-slate-800 break-all select-all">
+                                                        {detail.tracking.numbers.length > 0
+                                                            ? detail.tracking.numbers.join(" · ")
+                                                            : "Non détecté"}
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setEditingTracking((v) => !v)}
+                                                        title={
+                                                            editingTracking
+                                                                ? "Fermer l'édition"
+                                                                : "Modifier le numéro de suivi"
+                                                        }
+                                                        aria-label="Modifier le numéro de suivi"
+                                                        className="p-1 rounded-lg text-violet-600 hover:bg-violet-100 transition-colors shrink-0"
+                                                    >
+                                                        <PenLine className="h-3 w-3" />
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div className="min-w-0">
                                                 <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
@@ -3579,20 +3594,6 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                     </span>
                                                 </button>
                                             )}
-                                            <button
-                                                type="button"
-                                                onClick={() => setEditingTracking((v) => !v)}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-violet-200 text-violet-700 text-[11px] font-bold hover:bg-violet-50 transition-all"
-                                            >
-                                                <PenLine className="h-3.5 w-3.5" />
-                                                <span>
-                                                    {editingTracking
-                                                        ? "Fermer"
-                                                        : detail.tracking.numbers.length > 0
-                                                          ? "Modifier n°"
-                                                          : "Saisir n° Colissimo"}
-                                                </span>
-                                            </button>
                                         </div>
 
                                         {trackingResolveNote && (
