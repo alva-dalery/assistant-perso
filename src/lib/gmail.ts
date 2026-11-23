@@ -416,10 +416,10 @@ function isValidCityCandidate(city: string): boolean {
 }
 
 const POSTAL_CITY_RE =
-    /\b(\d{5})(?:\s*[-–—,]\s*|\s+)([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{1,35}?)(?=\s*(?:\r?\n|,|France|Nouvelle-Cal[ée]donie|New Caledonia|\d|$))/gi;
+    /\b(?:FR-)?(\d{5})(?:\s*[-–—,]\s*|\s+)([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{1,35}?)(?=\s*(?:\r?\n|,|France|Nouvelle-Cal[ée]donie|New Caledonia|\d|$))/gi;
 
 const CITY_POSTAL_RE =
-    /\b([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{2,35}?)(?:\s*[-–—,]\s*|\s+)(\d{5})\b/gi;
+    /\b([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{2,35}?)(?:\s*[-–—,]\s*|\s+)(?:FR-)?(\d{5})\b/gi;
 
 function extractCityFromBlock(block: string): string | null {
     POSTAL_CITY_RE.lastIndex = 0;
@@ -782,7 +782,9 @@ export function extractTracking(input: {
         TRACKING_STATUS.find((entry) => entry.match.test(`${input.subject}\n${body}`))?.label ??
         null;
     const estimatedDelivery = extractEstimatedDelivery(`${input.subject}\n${body}`);
-    const deliveryCity = extractDeliveryCity(body);
+    const htmlPlain = input.html ? htmlToText(input.html) : "";
+    const deliveryCity =
+        extractDeliveryCity(body) ?? (htmlPlain ? extractDeliveryCity(htmlPlain) : null);
 
     const byHost = carrier?.host ? allUrls.find((url) => carrier.host!.test(url)) : undefined;
     const byAnchor = htmlLinks.find(
