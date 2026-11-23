@@ -3207,7 +3207,6 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     {" · "}
                                     {formatDate(detail.date)} · {formatRelative(detail.date)}
                                 </p>
-                                <p className="text-[10px] text-slate-400 mt-1">Tri automatique : {detail.reason}</p>
 
                                 {detail.tracking && (() => {
                                     const matchingExisting = findMatchingParcel({
@@ -3367,33 +3366,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                         applyImageSelection(next);
                                                     };
                                                     return (
-                                                        <div className="space-y-1 shrink-0 sm:max-w-[55%]">
-                                                            <div className="flex items-center justify-between gap-2 text-[10px]">
-                                                                <span className="font-semibold text-slate-600">
-                                                                    Visuels ({selectedTrackingImages.length}/
-                                                                    {detail.tracking.images.length})
-                                                                </span>
-                                                                <div className="flex items-center gap-2">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() =>
-                                                                            applyImageSelection(
-                                                                                detail.tracking?.images ?? []
-                                                                            )
-                                                                        }
-                                                                        className="text-violet-700 font-semibold hover:underline"
-                                                                    >
-                                                                        Tout
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => applyImageSelection([])}
-                                                                        className="text-slate-500 font-semibold hover:underline"
-                                                                    >
-                                                                        Aucun
-                                                                    </button>
-                                                                </div>
-                                                            </div>
+                                                        <div className="shrink-0 sm:max-w-[55%]">
                                                             <div className="flex items-start gap-2 overflow-x-auto pb-0.5">
                                                                 {detail.tracking.images.map((imgUrl, idx) => {
                                                                     const selected =
@@ -3914,7 +3887,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     </div>
                                 )}
 
-                                {draftRegister && (
+                                {!detail.tracking && draftRegister && (
                                     <span className="inline-block mt-1.5 text-[9px] px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-600 font-bold">
                                         {draftRegister === "tutoiement" ? "Tutoiement détecté" : "Vouvoiement détecté"}
                                     </span>
