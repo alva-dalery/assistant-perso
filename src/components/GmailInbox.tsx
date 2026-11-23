@@ -3465,7 +3465,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             );
                                         })()}
 
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
                                             <div className="min-w-0">
                                                 <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
                                                     Numéro de suivi
@@ -3476,24 +3476,34 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                         : "Non détecté"}
                                                 </p>
                                             </div>
-                                            <div>
+                                            <div className="min-w-0">
                                                 <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
                                                     Statut
                                                 </p>
-                                                <p className="font-semibold text-slate-800">
+                                                <p className="font-semibold text-slate-800 truncate">
                                                     {detail.tracking.status ?? "Non précisé"}
                                                 </p>
                                             </div>
-                                            {detail.tracking.estimatedDelivery && (
-                                                <div>
-                                                    <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
-                                                        Livraison prévue
-                                                    </p>
-                                                    <p className="font-semibold text-slate-800">
-                                                        {detail.tracking.estimatedDelivery}
-                                                    </p>
-                                                </div>
-                                            )}
+                                            <div className="min-w-0">
+                                                <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
+                                                    Livraison prévue
+                                                </p>
+                                                <p className="font-semibold text-slate-800">
+                                                    {detail.tracking.estimatedDelivery ??
+                                                        matchingExisting?.estimatedDelivery ??
+                                                        "Non précisée"}
+                                                </p>
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
+                                                    Adresse
+                                                </p>
+                                                <p className="font-semibold text-slate-800 truncate">
+                                                    {detail.tracking.deliveryCity ??
+                                                        matchingExisting?.deliveryCity ??
+                                                        "Non détectée"}
+                                                </p>
+                                            </div>
                                         </div>
 
                                         <div className="flex flex-wrap items-center gap-2">
