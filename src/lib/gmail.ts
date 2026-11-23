@@ -299,7 +299,7 @@ const CARRIERS: CarrierRule[] = [
 
 /** Objet typique d'une notification d'expédition ou de livraison. */
 const STRONG_TRACKING_SUBJECT =
-    /(suivi de (?:votre |mon )?colis|votre colis|colis (?:n[°o]|num[ée]ro|exp[ée]di|livr[ée]|en route|en cours)|num[ée]ro de suivi|tracking (?:number|no|num[ée]ro)|commande (?:exp[ée]di[ée]e?|livr[ée]e?|confirm[ée]e|en route|en cours)|votre commande[^.\n]{0,40}(?:est|a [ée]t[ée]|vient d.[êe]tre|sera)[^.\n]{0,25}(?:exp[ée]di|en route|en cours|arriv|livr|pr[êe]te|confirm|pr[ée]par)|exp[ée]dition de votre commande|en cours de livraison|livraison (?:pr[ée]vue|aujourd|demain|imminente)|pris en charge par|shipment (?:notification|confirmation|update)|shipping (?:confirmation|update|notification)|(?:your|the) (?:package|parcel|order) (?:is|has|was|will)[^.\n]{0,45}(?:on its way|shipped|dispatched|delivered|arriving|delivery)|order (?:shipped|dispatched|delivered|confirmed)|out for delivery|on (?:its|the) way)/i;
+    /(suivi de (?:votre |mon )?colis|votre colis|colis (?:n[°o]|num[ée]ro|exp[ée]di|livr[ée]|en route|en cours)|num[ée]ro de suivi|tracking (?:number|no|num[ée]ro)|(?:votre|ma)\s+commande\s*(?:n[°o]|num[ée]ro|#|:|-)\s*[A-Z0-9]|(?:your|my)\s+order\s*(?:number|no|#|:|-)\s*[A-Z0-9]|commande (?:exp[ée]di[ée]e?|livr[ée]e?|confirm[ée]e|en route|en cours)|votre commande[^.\n]{0,40}(?:est|a [ée]t[ée]|vient d.[êe]tre|sera)[^.\n]{0,25}(?:exp[ée]di|en route|en cours|arriv|livr|pr[êe]te|confirm|pr[ée]par)|exp[ée]dition de votre commande|en cours de livraison|livraison (?:pr[ée]vue|aujourd|demain|imminente)|pris en charge par|shipment (?:notification|confirmation|update)|shipping (?:confirmation|update|notification)|(?:your|the) (?:package|parcel|order) (?:is|has|was|will)[^.\n]{0,45}(?:on its way|shipped|dispatched|delivered|arriving|delivery)|order (?:shipped|dispatched|delivered|confirmed)|out for delivery|on (?:its|the) way)/i;
 
 /** Raison affichée pour un email classé « Commande ». */
 function trackingReason(fromEmail: string): string {
@@ -1056,6 +1056,7 @@ export function classifyMessage(
         !promoSubject &&
         (STRONG_TRACKING_SUBJECT.test(subject) ||
             STRONG_TRACKING_SUBJECT.test(snippetHead) ||
+            Boolean(extractOrderNumber({ subject, text: snippetHead })) ||
             (CARRIER_SENDER.test(fromEmail) && TRACKING_TOPIC.test(combinedText)))
     ) {
         return {
@@ -1797,7 +1798,7 @@ export async function listInbox(
             internalDate: true,
             flags: true,
             headers: HEADERS_TO_FETCH,
-            bodyParts: [{ key: "TEXT", start: 0, maxLength: 2048 }],
+            bodyParts: [{ key: "TEXT", start: 0, maxLength: 4096 }],
         })) {
             messages.push(toSummary(message));
         }
