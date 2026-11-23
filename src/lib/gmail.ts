@@ -493,9 +493,9 @@ const MONTH_ABBR: Record<string, string> = {
 function normalizeTimeToken(raw: string): string {
     const match = raw.trim().match(/^(\d{1,2})(?:[:h](\d{2})|h)?$/i);
     if (!match) return raw.trim();
-    const hour = match[1].padStart(2, "0");
-    const min = match[2] ?? "00";
-    return `${hour}:${min}`;
+    const hour = String(Number(match[1]));
+    const min = match[2];
+    return min && min !== "00" ? `${hour}h${min}` : `${hour}h`;
 }
 
 function formatCompactDateToken(raw: string): string {
