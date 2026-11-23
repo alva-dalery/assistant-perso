@@ -764,6 +764,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [manualTrackingCarrier, setManualTrackingCarrier] = useState("");
     const [editingStatus, setEditingStatus] = useState(false);
     const [manualStatus, setManualStatus] = useState("");
+    const [editingEstimatedDelivery, setEditingEstimatedDelivery] = useState(false);
+    const [manualEstimatedDelivery, setManualEstimatedDelivery] = useState("");
+    const [editingDeliveryCity, setEditingDeliveryCity] = useState(false);
+    const [manualDeliveryCity, setManualDeliveryCity] = useState("");
     const [selectedTrackingImages, setSelectedTrackingImages] = useState<string[]>([]);
     const [manualProductTitle, setManualProductTitle] = useState("");
     const [productTitleEdited, setProductTitleEdited] = useState(false);
@@ -1431,6 +1435,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setManualTrackingCarrier("");
         setEditingStatus(false);
         setManualStatus("");
+        setEditingEstimatedDelivery(false);
+        setManualEstimatedDelivery("");
+        setEditingDeliveryCity(false);
+        setManualDeliveryCity("");
         setManualHistoryEntry("");
         setAutoHistoryEntry("");
         setHistoryEntryLearned(false);
@@ -1489,6 +1497,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     learnedSuggestion.learned
                         ? strippedLearnedStatus
                         : (labelled.tracking.status ?? "")
+                );
+                setManualEstimatedDelivery(
+                    labelled.tracking.estimatedDelivery ?? existingMatch?.estimatedDelivery ?? ""
+                );
+                setManualDeliveryCity(
+                    labelled.tracking.deliveryCity ?? existingMatch?.deliveryCity ?? ""
                 );
                 const mergedInitialHistory = learnedSuggestion.value
                     ? [learnedSuggestion.value, ...(labelled.tracking.history?.slice(1) ?? [])]
@@ -2257,8 +2271,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 numbers: tracking.numbers,
                 url: tracking.url,
                 status: effectiveStatus,
-                estimatedDelivery: tracking.estimatedDelivery ?? null,
-                deliveryCity: tracking.deliveryCity ?? null,
+                estimatedDelivery: manualEstimatedDelivery.trim() || tracking.estimatedDelivery || null,
+                deliveryCity: manualDeliveryCity.trim() || tracking.deliveryCity || null,
                 orderedAt: target.date,
                 shippedAt: target.date,
                 subject: target.subject,
@@ -3490,21 +3504,57 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                 <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
                                                     Livraison prévue
                                                 </p>
-                                                <p className="font-semibold text-slate-800">
-                                                    {detail.tracking.estimatedDelivery ??
-                                                        matchingExisting?.estimatedDelivery ??
-                                                        "Non précisée"}
-                                                </p>
+                                                <div className="flex items-center gap-1">
+                                                    <p className="font-semibold text-slate-800 truncate">
+                                                        {manualEstimatedDelivery ||
+                                                            detail.tracking.estimatedDelivery ||
+                                                            matchingExisting?.estimatedDelivery ||
+                                                            "Non précisée"}
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setEditingEstimatedDelivery((v) => !v)
+                                                        }
+                                                        title={
+                                                            editingEstimatedDelivery
+                                                                ? "Fermer l'édition de la livraison prévue"
+                                                                : "Modifier la livraison prévue"
+                                                        }
+                                                        aria-label="Modifier la livraison prévue"
+                                                        className="p-1 rounded-lg text-violet-600 hover:bg-violet-100 transition-colors shrink-0"
+                                                    >
+                                                        <PenLine className="h-3 w-3" />
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div className="min-w-0">
                                                 <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
                                                     Adresse
                                                 </p>
-                                                <p className="font-semibold text-slate-800 truncate">
-                                                    {detail.tracking.deliveryCity ??
-                                                        matchingExisting?.deliveryCity ??
-                                                        "Non détectée"}
-                                                </p>
+                                                <div className="flex items-center gap-1">
+                                                    <p className="font-semibold text-slate-800 truncate">
+                                                        {manualDeliveryCity ||
+                                                            detail.tracking.deliveryCity ||
+                                                            matchingExisting?.deliveryCity ||
+                                                            "Non détectée"}
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setEditingDeliveryCity((v) => !v)
+                                                        }
+                                                        title={
+                                                            editingDeliveryCity
+                                                                ? "Fermer l'édition de l'adresse"
+                                                                : "Modifier l'adresse"
+                                                        }
+                                                        aria-label="Modifier l'adresse"
+                                                        className="p-1 rounded-lg text-violet-600 hover:bg-violet-100 transition-colors shrink-0"
+                                                    >
+                                                        <PenLine className="h-3 w-3" />
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -3651,6 +3701,95 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                             });
                                                         }
                                                         setEditingStatus(false);
+                                                    }}
+                                                    className="px-3 py-1.5 rounded-lg bg-violet-600 text-white font-bold hover:bg-violet-700 shrink-0"
+                                                >
+                                                    Appliquer
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {editingEstimatedDelivery && (
+                                            <div className="p-2.5 rounded-xl bg-white border border-violet-200 flex items-center gap-2 text-[11px]">
+                                                <input
+                                                    type="text"
+                                                    value={manualEstimatedDelivery}
+                                                    onChange={(e) =>
+                                                        setManualEstimatedDelivery(e.target.value)
+                                                    }
+                                                    placeholder="Ex : 25 nov, Vendredi 28 nov…"
+                                                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 font-semibold"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const cleaned =
+                                                            manualEstimatedDelivery.trim();
+                                                        setManualEstimatedDelivery(cleaned);
+                                                        if (matchingExisting && cleaned) {
+                                                            const storeName =
+                                                                detail.tracking?.store?.trim() ||
+                                                                detail.fromName ||
+                                                                detail.tracking?.carrier ||
+                                                                "Colis";
+                                                            syncExistingParcel({
+                                                                uid: detail.uid,
+                                                                store: storeName,
+                                                                orderNumber:
+                                                                    detail.tracking?.orderNumber ??
+                                                                    null,
+                                                                numbers:
+                                                                    detail.tracking?.numbers ?? [],
+                                                                url: detail.tracking?.url ?? null,
+                                                                shippedAt: detail.date,
+                                                                estimatedDelivery: cleaned,
+                                                            });
+                                                        }
+                                                        setEditingEstimatedDelivery(false);
+                                                    }}
+                                                    className="px-3 py-1.5 rounded-lg bg-violet-600 text-white font-bold hover:bg-violet-700 shrink-0"
+                                                >
+                                                    Appliquer
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {editingDeliveryCity && (
+                                            <div className="p-2.5 rounded-xl bg-white border border-violet-200 flex items-center gap-2 text-[11px]">
+                                                <input
+                                                    type="text"
+                                                    value={manualDeliveryCity}
+                                                    onChange={(e) =>
+                                                        setManualDeliveryCity(e.target.value)
+                                                    }
+                                                    placeholder="Ex : Paris, Lyon, Bordeaux…"
+                                                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 font-semibold"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const cleaned = manualDeliveryCity.trim();
+                                                        setManualDeliveryCity(cleaned);
+                                                        if (matchingExisting && cleaned) {
+                                                            const storeName =
+                                                                detail.tracking?.store?.trim() ||
+                                                                detail.fromName ||
+                                                                detail.tracking?.carrier ||
+                                                                "Colis";
+                                                            syncExistingParcel({
+                                                                uid: detail.uid,
+                                                                store: storeName,
+                                                                orderNumber:
+                                                                    detail.tracking?.orderNumber ??
+                                                                    null,
+                                                                numbers:
+                                                                    detail.tracking?.numbers ?? [],
+                                                                url: detail.tracking?.url ?? null,
+                                                                shippedAt: detail.date,
+                                                                deliveryCity: cleaned,
+                                                            });
+                                                        }
+                                                        setEditingDeliveryCity(false);
                                                     }}
                                                     className="px-3 py-1.5 rounded-lg bg-violet-600 text-white font-bold hover:bg-violet-700 shrink-0"
                                                 >
