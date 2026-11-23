@@ -718,6 +718,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [manualTrackingNumber, setManualTrackingNumber] = useState("");
     const [manualTrackingCarrier, setManualTrackingCarrier] = useState("");
     const [selectedTrackingImages, setSelectedTrackingImages] = useState<string[]>([]);
+    const [manualProductTitle, setManualProductTitle] = useState("");
+    const [productTitleEdited, setProductTitleEdited] = useState(false);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(false);
     const autoAllRef = useRef(false);
@@ -1040,11 +1042,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     existingMatch?.images && existingMatch.images.length > 0
                         ? emailImages.filter((u) => existingMatch.images!.includes(u))
                         : [];
-                setSelectedTrackingImages(
-                    preservedImages.length > 0 ? preservedImages : emailImages
+                setSelectedTrackingImages(preservedImages);
+                setManualProductTitle(
+                    existingMatch?.productTitle || labelled.tracking.productTitle || ""
                 );
+                setProductTitleEdited(false);
                 // Si cette commande existe déjà dans le tableau de bord, on la met à jour
-                // automatiquement avec les nouvelles infos (lien de suivi, numéro, statut, images).
+                // automatiquement avec les nouvelles infos (lien de suivi, numéro, statut).
                 syncExistingParcel({
                     uid: labelled.uid,
                     store: labelled.tracking.store?.trim() || labelled.fromName || labelled.tracking.carrier || "Colis",
@@ -1056,8 +1060,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     shippedAt: labelled.date,
                     subject: labelled.subject,
                     history: labelled.tracking.history ?? [],
-                    images: labelled.tracking.images ?? [],
-                    productTitle: labelled.tracking.productTitle ?? null,
+                    productTitle: existingMatch?.productTitle || labelled.tracking.productTitle || null,
                 });
                 if (labelled.tracking.url && labelled.tracking.numbers.length === 0) {
                     void resolveTrackingFromUrl(labelled.uid, labelled.tracking.url);
@@ -1762,7 +1765,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     folderLabel: label,
                     history: tracking.history ?? [],
                     images: selectedTrackingImages,
-                    productTitle: resolveSelectedProductTitle(tracking, selectedTrackingImages),
+                    productTitle:
+                        manualProductTitle.trim() ||
+                        resolveSelectedProductTitle(tracking, selectedTrackingImages) ||
+                        null,
                     savedAt: new Date().toISOString(),
                 },
                 { replaceImages: Boolean(tracking.images && tracking.images.length > 0) }
@@ -2512,9 +2518,56 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             </div>
                                         </div>
 
+                                        <div>
+                                            <label className="block text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-1">
+                                                Intitulé du produit
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={manualProductTitle}
+                                                onChange={(e) => {
+                                                    setManualProductTitle(e.target.value);
+                                                    setProductTitleEdited(true);
+                                                }}
+                                                onBlur={() => {
+                                                    if (matchingExisting) {
+                                                        syncExistingParcel({
+                                                            uid: detail.uid,
+                                                            store:
+                                                                detail.tracking?.store?.trim() ||
+                                                                detail.fromName ||
+                                                                detail.tracking?.carrier ||
+                                                                "Colis",
+                                                            orderNumber:
+                                                                detail.tracking?.orderNumber ?? null,
+                                                            numbers: detail.tracking?.numbers ?? [],
+                                                            url: detail.tracking?.url ?? null,
+                                                            shippedAt: detail.date,
+                                                            productTitle:
+                                                                manualProductTitle.trim() || null,
+                                                        });
+                                                    }
+                                                }}
+                                                placeholder="Ex : Sac à dos Tromso, chaussures…"
+                                                className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-violet-200/80 text-[11px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-100"
+                                            />
+                                        </div>
+
                                         {detail.tracking.images && detail.tracking.images.length > 0 && (() => {
                                             const applyImageSelection = (nextImages: string[]) => {
                                                 setSelectedTrackingImages(nextImages);
+                                                const autoTitle = detail.tracking
+                                                    ? resolveSelectedProductTitle(
+                                                          detail.tracking,
+                                                          nextImages
+                                                      )
+                                                    : null;
+                                                const effectiveTitle = productTitleEdited
+                                                    ? manualProductTitle.trim() || null
+                                                    : autoTitle || detail.tracking?.productTitle || null;
+                                                if (!productTitleEdited) {
+                                                    setManualProductTitle(effectiveTitle ?? "");
+                                                }
                                                 if (matchingExisting) {
                                                     syncExistingParcel({
                                                         uid: detail.uid,
@@ -2528,12 +2581,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                         url: detail.tracking?.url ?? null,
                                                         shippedAt: detail.date,
                                                         images: nextImages,
-                                                        productTitle: detail.tracking
-                                                            ? resolveSelectedProductTitle(
-                                                                  detail.tracking,
-                                                                  nextImages
-                                                              )
-                                                            : null,
+                                                        productTitle: effectiveTitle,
                                                         replaceImages: true,
                                                     });
                                                 }
@@ -2545,17 +2593,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                     : [...selectedTrackingImages, imgUrl];
                                                 applyImageSelection(next);
                                             };
-                                            const selectedTitle = resolveSelectedProductTitle(
-                                                detail.tracking,
-                                                selectedTrackingImages
-                                            );
                                             return (
                                                 <div className="space-y-1.5">
-                                                    {selectedTitle && (
-                                                        <p className="text-[11px] font-semibold text-slate-800 truncate">
-                                                            {selectedTitle}
-                                                        </p>
-                                                    )}
                                                     <div className="flex items-center justify-between text-[10px]">
                                                         <span className="font-semibold text-slate-600">
                                                             Visuels ({selectedTrackingImages.length}/

@@ -88,6 +88,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
   const [editingParcelUid, setEditingParcelUid] = useState<number | null>(null);
   const [editParcelNumber, setEditParcelNumber] = useState("");
   const [editParcelCarrier, setEditParcelCarrier] = useState("");
+  const [editParcelTitle, setEditParcelTitle] = useState("");
   const [refreshingParcelUid, setRefreshingParcelUid] = useState<number | null>(null);
   const [parcelErrors, setParcelErrors] = useState<Record<number, string>>({});
   const [pasteTrackingUid, setPasteTrackingUid] = useState<number | null>(null);
@@ -647,9 +648,10 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                             setEditingParcelUid(parcel.uid);
                             setEditParcelNumber(parcel.numbers[0] ?? "");
                             setEditParcelCarrier(parcel.carrier ?? "");
+                            setEditParcelTitle(parcel.productTitle ?? "");
                           }
                         }}
-                        title="Modifier le numéro de suivi"
+                        title="Modifier le colis"
                         className="h-8 w-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-violet-700 hover:bg-violet-50 transition-all"
                       >
                         <Edit3 className="h-3.5 w-3.5" />
@@ -669,6 +671,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           e.preventDefault();
                           const num = editParcelNumber.trim().toUpperCase();
                           const car = editParcelCarrier.trim();
+                          const title = editParcelTitle.trim();
                           const isColissimo =
                             /colissimo|la poste/i.test(car) ||
                             /^[689][A-Z][0-9A-Z]{11,13}$/.test(num) ||
@@ -680,6 +683,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           const next = updateParcel(parcel.uid, {
                             numbers: num ? [num] : parcel.numbers,
                             carrier: car || (isColissimo ? "La Poste / Colissimo" : parcel.carrier),
+                            productTitle: title || null,
                             url: nextUrl,
                           });
                           setParcels(next);
@@ -687,6 +691,13 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                         }}
                         className="pt-2 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]"
                       >
+                        <input
+                          type="text"
+                          value={editParcelTitle}
+                          onChange={(e) => setEditParcelTitle(e.target.value)}
+                          placeholder="Intitulé du produit"
+                          className="sm:col-span-3 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 font-semibold"
+                        />
                         <input
                           type="text"
                           value={editParcelNumber}
