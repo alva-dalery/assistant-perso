@@ -12,11 +12,13 @@ export interface SavedParcel {
     uid: number;
     /** Nom du magasin (ou du transporteur à défaut). */
     store: string;
+    /** Numéro de commande (ex. KS-12345), pour relier les emails d'une même commande. */
+    orderNumber?: string | null;
     carrier: string | null;
     numbers: string[];
     url: string | null;
     status: string | null;
-    /** Date de réception de l'email d'expédition (ISO). */
+    /** Date de réception de l'email (ISO). */
     shippedAt: string;
     subject: string;
     /** Dossier Gmail choisi pour le rangement. */
@@ -24,6 +26,8 @@ export interface SavedParcel {
     folderLabel?: string;
     /** Étapes de suivi lues dans l'email (de la plus récente à la plus ancienne). */
     history: string[];
+    /** Visuels des produits commandés. */
+    images?: string[];
     savedAt: string;
 }
 
@@ -48,6 +52,7 @@ function sanitize(value: unknown): SavedParcel | null {
     return {
         uid,
         store: text(raw.store) ?? "Colis",
+        orderNumber: text(raw.orderNumber),
         carrier: text(raw.carrier),
         numbers: strings(raw.numbers),
         url: text(raw.url),
@@ -57,6 +62,7 @@ function sanitize(value: unknown): SavedParcel | null {
         folder: text(raw.folder) ?? "",
         folderLabel: text(raw.folderLabel) ?? undefined,
         history: strings(raw.history),
+        images: strings(raw.images).slice(0, 4),
         savedAt: text(raw.savedAt) ?? new Date().toISOString(),
     };
 }
@@ -92,13 +98,143 @@ export function notifyTrackingChange(): void {
     }
 }
 
-/** Ajoute (ou met à jour) un colis, en tête de liste. */
+export interface ParcelMatchCandidate {
+    uid?: number;
+    store?: string | null;
+    orderNumber?: string | null;
+    numbers?: string[];
+    url?: string | null;
+    shippedAt?: string;
+}
+
+function normalizeOrderNumber(value: string | null | undefined): string {
+    if (!value) return "";
+    return value.trim().replace(/^[#°\s]+/, "").replace(/\s+/g, "").toUpperCase();
+}
+
+function normalizeStore(value: string | null | undefined): string {
+    if (!value) return "";
+    return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function uniqueStrings(list: string[], max: number): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const item of list) {
+        const cleaned = item.trim();
+        if (!cleaned || seen.has(cleaned)) continue;
+        seen.add(cleaned);
+        out.push(cleaned);
+        if (out.length >= max) break;
+    }
+    return out;
+}
+
+/** Détermine si un email/suivi correspond déjà à un colis suivi existant. */
+export function isSameOrder(existing: SavedParcel, candidate: ParcelMatchCandidate): boolean {
+    if (candidate.uid !== undefined && existing.uid === candidate.uid) {
+        return true;
+    }
+
+    const normExistingOrder = normalizeOrderNumber(existing.orderNumber);
+    const normCandidateOrder = normalizeOrderNumber(candidate.orderNumber);
+    if (normExistingOrder && normCandidateOrder) {
+        return normExistingOrder.length >= 3 && normExistingOrder === normCandidateOrder;
+    }
+
+    const existingNums = new Set(existing.numbers.map((n) => n.trim().toUpperCase()).filter(Boolean));
+    const candidateNums = (candidate.numbers ?? []).map((n) => n.trim().toUpperCase()).filter(Boolean);
+    if (candidateNums.some((n) => existingNums.has(n))) {
+        return true;
+    }
+
+    if (existing.url && candidate.url && existing.url.trim() === candidate.url.trim()) {
+        return true;
+    }
+
+    // Si le premier mail était une confirmation sans n° de suivi ni n° de commande,
+    // et qu'un mail d'expédition du même marchand arrive dans les 30 jours avec un suivi.
+    const existingStore = normalizeStore(existing.store);
+    const candidateStore = normalizeStore(candidate.store);
+    if (
+        existingStore &&
+        candidateStore &&
+        existingStore === candidateStore &&
+        existingStore !== "colis" &&
+        existing.numbers.length === 0 &&
+        (candidateNums.length > 0 || Boolean(candidate.url))
+    ) {
+        const t1 = Date.parse(existing.shippedAt);
+        const t2 = candidate.shippedAt ? Date.parse(candidate.shippedAt) : Date.now();
+        if (!Number.isNaN(t1) && !Number.isNaN(t2) && Math.abs(t2 - t1) <= 30 * 86_400_000) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+export function findMatchingParcel(candidate: ParcelMatchCandidate): SavedParcel | null {
+    return loadParcels().find((item) => isSameOrder(item, candidate)) ?? null;
+}
+
+function mergeParcelData(existing: SavedParcel, incoming: Partial<SavedParcel>): SavedParcel {
+    const incomingNumbers = incoming.numbers ?? [];
+    const incomingImages = incoming.images ?? [];
+    const incomingHistory = incoming.history ?? [];
+    return {
+        ...existing,
+        store:
+            incoming.store && incoming.store.trim() && incoming.store !== "Colis"
+                ? incoming.store
+                : existing.store,
+        orderNumber: incoming.orderNumber || existing.orderNumber || null,
+        carrier: incoming.carrier || existing.carrier,
+        numbers: uniqueStrings([...incomingNumbers, ...existing.numbers], 5),
+        url: incoming.url || existing.url,
+        status: incoming.status || existing.status,
+        shippedAt: incoming.shippedAt || existing.shippedAt,
+        subject: incoming.subject || existing.subject,
+        folder: incoming.folder || existing.folder,
+        folderLabel: incoming.folderLabel ?? existing.folderLabel,
+        images: uniqueStrings([...(existing.images ?? []), ...incomingImages], 4),
+        history: uniqueStrings([...incomingHistory, ...existing.history], 12),
+        savedAt: new Date().toISOString(),
+    };
+}
+
+/** Ajoute (ou fusionne avec une commande existante) un colis, en tête de liste. */
 export function addParcel(parcel: SavedParcel): SavedParcel[] {
-    const rest = loadParcels().filter((item) => item.uid !== parcel.uid);
-    const next = [parcel, ...rest].slice(0, MAX_PARCELS);
+    const current = loadParcels();
+    const existing = current.find((item) => isSameOrder(item, parcel));
+    const merged = existing ? mergeParcelData(existing, parcel) : parcel;
+    const rest = current.filter((item) => item.uid !== merged.uid && item !== existing);
+    const next = [merged, ...rest].slice(0, MAX_PARCELS);
     saveParcels(next);
     notifyTrackingChange();
     return next;
+}
+
+/**
+ * Met à jour un colis déjà suivi si un nouvel email (ex. lien de suivi reçu plus tard)
+ * correspond à la même commande, sans jamais créer de doublon.
+ */
+export function syncExistingParcel(
+    candidate: ParcelMatchCandidate & Partial<SavedParcel>
+): SavedParcel | null {
+    const current = loadParcels();
+    const existing = current.find((item) => isSameOrder(item, candidate));
+    if (!existing) return null;
+
+    const merged = mergeParcelData(existing, {
+        ...candidate,
+        // Ne pas écraser l'uid existant si l'appelant vient d'un autre email
+        uid: existing.uid,
+    });
+    const next = current.map((item) => (item.uid === existing.uid ? merged : item));
+    saveParcels(next);
+    notifyTrackingChange();
+    return merged;
 }
 
 export function removeParcel(uid: number): SavedParcel[] {

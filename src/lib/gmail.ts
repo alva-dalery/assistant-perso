@@ -107,6 +107,8 @@ export type GmailCategory =
 export interface GmailTracking {
     /** Magasin à l'origine de la commande (nom d'affichage ou domaine). */
     store: string | null;
+    /** Numéro de commande détecté (ex. KS-12345). */
+    orderNumber?: string | null;
     /** Transporteur reconnu (La Poste, Colissimo, DHL, OPT.nc…). */
     carrier: string | null;
     /** Numéros de suivi détectés (1 à 3). */
@@ -119,6 +121,8 @@ export interface GmailTracking {
     history: string[];
     /** Lien de suivi (celui de l'email, sinon la page du transporteur). */
     url: string | null;
+    /** Visuels des produits commandés extraits de l'email. */
+    images?: string[];
 }
 
 export interface GmailClassification {
@@ -347,6 +351,10 @@ const TRACKING_STATUS: Array<{ label: string; match: RegExp }> = [
     },
     { label: "Expédié", match: /(exp[ée]di[ée]|shipped|dispatched)/i },
     { label: "Retard signalé", match: /(retard de livraison|livraison retard[ée]e|delayed)/i },
+    {
+        label: "Commande confirmée",
+        match: /(commande\s+(?:confirm[ée]e|enregistr[ée]e|re[çc]ue|valid[ée]e)|merci pour (?:votre|ta) commande|order\s+confirmed|thank you for your order)/i,
+    },
 ];
 
 const DELIVERY_DATE_RE =
@@ -445,9 +453,121 @@ const EXCLUDED_TRACKING_LINK =
 const TRACKING_LINK_SIGNAL =
     /(suivi|suivre|track|colis|shipment|parcel|expedition|delivery|parcellab|sendcloud|narvar|aftership|laposte|colissimo|chronopost|dhl|ups|fedex|dpd|mondialrelay|gls)/i;
 
+const ORDER_NUMBER_PATTERNS: RegExp[] = [
+    /(?:n[°o]\s*(?:de\s*)?commande|num[ée]ro\s*(?:de\s*)?commande|r[ée]f[ée]rence\s*(?:de\s*)?commande|commande\s*(?:n[°o]|num[ée]ro|ref|r[ée]f[ée]rence|id)|order\s*(?:number|no|num[ée]ro|id))\s*[:#\s-]*#?([A-Z0-9][A-Z0-9._-]{2,28})/gi,
+    /(?:commande|order)\s*#\s*([A-Z0-9][A-Z0-9._-]{2,28})/gi,
+];
+
+function isValidOrderNumberCandidate(raw: string): boolean {
+    const cleaned = raw.trim().replace(/[.,;:!?)\]]+$/, "");
+    if (cleaned.length < 3 || cleaned.length > 30) return false;
+    if (!/\d/.test(cleaned)) return false;
+    if (/^20\d{2}$/.test(cleaned)) return false;
+    if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(cleaned)) return false;
+    if (/^(?:EUR|USD|XPF|CHF|GBP|HTTP|HTTPS)$/i.test(cleaned)) return false;
+    return true;
+}
+
+/** Extrait le numéro de commande depuis l'objet ou le corps de l'email. */
+function extractOrderNumber(input: { subject: string; text: string }): string | null {
+    const sources = [input.subject, input.text];
+    for (const source of sources) {
+        if (!source) continue;
+        for (const pattern of ORDER_NUMBER_PATTERNS) {
+            pattern.lastIndex = 0;
+            for (const match of source.matchAll(pattern)) {
+                const candidate = (match[1] ?? "").trim().replace(/[.,;:!?)\]]+$/, "");
+                if (isValidOrderNumberCandidate(candidate)) {
+                    return candidate.toUpperCase();
+                }
+            }
+        }
+    }
+    if (/(commande|order|exp[ée]di|livraison|colis)/i.test(input.subject)) {
+        const hashMatch = input.subject.match(/#([A-Z0-9][A-Z0-9._-]{2,24})/i);
+        if (hashMatch && isValidOrderNumberCandidate(hashMatch[1])) {
+            return hashMatch[1].toUpperCase();
+        }
+    }
+    return null;
+}
+
+const EXCLUDED_IMAGE_URL =
+    /(?:1x1|pixel|spacer|transparent|beacon|wf\/open|email-open|doubleclick|facebook\.com|instagram\.com|twitter\.com|x\.com|linkedin\.com|youtube\.com|tiktok\.com|pinterest\.com|whatsapp|app-store|appstore|google-play|play-store|trustpilot|visa|mastercard|paypal|amex|klarna|apple-pay|favicon)/i;
+
+const EXCLUDED_IMAGE_ALT_OR_CLASS =
+    /\b(?:logo|favicon|wordmark|facebook|instagram|twitter|tiktok|youtube|linkedin|pinterest|whatsapp|social|banner|badge|icon|arrow|star|rating)\b/i;
+
+function parseHtmlAttr(tag: string, name: string): string {
+    const re = new RegExp(`(?<![a-z-])${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i");
+    const match = tag.match(re);
+    return (match?.[1] ?? match?.[2] ?? match?.[3] ?? "").trim();
+}
+
+function parsePixelSize(raw: string): number | null {
+    if (!raw) return null;
+    const m = raw.match(/(\d+)/);
+    return m ? Number(m[1]) : null;
+}
+
+/** Extrait les visuels des produits commandés depuis le HTML de l'email. */
+function extractProductImages(html: string): string[] {
+    if (!html) return [];
+    const scored: Array<{ url: string; score: number }> = [];
+    const seen = new Set<string>();
+    const imgRe = /<img\b[^>]*>/gi;
+
+    for (const match of html.matchAll(imgRe)) {
+        const tag = match[0];
+        const rawSrc = (parseHtmlAttr(tag, "src") || parseHtmlAttr(tag, "data-src"))
+            .replace(/&amp;/gi, "&")
+            .trim();
+        if (!rawSrc) continue;
+        const isAllowedSrc =
+            /^https?:\/\//i.test(rawSrc) ||
+            rawSrc.startsWith("/api/gmail/attachment?") ||
+            /^data:image\/(?:jpeg|jpg|png|webp);base64,/i.test(rawSrc);
+        if (!isAllowedSrc) continue;
+        if (EXCLUDED_IMAGE_URL.test(rawSrc)) continue;
+        if (/[/_-](?:logo|favicon|spacer|pixel|icon|arrow|badge)[._/-]/i.test(rawSrc)) continue;
+
+        const alt = parseHtmlAttr(tag, "alt");
+        const className = parseHtmlAttr(tag, "class");
+        const style = parseHtmlAttr(tag, "style");
+        if (EXCLUDED_IMAGE_ALT_OR_CLASS.test(`${alt} ${className}`)) continue;
+
+        const width =
+            parsePixelSize(parseHtmlAttr(tag, "width")) ??
+            parsePixelSize(style.match(/(?<![a-z-])width\s*:\s*(\d+)\s*px/i)?.[1] ?? "");
+        const height =
+            parsePixelSize(parseHtmlAttr(tag, "height")) ??
+            parsePixelSize(style.match(/(?<![a-z-])height\s*:\s*(\d+)\s*px/i)?.[1] ?? "");
+
+        if ((width !== null && width < 48) || (height !== null && height < 48)) continue;
+
+        if (seen.has(rawSrc)) continue;
+        seen.add(rawSrc);
+
+        let score = 0;
+        if ((width !== null && width >= 80) || (height !== null && height >= 80)) score += 3;
+        if (alt.length >= 4 && !/^(?:image|photo|img|picture)$/i.test(alt)) score += 2;
+        if (/(?:product|item|cdn|shopify|media|catalog|goods|article|upload|thumb|image)/i.test(rawSrc)) {
+            score += 2;
+        }
+        if (/\.(?:jpe?g|webp|png)(?:\?|$)/i.test(rawSrc)) score += 1;
+
+        scored.push({ url: rawSrc, score });
+    }
+
+    return scored
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4)
+        .map((entry) => entry.url);
+}
+
 /**
  * Reconnaît un suivi de colis et rassemble les informations utiles
- * (transporteur, numéro, statut, date de livraison, lien de suivi).
+ * (transporteur, numéro, statut, date de livraison, lien de suivi, visuels).
  */
 export function extractTracking(input: {
     subject: string;
@@ -463,6 +583,8 @@ export function extractTracking(input: {
     const allUrls = [...new Set([...htmlLinks.map((l) => l.url), ...textUrls])];
 
     const numbers = trackingNumbersIn(`${body}\n${allUrls.join("\n")}`);
+    const orderNumber = extractOrderNumber({ subject: input.subject, text: body });
+    const images = extractProductImages(input.html ?? "");
 
     const signature = SIGNATURE_CARRIERS.find((entry) =>
         numbers.some((number) => entry.pattern.test(number))
@@ -486,16 +608,20 @@ export function extractTracking(input: {
         carrier?.url && numbers.length > 0 ? carrier.url(numbers[0]) : null;
     const url = byHost ?? byAnchor ?? byKeyword ?? byTemplate ?? null;
 
-    if (!carrier && numbers.length === 0 && !status && !estimatedDelivery && !url) return null;
+    if (!carrier && numbers.length === 0 && !status && !estimatedDelivery && !url && !orderNumber) {
+        return null;
+    }
 
     return {
         store: storeFromSender(input.fromName, input.fromEmail),
+        orderNumber,
         carrier: carrier?.name ?? null,
         numbers,
         status,
         estimatedDelivery,
         history: trackingHistory(body),
         url,
+        images,
     };
 }
 
@@ -1670,12 +1796,14 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
               ? `Envoi de ${attachments.length} pièce(s) jointe(s) : ${attachments.join(", ")}.`
               : "Message sans contenu texte.";
 
+        const html = rawHtml.trim() ? sanitizeEmailHtml(rawHtml, uid, attachmentParts) : undefined;
+
         const tracking = extractTracking({
             subject: envelope?.subject ?? "",
             fromEmail: envelope?.from?.[0]?.address ?? "",
             fromName: envelope?.from?.[0]?.name ?? "",
             text: breakdown.currentText || visibleText,
-            html: rawHtml,
+            html: html ?? rawHtml,
         });
 
         const loans = extractBookLoans({
@@ -1701,8 +1829,6 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
                           : "Suivi de colis (aucune réponse attendue)",
                   }
                 : {};
-
-        const html = rawHtml.trim() ? sanitizeEmailHtml(rawHtml, uid, attachmentParts) : undefined;
 
         return {
             ...base,

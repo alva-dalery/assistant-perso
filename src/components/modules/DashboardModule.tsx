@@ -537,13 +537,36 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                     className="bg-white rounded-2xl border border-slate-200/80 p-4 space-y-2.5 shadow-sm"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-extrabold text-slate-900 truncate">
-                          {parcel.store}
-                        </p>
-                        <p className="text-[10px] text-slate-500 truncate">
-                          {parcel.carrier ?? "Transporteur non précisé"}
-                        </p>
+                      <div className="flex items-start gap-3 min-w-0">
+                        {parcel.images && parcel.images.length > 0 && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {parcel.images.slice(0, 2).map((imgUrl, idx) => (
+                              <img
+                                key={`${parcel.uid}-thumb-${idx}`}
+                                src={imgUrl}
+                                alt={parcel.store}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                }}
+                                className="h-12 w-12 rounded-xl object-cover border border-slate-200/80 bg-slate-50"
+                              />
+                            ))}
+                            {parcel.images.length > 2 && (
+                              <span className="h-12 w-7 rounded-xl bg-slate-100 border border-slate-200/80 text-[10px] font-bold text-slate-600 flex items-center justify-center">
+                                +{parcel.images.length - 2}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-extrabold text-slate-900 truncate">
+                            {parcel.store}
+                          </p>
+                          <p className="text-[10px] text-slate-500 truncate">
+                            {parcel.carrier ?? "Transporteur non précisé"}
+                            {parcel.orderNumber ? ` · #${parcel.orderNumber}` : ""}
+                          </p>
+                        </div>
                       </div>
                       <span
                         className={`text-[9px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${
@@ -567,7 +590,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                       </div>
                       <div>
                         <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
-                          Expédié le
+                          {number || parcel.url ? "Expédié le" : "Commandé le"}
                         </p>
                         <p className="font-semibold text-slate-800">
                           {formatDay(parcel.shippedAt)}

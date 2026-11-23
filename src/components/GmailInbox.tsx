@@ -32,7 +32,7 @@ import {
     Zap,
 } from "lucide-react";
 import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
-import { addParcel } from "@/lib/trackingMemory";
+import { addParcel, findMatchingParcel, syncExistingParcel } from "@/lib/trackingMemory";
 import { getAiHeaders, getLaPosteHeaders } from "@/lib/aiClient";
 import {
     coverSrc,
@@ -430,12 +430,14 @@ interface BookLoan {
 
 interface TrackingInfo {
     store?: string | null;
+    orderNumber?: string | null;
     carrier: string | null;
     numbers: string[];
     status: string | null;
     estimatedDelivery: string | null;
     history?: string[];
     url: string | null;
+    images?: string[];
 }
 
 interface InvoiceFile {
@@ -1004,6 +1006,21 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             if (labelled.tracking) {
                 setManualTrackingNumber(labelled.tracking.numbers[0] ?? "");
                 setManualTrackingCarrier(labelled.tracking.carrier ?? "");
+                // Si cette commande existe déjà dans le tableau de bord, on la met à jour
+                // automatiquement avec les nouvelles infos (lien de suivi, numéro, statut, images).
+                syncExistingParcel({
+                    uid: labelled.uid,
+                    store: labelled.tracking.store?.trim() || labelled.fromName || labelled.tracking.carrier || "Colis",
+                    orderNumber: labelled.tracking.orderNumber ?? null,
+                    carrier: labelled.tracking.carrier,
+                    numbers: labelled.tracking.numbers,
+                    url: labelled.tracking.url,
+                    status: labelled.tracking.status,
+                    shippedAt: labelled.date,
+                    subject: labelled.subject,
+                    history: labelled.tracking.history ?? [],
+                    images: labelled.tracking.images ?? [],
+                });
                 if (labelled.tracking.url && labelled.tracking.numbers.length === 0) {
                     void resolveTrackingFromUrl(labelled.uid, labelled.tracking.url);
                 }
@@ -1057,15 +1074,26 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     const mergedNumbers = Array.from(
                         new Set([...data.numbers!, ...prev.tracking.numbers])
                     );
+                    const nextTracking: TrackingInfo = {
+                        ...prev.tracking,
+                        numbers: mergedNumbers,
+                        carrier: data.carrier || prev.tracking.carrier,
+                        status: data.status || prev.tracking.status,
+                        url: data.directCarrierUrl || prev.tracking.url,
+                    };
+                    syncExistingParcel({
+                        uid: prev.uid,
+                        store: nextTracking.store?.trim() || prev.fromName || nextTracking.carrier || "Colis",
+                        orderNumber: nextTracking.orderNumber ?? null,
+                        carrier: nextTracking.carrier,
+                        numbers: nextTracking.numbers,
+                        url: nextTracking.url,
+                        status: nextTracking.status,
+                        shippedAt: prev.date,
+                    });
                     return {
                         ...prev,
-                        tracking: {
-                            ...prev.tracking,
-                            numbers: mergedNumbers,
-                            carrier: data.carrier || prev.tracking.carrier,
-                            status: data.status || prev.tracking.status,
-                            url: data.directCarrierUrl || prev.tracking.url,
-                        },
+                        tracking: nextTracking,
                     };
                 });
                 setManualTrackingNumber(data.numbers[0] ?? "");
@@ -1097,14 +1125,24 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 cleanedNum && isColissimo
                     ? `https://www.laposte.fr/outils/suivre-vos-envois?code=${encodeURIComponent(cleanedNum)}`
                     : prev.tracking.url;
+            const nextTracking: TrackingInfo = {
+                ...prev.tracking,
+                numbers: nextNumbers,
+                carrier: nextCarrier,
+                url: nextUrl,
+            };
+            syncExistingParcel({
+                uid: prev.uid,
+                store: nextTracking.store?.trim() || prev.fromName || nextTracking.carrier || "Colis",
+                orderNumber: nextTracking.orderNumber ?? null,
+                carrier: nextTracking.carrier,
+                numbers: nextTracking.numbers,
+                url: nextTracking.url,
+                shippedAt: prev.date,
+            });
             return {
                 ...prev,
-                tracking: {
-                    ...prev.tracking,
-                    numbers: nextNumbers,
-                    carrier: nextCarrier,
-                    url: nextUrl,
-                },
+                tracking: nextTracking,
             };
         });
         setEditingTracking(false);
@@ -1139,13 +1177,25 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             if (Array.isArray(data.history) && data.history.length > 0) {
                 setDetail((prev) => {
                     if (!prev || prev.uid !== uid || !prev.tracking) return prev;
+                    const nextTracking: TrackingInfo = {
+                        ...prev.tracking,
+                        status: data.status || prev.tracking.status,
+                        history: data.history!,
+                    };
+                    syncExistingParcel({
+                        uid: prev.uid,
+                        store: nextTracking.store?.trim() || prev.fromName || nextTracking.carrier || "Colis",
+                        orderNumber: nextTracking.orderNumber ?? null,
+                        carrier: nextTracking.carrier,
+                        numbers: nextTracking.numbers,
+                        url: nextTracking.url,
+                        status: nextTracking.status,
+                        history: nextTracking.history ?? [],
+                        shippedAt: prev.date,
+                    });
                     return {
                         ...prev,
-                        tracking: {
-                            ...prev.tracking,
-                            status: data.status || prev.tracking.status,
-                            history: data.history!,
-                        },
+                        tracking: nextTracking,
                     };
                 });
             } else if (data.note) {
@@ -1648,9 +1698,21 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
 
             const label =
                 folders.find((folder) => folder.path === commandFolder)?.label ?? commandFolder;
+            const storeName = tracking.store?.trim() || target.fromName || tracking.carrier || "Colis";
+            const alreadyTracked = Boolean(
+                findMatchingParcel({
+                    uid: target.uid,
+                    store: storeName,
+                    orderNumber: tracking.orderNumber ?? null,
+                    numbers: tracking.numbers,
+                    url: tracking.url,
+                    shippedAt: target.date,
+                })
+            );
             addParcel({
                 uid: target.uid,
-                store: tracking.store?.trim() || target.fromName || tracking.carrier || "Colis",
+                store: storeName,
+                orderNumber: tracking.orderNumber ?? null,
                 carrier: tracking.carrier,
                 numbers: tracking.numbers,
                 url: tracking.url,
@@ -1660,13 +1722,18 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 folder: commandFolder,
                 folderLabel: label,
                 history: tracking.history ?? [],
+                images: tracking.images ?? [],
                 savedAt: new Date().toISOString(),
             });
 
             setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
             setTotal((previous) => Math.max(0, previous - 1));
             setDetail(null);
-            setFeedback(`Commande rangée dans « ${label} ». Suivi ajouté au tableau de bord.`);
+            setFeedback(
+                alreadyTracked
+                    ? `Commande rangée dans « ${label} ». Suivi mis à jour sur le tableau de bord.`
+                    : `Commande rangée dans « ${label} ». Suivi ajouté au tableau de bord.`
+            );
         } catch {
             setFeedback("Impossible de joindre le serveur.");
         } finally {
@@ -2364,19 +2431,60 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                 </p>
                                 <p className="text-[10px] text-slate-400 mt-1">Tri automatique : {detail.reason}</p>
 
-                                {detail.tracking && (
+                                {detail.tracking && (() => {
+                                    const matchingExisting = findMatchingParcel({
+                                        uid: detail.uid,
+                                        store:
+                                            detail.tracking.store?.trim() ||
+                                            detail.fromName ||
+                                            detail.tracking.carrier ||
+                                            "Colis",
+                                        orderNumber: detail.tracking.orderNumber ?? null,
+                                        numbers: detail.tracking.numbers,
+                                        url: detail.tracking.url,
+                                        shippedAt: detail.date,
+                                    });
+                                    return (
                                     <div className="mt-3 rounded-2xl bg-violet-50/70 border border-violet-200/70 p-3 space-y-2.5">
-                                        <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center justify-between gap-2 flex-wrap">
                                             <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-violet-700">
                                                 <Package className="h-3.5 w-3.5" />
                                                 Suivi de colis
+                                                {detail.tracking.orderNumber && (
+                                                    <span className="font-mono text-[10px] text-violet-900 bg-white/80 px-1.5 py-0.5 rounded-md border border-violet-200/70">
+                                                        #{detail.tracking.orderNumber}
+                                                    </span>
+                                                )}
                                             </p>
-                                            {detail.tracking.carrier && (
-                                                <span className="text-[10px] font-bold text-violet-800">
-                                                    {detail.tracking.carrier}
-                                                </span>
-                                            )}
+                                            <div className="flex items-center gap-2">
+                                                {matchingExisting && (
+                                                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                        Déjà suivi · mise à jour
+                                                    </span>
+                                                )}
+                                                {detail.tracking.carrier && (
+                                                    <span className="text-[10px] font-bold text-violet-800">
+                                                        {detail.tracking.carrier}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
+
+                                        {detail.tracking.images && detail.tracking.images.length > 0 && (
+                                            <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                                                {detail.tracking.images.map((imgUrl, idx) => (
+                                                    <img
+                                                        key={`${detail.uid}-img-${idx}`}
+                                                        src={imgUrl}
+                                                        alt="Produit commandé"
+                                                        onError={(e) => {
+                                                            e.currentTarget.style.display = "none";
+                                                        }}
+                                                        className="h-14 w-14 rounded-xl object-cover border border-violet-200/80 bg-white shrink-0"
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
 
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                                             <div className="min-w-0">
@@ -2558,7 +2666,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                     ) : (
                                                         <CheckCircle2 className="h-3.5 w-3.5" />
                                                     )}
-                                                    <span>Valider et suivre</span>
+                                                    <span>
+                                                        {matchingExisting
+                                                            ? "Mettre à jour et ranger"
+                                                            : "Valider et suivre"}
+                                                    </span>
                                                 </button>
                                             </div>
                                             <p className="text-[9px] text-slate-500">
@@ -2567,7 +2679,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             </p>
                                         </div>
                                     </div>
-                                )}
+                                    );
+                                })()}
 
                                 {detail.loans && detail.loans.length > 0 && (
                                     <div className="mt-3 rounded-2xl bg-amber-50/60 border border-amber-200/70 p-3 space-y-2">
