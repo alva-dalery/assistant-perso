@@ -3418,7 +3418,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             </div>
                                         )}
 
-                                        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 text-[11px]">
+                                        <div className="flex flex-wrap items-start gap-x-[35px] gap-y-2 text-[11px]">
                                             <div className="min-w-0">
                                                 <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
                                                     Numéro de suivi
