@@ -30,7 +30,13 @@ import type {
   UserProfile,
   WorkoutLog,
 } from "@/types";
-import { loadParcels, removeParcel, TRACKING_EVENT, updateParcel } from "@/lib/trackingMemory";
+import {
+  learnLabelEdit,
+  loadParcels,
+  removeParcel,
+  TRACKING_EVENT,
+  updateParcel,
+} from "@/lib/trackingMemory";
 import type { SavedParcel } from "@/lib/trackingMemory";
 import { getLaPosteHeaders } from "@/lib/aiClient";
 import { todayDateString } from "@/lib/storage";
@@ -845,6 +851,20 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                             num && isColissimo
                               ? `https://www.laposte.fr/outils/suivre-vos-envois?code=${encodeURIComponent(num)}`
                               : parcel.url;
+                          if (title && parcel.productTitle) {
+                            learnLabelEdit({
+                              field: "productTitle",
+                              autoValue: parcel.productTitle,
+                              userValue: title,
+                            });
+                          }
+                          if (city && parcel.deliveryCity) {
+                            learnLabelEdit({
+                              field: "deliveryCity",
+                              autoValue: parcel.deliveryCity,
+                              userValue: city,
+                            });
+                          }
                           const next = updateParcel(parcel.uid, {
                             store: store || parcel.store,
                             numbers: num ? [num] : parcel.numbers,

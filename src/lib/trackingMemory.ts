@@ -565,3 +565,158 @@ export function updateParcel(uid: number, patch: Partial<SavedParcel>): SavedPar
     notifyTrackingChange();
     return next;
 }
+
+// ----- Apprentissage général des modifications d'intitulés -----
+
+export type LearnedLabelField =
+    | "status"
+    | "estimatedDelivery"
+    | "deliveryCity"
+    | "productTitle";
+
+export interface LabelReplacementRule {
+    scope: "global" | LearnedLabelField;
+    from: string;
+    to: string;
+    wholeWord: boolean;
+    savedAt: string;
+}
+
+const LABEL_REPLACEMENTS_KEY = "assistantPerso.labelReplacements.v1";
+const MAX_LABEL_REPLACEMENTS = 100;
+
+function escapeRegexLiteral(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function loadLabelReplacementRules(): LabelReplacementRule[] {
+    if (typeof window === "undefined") return [];
+    try {
+        const raw = window.localStorage.getItem(LABEL_REPLACEMENTS_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw) as unknown;
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter(
+            (item): item is LabelReplacementRule =>
+                Boolean(
+                    item &&
+                        typeof item === "object" &&
+                        typeof (item as LabelReplacementRule).from === "string" &&
+                        typeof (item as LabelReplacementRule).to === "string" &&
+                        (item as LabelReplacementRule).from.trim().length > 0 &&
+                        (item as LabelReplacementRule).to.trim().length > 0
+                )
+        );
+    } catch {
+        return [];
+    }
+}
+
+export function learnLabelEdit(input: {
+    field: LearnedLabelField;
+    autoValue: string | null | undefined;
+    userValue: string | null | undefined;
+}): void {
+    if (typeof window === "undefined") return;
+    const autoText = (input.autoValue ?? "").replace(/\s+/g, " ").trim();
+    const userText = (input.userValue ?? "").replace(/\s+/g, " ").trim();
+    if (!autoText || !userText || autoText === userText) return;
+
+    const autoTokens = autoText.split(/(\s+)/);
+    const userTokens = userText.split(/(\s+)/);
+
+    let prefix = 0;
+    while (
+        prefix < autoTokens.length &&
+        prefix < userTokens.length &&
+        autoTokens[prefix] === userTokens[prefix]
+    ) {
+        prefix++;
+    }
+
+    let suffix = 0;
+    while (
+        suffix < autoTokens.length - prefix &&
+        suffix < userTokens.length - prefix &&
+        autoTokens[autoTokens.length - 1 - suffix] ===
+            userTokens[userTokens.length - 1 - suffix]
+    ) {
+        suffix++;
+    }
+
+    const fromSpan = autoTokens
+        .slice(prefix, autoTokens.length - suffix)
+        .join("")
+        .trim();
+    const toSpan = userTokens
+        .slice(prefix, userTokens.length - suffix)
+        .join("")
+        .trim();
+
+    const isPartialDiff = (prefix > 0 || suffix > 0) && fromSpan.length >= 2 && toSpan.length >= 1;
+    const from = isPartialDiff ? fromSpan : autoText;
+    const to = isPartialDiff ? toSpan : userText;
+    if (!from || !to || from === to) return;
+
+    const rule: LabelReplacementRule = {
+        scope: isPartialDiff ? "global" : input.field,
+        from,
+        to,
+        wholeWord: isPartialDiff && !/\s/.test(from),
+        savedAt: new Date().toISOString(),
+    };
+
+    const existing = loadLabelReplacementRules().filter(
+        (r) => !(r.scope === rule.scope && r.from.toLowerCase() === rule.from.toLowerCase())
+    );
+    const next = [rule, ...existing].slice(0, MAX_LABEL_REPLACEMENTS);
+    try {
+        window.localStorage.setItem(LABEL_REPLACEMENTS_KEY, JSON.stringify(next));
+    } catch {
+        // ignore storage quota errors
+    }
+}
+
+export function applyLearnedLabelEdits(
+    value: string | null | undefined,
+    field: LearnedLabelField
+): { value: string; learned: boolean } {
+    const raw = (value ?? "").trim();
+    if (!raw) return { value: "", learned: false };
+
+    const rules = loadLabelReplacementRules();
+    let current = raw;
+    let changed = false;
+
+    for (const rule of rules) {
+        if (rule.scope !== "global") continue;
+        if (rule.wholeWord) {
+            const pattern = new RegExp(
+                `(?<![\\p{L}\\p{N}])${escapeRegexLiteral(rule.from)}(?![\\p{L}\\p{N}])`,
+                "giu"
+            );
+            const next = current.replace(pattern, rule.to);
+            if (next !== current) {
+                current = next;
+                changed = true;
+            }
+        } else {
+            const pattern = new RegExp(escapeRegexLiteral(rule.from), "giu");
+            const next = current.replace(pattern, rule.to);
+            if (next !== current) {
+                current = next;
+                changed = true;
+            }
+        }
+    }
+
+    const exactFieldMatch = rules.find(
+        (r) => r.scope === field && r.from.toLowerCase() === current.toLowerCase()
+    );
+    if (exactFieldMatch) {
+        current = exactFieldMatch.to;
+        changed = true;
+    }
+
+    return { value: current, learned: changed };
+}

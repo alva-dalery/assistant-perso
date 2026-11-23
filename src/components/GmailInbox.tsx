@@ -35,9 +35,11 @@ import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/style
 import {
     addParcel,
     applyLearnedHistoryLabel,
+    applyLearnedLabelEdits,
     findLearnedOrderGroupRule,
     findMatchingParcel,
     learnHistoryLabel,
+    learnLabelEdit,
     learnOrderGroupRule,
     loadOrderGroupOverrides,
     saveOrderGroupOverrides,
@@ -1474,8 +1476,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                         ? emailImages.filter((u) => existingMatch.images!.includes(u))
                         : [];
                 setSelectedTrackingImages(preservedImages);
+                const learnedTitle = applyLearnedLabelEdits(
+                    labelled.tracking.productTitle,
+                    "productTitle"
+                ).value;
                 setManualProductTitle(
-                    existingMatch?.productTitle || labelled.tracking.productTitle || ""
+                    existingMatch?.productTitle || learnedTitle || ""
                 );
                 setProductTitleEdited(false);
                 const storeNameForHistory =
@@ -1495,16 +1501,21 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     /^\d{1,2}\s+[a-zA-Zéèêëàâùûîïôöç.]{2,8}\s*·\s*/,
                     ""
                 );
-                setManualStatus(
-                    learnedSuggestion.learned
-                        ? strippedLearnedStatus
-                        : (labelled.tracking.status ?? "")
-                );
+                const baseStatus = learnedSuggestion.learned
+                    ? strippedLearnedStatus
+                    : (labelled.tracking.status ?? "");
+                setManualStatus(applyLearnedLabelEdits(baseStatus, "status").value);
                 setManualEstimatedDelivery(
-                    labelled.tracking.estimatedDelivery ?? existingMatch?.estimatedDelivery ?? ""
+                    applyLearnedLabelEdits(
+                        labelled.tracking.estimatedDelivery ?? existingMatch?.estimatedDelivery ?? "",
+                        "estimatedDelivery"
+                    ).value
                 );
                 setManualDeliveryCity(
-                    labelled.tracking.deliveryCity ?? existingMatch?.deliveryCity ?? ""
+                    applyLearnedLabelEdits(
+                        labelled.tracking.deliveryCity ?? existingMatch?.deliveryCity ?? "",
+                        "deliveryCity"
+                    ).value
                 );
                 const mergedInitialHistory = learnedSuggestion.value
                     ? [learnedSuggestion.value, ...(labelled.tracking.history?.slice(1) ?? [])]
@@ -2258,6 +2269,34 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 subject: target.subject,
                 autoEntry: autoHistoryEntry,
                 userEntry: finalHistoryEntry,
+            });
+        }
+        if (effectiveStatus && tracking.status) {
+            learnLabelEdit({
+                field: "status",
+                autoValue: tracking.status,
+                userValue: effectiveStatus,
+            });
+        }
+        if (manualEstimatedDelivery.trim() && tracking.estimatedDelivery) {
+            learnLabelEdit({
+                field: "estimatedDelivery",
+                autoValue: tracking.estimatedDelivery,
+                userValue: manualEstimatedDelivery.trim(),
+            });
+        }
+        if (manualDeliveryCity.trim() && tracking.deliveryCity) {
+            learnLabelEdit({
+                field: "deliveryCity",
+                autoValue: tracking.deliveryCity,
+                userValue: manualDeliveryCity.trim(),
+            });
+        }
+        if (productTitleEdited && manualProductTitle.trim() && tracking.productTitle) {
+            learnLabelEdit({
+                field: "productTitle",
+                autoValue: tracking.productTitle,
+                userValue: manualProductTitle.trim(),
             });
         }
         const finalHistory = finalHistoryEntry
@@ -3575,6 +3614,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                                 userEntry: formattedHistory,
                                                             });
                                                         }
+                                                        if (cleaned) {
+                                                            learnLabelEdit({
+                                                                field: "status",
+                                                                autoValue: detail.tracking?.status,
+                                                                userValue: cleaned,
+                                                            });
+                                                        }
                                                         if (matchingExisting && cleaned) {
                                                             syncExistingParcel({
                                                                 uid: detail.uid,
@@ -3618,6 +3664,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                         const cleaned =
                                                             manualEstimatedDelivery.trim();
                                                         setManualEstimatedDelivery(cleaned);
+                                                        if (cleaned) {
+                                                            learnLabelEdit({
+                                                                field: "estimatedDelivery",
+                                                                autoValue:
+                                                                    detail.tracking
+                                                                        ?.estimatedDelivery,
+                                                                userValue: cleaned,
+                                                            });
+                                                        }
                                                         if (matchingExisting && cleaned) {
                                                             const storeName =
                                                                 detail.tracking?.store?.trim() ||
@@ -3662,6 +3717,14 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                     onClick={() => {
                                                         const cleaned = manualDeliveryCity.trim();
                                                         setManualDeliveryCity(cleaned);
+                                                        if (cleaned) {
+                                                            learnLabelEdit({
+                                                                field: "deliveryCity",
+                                                                autoValue:
+                                                                    detail.tracking?.deliveryCity,
+                                                                userValue: cleaned,
+                                                            });
+                                                        }
                                                         if (matchingExisting && cleaned) {
                                                             const storeName =
                                                                 detail.tracking?.store?.trim() ||
