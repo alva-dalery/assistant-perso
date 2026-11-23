@@ -679,6 +679,21 @@ function summarize(text: string, max = 280): string {
     return lastStop > 80 ? cut.slice(0, lastStop + 1) : `${cut.trimEnd()}…`;
 }
 
+interface InboxSessionCache {
+    status: GmailStatus | null;
+    messages: InboxMessage[];
+    total: number;
+    limit: number;
+    folders: { path: string; label: string; kind: string }[];
+    rawLabels: Record<number, { category: GmailCategory; needsReply: boolean; reason: string }>;
+    filter: Filter;
+    detail: MessageDetail | null;
+    loadedAt: number;
+}
+
+/** Cache en mémoire de session pour éviter de recharger toute la boîte IMAP à chaque changement d'onglet. */
+let inboxSessionCache: InboxSessionCache | null = null;
+
 interface GmailInboxProps {
     /** Ligne de signature utilisée dans les brouillons (ex. « Bien cordialement, Alva DALERY »). */
     signature?: string;
@@ -690,16 +705,26 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     signature = "",
     writingStyle = "",
 }) => {
-    const [status, setStatus] = useState<GmailStatus | null>(null);
-    const [messages, setMessages] = useState<InboxMessage[]>([]);
-    const [total, setTotal] = useState(0);
-    const [limit, setLimit] = useState(PAGE_SIZE);
-    const [loading, setLoading] = useState(true);
+    const [status, setStatus] = useState<GmailStatus | null>(() => inboxSessionCache?.status ?? null);
+    const [messages, setMessages] = useState<InboxMessage[]>(
+        () => inboxSessionCache?.messages ?? []
+    );
+    const [total, setTotal] = useState(() => inboxSessionCache?.total ?? 0);
+    const [limit, setLimit] = useState(() => inboxSessionCache?.limit ?? PAGE_SIZE);
+    const [loading, setLoading] = useState(
+        () => !(inboxSessionCache?.status?.configured && inboxSessionCache.messages.length > 0)
+    );
     const [error, setError] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<string | null>(null);
-    const [filter, setFilter] = useState<Filter>("reply");
+    const [filter, setFilter] = useState<Filter>(() => inboxSessionCache?.filter ?? "reply");
 
-    const [detail, setDetail] = useState<MessageDetail | null>(null);
+    const [detail, setDetail] = useState<MessageDetail | null>(() => {
+        if (!inboxSessionCache?.detail) return null;
+        const stillExists = inboxSessionCache.messages.some(
+            (m) => m.uid === inboxSessionCache?.detail?.uid
+        );
+        return stillExists ? inboxSessionCache.detail : null;
+    });
     const [expanded, setExpanded] = useState(true);
     const [viewMode, setViewMode] = useState<"html" | "text">("html");
     const [loadingDetail, setLoadingDetail] = useState(false);
@@ -721,9 +746,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [manualProductTitle, setManualProductTitle] = useState("");
     const [productTitleEdited, setProductTitleEdited] = useState(false);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
-    const autoOpenedRef = useRef(false);
+    const autoOpenedRef = useRef(Boolean(inboxSessionCache?.messages.length));
     const autoAllRef = useRef(false);
-    const [folders, setFolders] = useState<{ path: string; label: string; kind: string }[]>([]);
+    const [folders, setFolders] = useState<{ path: string; label: string; kind: string }[]>(
+        () => inboxSessionCache?.folders ?? []
+    );
     const [folderTarget, setFolderTarget] = useState("");
     const [moving, setMoving] = useState(false);
     const [styleSamples, setStyleSamples] = useState(0);
@@ -758,7 +785,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     /** Étiquettes renvoyées par le serveur, pour pouvoir revenir en « Automatique ». */
     const rawLabelsRef = useRef<
         Record<number, { category: GmailCategory; needsReply: boolean; reason: string }>
-    >({});
+    >(inboxSessionCache?.rawLabels ?? {});
 
     const load = useCallback(
         async (requestedLimit: number) => {
@@ -844,8 +871,28 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     );
 
     useEffect(() => {
-        void load(limit);
-        // Le chargement initial suffit : « Charger plus » relance explicitement.
+        if (!status) return;
+        inboxSessionCache = {
+            status,
+            messages,
+            total,
+            limit,
+            folders,
+            rawLabels: rawLabelsRef.current,
+            filter,
+            detail,
+            loadedAt: inboxSessionCache?.loadedAt ?? Date.now(),
+        };
+    }, [status, messages, total, limit, folders, filter, detail]);
+
+    useEffect(() => {
+        const hasCachedMessages = Boolean(
+            inboxSessionCache?.status?.configured && inboxSessionCache.messages.length > 0
+        );
+        if (!hasCachedMessages) {
+            void load(limit);
+        }
+        // Le chargement initial suffit : « Rafraîchir » relance explicitement.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -856,7 +903,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     }, [feedback]);
 
     useEffect(() => {
-        if (!status?.configured) return;
+        if (!status?.configured || folders.length > 0) return;
         let cancelled = false;
         (async () => {
             try {
