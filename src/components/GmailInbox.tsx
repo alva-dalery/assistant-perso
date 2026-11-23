@@ -762,6 +762,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [editingTracking, setEditingTracking] = useState(false);
     const [manualTrackingNumber, setManualTrackingNumber] = useState("");
     const [manualTrackingCarrier, setManualTrackingCarrier] = useState("");
+    const [editingStatus, setEditingStatus] = useState(false);
+    const [manualStatus, setManualStatus] = useState("");
     const [selectedTrackingImages, setSelectedTrackingImages] = useState<string[]>([]);
     const [manualProductTitle, setManualProductTitle] = useState("");
     const [productTitleEdited, setProductTitleEdited] = useState(false);
@@ -1427,6 +1429,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setEditingTracking(false);
         setManualTrackingNumber("");
         setManualTrackingCarrier("");
+        setEditingStatus(false);
+        setManualStatus("");
         setManualHistoryEntry("");
         setAutoHistoryEntry("");
         setHistoryEntryLearned(false);
@@ -1477,6 +1481,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 setAutoHistoryEntry(rawHistoryEntry);
                 setManualHistoryEntry(learnedSuggestion.value);
                 setHistoryEntryLearned(learnedSuggestion.learned);
+                const strippedLearnedStatus = learnedSuggestion.value.replace(
+                    /^\d{1,2}\s+[a-zA-Zéèêëàâùûîïôöç.]{2,8}\s*·\s*/,
+                    ""
+                );
+                setManualStatus(
+                    learnedSuggestion.learned
+                        ? strippedLearnedStatus
+                        : (labelled.tracking.status ?? "")
+                );
                 const mergedInitialHistory = learnedSuggestion.value
                     ? [learnedSuggestion.value, ...(labelled.tracking.history?.slice(1) ?? [])]
                     : (labelled.tracking.history ?? []);
@@ -2210,7 +2223,19 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         }
         const removedSummary = messages.find((item) => item.uid === target.uid) ?? null;
 
-        const finalHistoryEntry = manualHistoryEntry.trim();
+        const effectiveStatus = manualStatus.trim() || tracking.status || null;
+        const parsedDate = target.date ? new Date(target.date) : null;
+        const shortDatePrefix =
+            parsedDate && !Number.isNaN(parsedDate.getTime())
+                ? new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" })
+                      .format(parsedDate)
+                      .replace(/\.$/, "")
+                : "";
+        const finalHistoryEntry = effectiveStatus
+            ? shortDatePrefix
+                ? `${shortDatePrefix} · ${effectiveStatus}`
+                : effectiveStatus
+            : manualHistoryEntry.trim();
         if (finalHistoryEntry && autoHistoryEntry) {
             learnHistoryLabel({
                 store: storeName,
@@ -2231,7 +2256,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 carrier: tracking.carrier,
                 numbers: tracking.numbers,
                 url: tracking.url,
-                status: tracking.status,
+                status: effectiveStatus,
                 estimatedDelivery: tracking.estimatedDelivery ?? null,
                 deliveryCity: tracking.deliveryCity ?? null,
                 orderedAt: target.date,
@@ -3248,222 +3273,169 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             </div>
                                         )}
 
-                                        <div>
-                                            <div className="flex items-center justify-between gap-2 mb-1">
-                                                <label className="block text-[9px] uppercase tracking-wider text-slate-400 font-bold">
-                                                    Étape d'historique pour cet email
-                                                </label>
-                                                {historyEntryLearned && (
-                                                    <span className="text-[9px] font-bold text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded-full">
-                                                        Appris de vos corrections
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <input
-                                                type="text"
-                                                value={manualHistoryEntry}
-                                                onChange={(e) => {
-                                                    setManualHistoryEntry(e.target.value);
-                                                    setHistoryEntryLearned(false);
-                                                }}
-                                                onBlur={() => {
-                                                    const cleaned = manualHistoryEntry.trim();
-                                                    const storeName =
-                                                        detail.tracking?.store?.trim() ||
-                                                        detail.fromName ||
-                                                        detail.tracking?.carrier ||
-                                                        "Colis";
-                                                    if (cleaned && autoHistoryEntry) {
-                                                        learnHistoryLabel({
-                                                            store: storeName,
-                                                            subject: detail.subject,
-                                                            autoEntry: autoHistoryEntry,
-                                                            userEntry: cleaned,
-                                                        });
-                                                    }
-                                                    if (matchingExisting && cleaned) {
-                                                        syncExistingParcel({
-                                                            uid: detail.uid,
-                                                            store: storeName,
-                                                            orderNumber:
-                                                                detail.tracking?.orderNumber ?? null,
-                                                            numbers: detail.tracking?.numbers ?? [],
-                                                            url: detail.tracking?.url ?? null,
-                                                            shippedAt: detail.date,
-                                                            history: [cleaned],
-                                                        });
-                                                    }
-                                                }}
-                                                placeholder="Ex : 23 nov · Colis en route"
-                                                className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-violet-200/80 text-[11px] font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-100"
-                                            />
-                                        </div>
-
-                                        {!hasExistingTitle && (
-                                        <div>
-                                            <label className="block text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-1">
-                                                Intitulé du produit
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={manualProductTitle}
-                                                onChange={(e) => {
-                                                    setManualProductTitle(e.target.value);
-                                                    setProductTitleEdited(true);
-                                                }}
-                                                onBlur={() => {
-                                                    if (matchingExisting) {
-                                                        syncExistingParcel({
-                                                            uid: detail.uid,
-                                                            store:
-                                                                detail.tracking?.store?.trim() ||
-                                                                detail.fromName ||
-                                                                detail.tracking?.carrier ||
-                                                                "Colis",
-                                                            orderNumber:
-                                                                detail.tracking?.orderNumber ?? null,
-                                                            numbers: detail.tracking?.numbers ?? [],
-                                                            url: detail.tracking?.url ?? null,
-                                                            shippedAt: detail.date,
-                                                            productTitle:
-                                                                manualProductTitle.trim() || null,
-                                                        });
-                                                    }
-                                                }}
-                                                placeholder="Ex : Sac à dos Tromso, chaussures…"
-                                                className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-violet-200/80 text-[11px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-100"
-                                            />
-                                        </div>
-                                        )}
-
-                                        {!hasExistingImages && detail.tracking.images && detail.tracking.images.length > 0 && (() => {
-                                            const applyImageSelection = (nextImages: string[]) => {
-                                                setSelectedTrackingImages(nextImages);
-                                                const autoTitle = detail.tracking
-                                                    ? resolveSelectedProductTitle(
-                                                          detail.tracking,
-                                                          nextImages
-                                                      )
-                                                    : null;
-                                                const effectiveTitle = productTitleEdited
-                                                    ? manualProductTitle.trim() || null
-                                                    : autoTitle || detail.tracking?.productTitle || null;
-                                                if (!productTitleEdited) {
-                                                    setManualProductTitle(effectiveTitle ?? "");
-                                                }
-                                                if (matchingExisting) {
-                                                    syncExistingParcel({
-                                                        uid: detail.uid,
-                                                        store:
-                                                            detail.tracking?.store?.trim() ||
-                                                            detail.fromName ||
-                                                            detail.tracking?.carrier ||
-                                                            "Colis",
-                                                        orderNumber: detail.tracking?.orderNumber ?? null,
-                                                        numbers: detail.tracking?.numbers ?? [],
-                                                        url: detail.tracking?.url ?? null,
-                                                        shippedAt: detail.date,
-                                                        images: nextImages,
-                                                        productTitle: effectiveTitle,
-                                                        replaceImages: true,
-                                                    });
-                                                }
-                                            };
-                                            const toggleImage = (imgUrl: string) => {
-                                                const exists = selectedTrackingImages.includes(imgUrl);
-                                                const next = exists
-                                                    ? selectedTrackingImages.filter((u) => u !== imgUrl)
-                                                    : [...selectedTrackingImages, imgUrl];
-                                                applyImageSelection(next);
-                                            };
-                                            return (
-                                                <div className="space-y-1.5">
-                                                    <div className="flex items-center justify-between text-[10px]">
-                                                        <span className="font-semibold text-slate-600">
-                                                            Visuels ({selectedTrackingImages.length}/
-                                                            {detail.tracking.images.length} sélectionné
-                                                            {selectedTrackingImages.length > 1 ? "s" : ""})
-                                                        </span>
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() =>
-                                                                    applyImageSelection(
-                                                                        detail.tracking?.images ?? []
-                                                                    )
+                                        {(!hasExistingTitle || (!hasExistingImages && detail.tracking.images && detail.tracking.images.length > 0)) && (
+                                            <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+                                                {!hasExistingTitle && (
+                                                    <div className="flex-1 min-w-0">
+                                                        <label className="block text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-1">
+                                                            Intitulé du produit
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            value={manualProductTitle}
+                                                            onChange={(e) => {
+                                                                setManualProductTitle(e.target.value);
+                                                                setProductTitleEdited(true);
+                                                            }}
+                                                            onBlur={() => {
+                                                                if (matchingExisting) {
+                                                                    syncExistingParcel({
+                                                                        uid: detail.uid,
+                                                                        store:
+                                                                            detail.tracking?.store?.trim() ||
+                                                                            detail.fromName ||
+                                                                            detail.tracking?.carrier ||
+                                                                            "Colis",
+                                                                        orderNumber:
+                                                                            detail.tracking?.orderNumber ?? null,
+                                                                        numbers: detail.tracking?.numbers ?? [],
+                                                                        url: detail.tracking?.url ?? null,
+                                                                        shippedAt: detail.date,
+                                                                        productTitle:
+                                                                            manualProductTitle.trim() || null,
+                                                                    });
                                                                 }
-                                                                className="text-violet-700 font-semibold hover:underline"
-                                                            >
-                                                                Tout
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => applyImageSelection([])}
-                                                                className="text-slate-500 font-semibold hover:underline"
-                                                            >
-                                                                Aucun
-                                                            </button>
-                                                        </div>
+                                                            }}
+                                                            placeholder="Ex : Sac à dos Tromso, chaussures…"
+                                                            className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-violet-200/80 text-[11px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-100"
+                                                        />
                                                     </div>
-                                                    <div className="flex items-start gap-2 overflow-x-auto pb-0.5">
-                                                        {detail.tracking.images.map((imgUrl, idx) => {
-                                                            const selected =
-                                                                selectedTrackingImages.includes(imgUrl);
-                                                            const imgLabel =
-                                                                detail.tracking?.imageLabels?.[imgUrl];
-                                                            return (
-                                                                <button
-                                                                    key={`${detail.uid}-img-${idx}`}
-                                                                    type="button"
-                                                                    onClick={() => toggleImage(imgUrl)}
-                                                                    aria-pressed={selected}
-                                                                    title={
-                                                                        imgLabel
-                                                                            ? `${imgLabel} — ${
-                                                                                  selected
-                                                                                      ? "cliquer pour retirer"
-                                                                                      : "cliquer pour sélectionner"
-                                                                              }`
-                                                                            : selected
-                                                                              ? "Cliquer pour retirer cette image"
-                                                                              : "Cliquer pour sélectionner cette image"
-                                                                    }
-                                                                    className="flex flex-col items-center gap-1 w-16 shrink-0 text-left group"
-                                                                >
-                                                                    <div
-                                                                        className={`relative h-14 w-14 rounded-xl overflow-hidden border-2 bg-white transition-all ${
-                                                                            selected
-                                                                                ? "border-violet-600 ring-2 ring-violet-200 opacity-100"
-                                                                                : "border-slate-200 opacity-45 grayscale group-hover:opacity-75"
-                                                                        }`}
+                                                )}
+
+                                                {!hasExistingImages && detail.tracking.images && detail.tracking.images.length > 0 && (() => {
+                                                    const applyImageSelection = (nextImages: string[]) => {
+                                                        setSelectedTrackingImages(nextImages);
+                                                        const autoTitle = detail.tracking
+                                                            ? resolveSelectedProductTitle(
+                                                                  detail.tracking,
+                                                                  nextImages
+                                                              )
+                                                            : null;
+                                                        const effectiveTitle = productTitleEdited
+                                                            ? manualProductTitle.trim() || null
+                                                            : autoTitle || detail.tracking?.productTitle || null;
+                                                        if (!productTitleEdited) {
+                                                            setManualProductTitle(effectiveTitle ?? "");
+                                                        }
+                                                        if (matchingExisting) {
+                                                            syncExistingParcel({
+                                                                uid: detail.uid,
+                                                                store:
+                                                                    detail.tracking?.store?.trim() ||
+                                                                    detail.fromName ||
+                                                                    detail.tracking?.carrier ||
+                                                                    "Colis",
+                                                                orderNumber: detail.tracking?.orderNumber ?? null,
+                                                                numbers: detail.tracking?.numbers ?? [],
+                                                                url: detail.tracking?.url ?? null,
+                                                                shippedAt: detail.date,
+                                                                images: nextImages,
+                                                                productTitle: effectiveTitle,
+                                                                replaceImages: true,
+                                                            });
+                                                        }
+                                                    };
+                                                    const toggleImage = (imgUrl: string) => {
+                                                        const exists = selectedTrackingImages.includes(imgUrl);
+                                                        const next = exists
+                                                            ? selectedTrackingImages.filter((u) => u !== imgUrl)
+                                                            : [...selectedTrackingImages, imgUrl];
+                                                        applyImageSelection(next);
+                                                    };
+                                                    return (
+                                                        <div className="space-y-1 shrink-0 sm:max-w-[55%]">
+                                                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                                                                <span className="font-semibold text-slate-600">
+                                                                    Visuels ({selectedTrackingImages.length}/
+                                                                    {detail.tracking.images.length})
+                                                                </span>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            applyImageSelection(
+                                                                                detail.tracking?.images ?? []
+                                                                            )
+                                                                        }
+                                                                        className="text-violet-700 font-semibold hover:underline"
                                                                     >
-                                                                        <img
-                                                                            src={imgUrl}
-                                                                            alt={imgLabel || "Produit commandé"}
-                                                                            onError={(e) => {
-                                                                                e.currentTarget.style.display =
-                                                                                    "none";
-                                                                            }}
-                                                                            className="h-full w-full object-cover"
-                                                                        />
-                                                                        {selected && (
-                                                                            <span className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-violet-600 text-white flex items-center justify-center shadow">
-                                                                                <CheckCircle2 className="h-3 w-3" />
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                    {imgLabel && (
-                                                                        <span className="w-full text-[9px] leading-tight text-slate-600 line-clamp-2 text-center">
-                                                                            {imgLabel}
-                                                                        </span>
-                                                                    )}
-                                                                </button>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
+                                                                        Tout
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => applyImageSelection([])}
+                                                                        className="text-slate-500 font-semibold hover:underline"
+                                                                    >
+                                                                        Aucun
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-start gap-2 overflow-x-auto pb-0.5">
+                                                                {detail.tracking.images.map((imgUrl, idx) => {
+                                                                    const selected =
+                                                                        selectedTrackingImages.includes(imgUrl);
+                                                                    const imgLabel =
+                                                                        detail.tracking?.imageLabels?.[imgUrl];
+                                                                    return (
+                                                                        <button
+                                                                            key={`${detail.uid}-img-${idx}`}
+                                                                            type="button"
+                                                                            onClick={() => toggleImage(imgUrl)}
+                                                                            aria-pressed={selected}
+                                                                            title={
+                                                                                imgLabel
+                                                                                    ? `${imgLabel} — ${
+                                                                                          selected
+                                                                                              ? "cliquer pour retirer"
+                                                                                              : "cliquer pour sélectionner"
+                                                                                      }`
+                                                                                    : selected
+                                                                                      ? "Cliquer pour retirer cette image"
+                                                                                      : "Cliquer pour sélectionner cette image"
+                                                                            }
+                                                                            className="flex flex-col items-center gap-1 w-14 shrink-0 text-left group"
+                                                                        >
+                                                                            <div
+                                                                                className={`relative h-12 w-12 rounded-xl overflow-hidden border-2 bg-white transition-all ${
+                                                                                    selected
+                                                                                        ? "border-violet-600 ring-2 ring-violet-200 opacity-100"
+                                                                                        : "border-slate-200 opacity-45 grayscale group-hover:opacity-75"
+                                                                                }`}
+                                                                            >
+                                                                                <img
+                                                                                    src={imgUrl}
+                                                                                    alt={imgLabel || "Produit commandé"}
+                                                                                    onError={(e) => {
+                                                                                        e.currentTarget.style.display =
+                                                                                            "none";
+                                                                                    }}
+                                                                                    className="h-full w-full object-cover"
+                                                                                />
+                                                                                {selected && (
+                                                                                    <span className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-violet-600 text-white flex items-center justify-center shadow">
+                                                                                        <CheckCircle2 className="h-3 w-3" />
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                        )}
 
                                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
                                             <div className="min-w-0">
@@ -3495,9 +3467,24 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                 <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
                                                     Statut
                                                 </p>
-                                                <p className="font-semibold text-slate-800 truncate">
-                                                    {detail.tracking.status ?? "Non précisé"}
-                                                </p>
+                                                <div className="flex items-center gap-1">
+                                                    <p className="font-semibold text-slate-800 truncate">
+                                                        {manualStatus || detail.tracking.status || "Non précisé"}
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setEditingStatus((v) => !v)}
+                                                        title={
+                                                            editingStatus
+                                                                ? "Fermer l'édition du statut"
+                                                                : "Modifier le statut"
+                                                        }
+                                                        aria-label="Modifier le statut"
+                                                        className="p-1 rounded-lg text-violet-600 hover:bg-violet-100 transition-colors shrink-0"
+                                                    >
+                                                        <PenLine className="h-3 w-3" />
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div className="min-w-0">
                                                 <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
@@ -3600,6 +3587,76 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                                                 {trackingResolveNote}
                                             </p>
+                                        )}
+
+                                        {editingStatus && (
+                                            <div className="p-2.5 rounded-xl bg-white border border-violet-200 flex items-center gap-2 text-[11px]">
+                                                <input
+                                                    type="text"
+                                                    value={manualStatus}
+                                                    onChange={(e) => setManualStatus(e.target.value)}
+                                                    placeholder="Ex : Commande confirmée, Colis en route…"
+                                                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 font-semibold"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const cleaned = manualStatus.trim();
+                                                        const storeName =
+                                                            detail.tracking?.store?.trim() ||
+                                                            detail.fromName ||
+                                                            detail.tracking?.carrier ||
+                                                            "Colis";
+                                                        const parsedDate = detail.date
+                                                            ? new Date(detail.date)
+                                                            : null;
+                                                        const shortDate =
+                                                            parsedDate &&
+                                                            !Number.isNaN(parsedDate.getTime())
+                                                                ? new Intl.DateTimeFormat("fr-FR", {
+                                                                      day: "numeric",
+                                                                      month: "short",
+                                                                  })
+                                                                      .format(parsedDate)
+                                                                      .replace(/\.$/, "")
+                                                                : "";
+                                                        const formattedHistory = cleaned
+                                                            ? shortDate
+                                                                ? `${shortDate} · ${cleaned}`
+                                                                : cleaned
+                                                            : "";
+                                                        if (formattedHistory && autoHistoryEntry) {
+                                                            learnHistoryLabel({
+                                                                store: storeName,
+                                                                subject: detail.subject,
+                                                                autoEntry: autoHistoryEntry,
+                                                                userEntry: formattedHistory,
+                                                            });
+                                                        }
+                                                        if (matchingExisting && cleaned) {
+                                                            syncExistingParcel({
+                                                                uid: detail.uid,
+                                                                store: storeName,
+                                                                orderNumber:
+                                                                    detail.tracking?.orderNumber ??
+                                                                    null,
+                                                                numbers:
+                                                                    detail.tracking?.numbers ?? [],
+                                                                url: detail.tracking?.url ?? null,
+                                                                shippedAt: detail.date,
+                                                                status: cleaned,
+                                                                history: formattedHistory
+                                                                    ? [formattedHistory]
+                                                                    : undefined,
+                                                            });
+                                                        }
+                                                        setEditingStatus(false);
+                                                    }}
+                                                    className="px-3 py-1.5 rounded-lg bg-violet-600 text-white font-bold hover:bg-violet-700 shrink-0"
+                                                >
+                                                    Appliquer
+                                                </button>
+                                            </div>
                                         )}
 
                                         {editingTracking && (
