@@ -115,8 +115,10 @@ export interface GmailTracking {
     numbers: string[];
     /** Dernier statut lisible (« En cours de livraison », « Livré »…). */
     status: string | null;
-    /** Date de livraison annoncée, telle qu'écrite dans l'email. */
+    /** Date ou créneau de livraison annoncée, telle qu'écrite dans l'email. */
     estimatedDelivery: string | null;
+    /** Ville de livraison extraite de l'adresse de livraison. */
+    deliveryCity?: string | null;
     /** Étapes de suivi lues dans l'email (de la plus récente à la plus ancienne). */
     history: string[];
     /** Lien de suivi (celui de l'email, sinon la page du transporteur). */
@@ -388,6 +390,60 @@ const DELIVERY_DATE_WITH_TIME_RE = new RegExp(
 );
 
 const TIME_SLOT_STANDALONE_RE = new RegExp(TIME_SLOT_TOKEN, "i");
+
+function formatCityName(raw: string): string {
+    const cleaned = raw
+        .replace(/\s+cedex(?:\s+\d+)?$/i, "")
+        .replace(/[.,;:]+$/, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (!cleaned) return "";
+    if (cleaned === cleaned.toUpperCase()) {
+        return cleaned
+            .toLowerCase()
+            .replace(/(^|[\s-])([a-zà-öø-ÿ])/g, (_m, sep: string, ch: string) => `${sep}${ch.toUpperCase()}`);
+    }
+    return cleaned;
+}
+
+function isValidCityCandidate(city: string): boolean {
+    if (city.length < 2 || city.length > 35) return false;
+    if (!/[a-zA-ZÀ-ÿ]{2,}/.test(city)) return false;
+    if (/^(?:france|nouvelle-cal[ée]donie|new caledonia|cedex|email|tel|bp)$/i.test(city)) {
+        return false;
+    }
+    return true;
+}
+
+const POSTAL_CITY_RE =
+    /\b(\d{5})\s+([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{1,35}?)(?=\s*(?:\r?\n|,|France|Nouvelle-Cal[ée]donie|New Caledonia|\d|$))/gi;
+
+/** Extrait la ville de livraison depuis l'adresse de livraison de l'email. */
+function extractDeliveryCity(text: string): string | null {
+    if (!text) return null;
+    const deliverySectionRe =
+        /(?:adresse\s+de\s+livraison|livr[ée]\s+[àa]|livraison\s+[àa]|shipping\s+address|delivery\s+address|ship\s+to|deliver\s+to|destinataire)\b([\s\S]{0,280})/gi;
+
+    for (const section of text.matchAll(deliverySectionRe)) {
+        const block = section[1] ?? "";
+        POSTAL_CITY_RE.lastIndex = 0;
+        for (const m of block.matchAll(POSTAL_CITY_RE)) {
+            const city = formatCityName(m[2] ?? "");
+            if (isValidCityCandidate(city)) return city;
+        }
+    }
+
+    POSTAL_CITY_RE.lastIndex = 0;
+    for (const m of text.matchAll(POSTAL_CITY_RE)) {
+        const idx = m.index ?? 0;
+        const before = text.slice(Math.max(0, idx - 120), idx);
+        if (/(?:facturation|billing|si[èe]ge\s+social|rcs|siret)/i.test(before)) continue;
+        const city = formatCityName(m[2] ?? "");
+        if (isValidCityCandidate(city)) return city;
+    }
+
+    return null;
+}
 
 function extractEstimatedDelivery(text: string): string | null {
     const rangeMatch = text.match(DELIVERY_RANGE_RE);
@@ -712,6 +768,7 @@ export function extractTracking(input: {
         TRACKING_STATUS.find((entry) => entry.match.test(`${input.subject}\n${body}`))?.label ??
         null;
     const estimatedDelivery = extractEstimatedDelivery(`${input.subject}\n${body}`);
+    const deliveryCity = extractDeliveryCity(body);
 
     const byHost = carrier?.host ? allUrls.find((url) => carrier.host!.test(url)) : undefined;
     const byAnchor = htmlLinks.find(
@@ -779,6 +836,7 @@ export function extractTracking(input: {
         numbers,
         status,
         estimatedDelivery,
+        deliveryCity,
         history,
         url,
         images,

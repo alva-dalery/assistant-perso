@@ -15,6 +15,7 @@ import {
   ArrowUpRight,
   X,
   Edit3,
+  MapPin,
 } from "lucide-react";
 import type {
   DisputeCase,
@@ -693,8 +694,15 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                               {parcel.productTitle}
                             </button>
                           )}
-                          <p className="text-[10px] text-slate-500 truncate">
-                            {parcel.carrier ?? "Transporteur non précisé"}
+                          <p className="text-[10px] text-slate-500 truncate flex items-center gap-1.5">
+                            <span>{parcel.carrier ?? "Transporteur non précisé"}</span>
+                            {parcel.deliveryCity && (
+                              <span className="inline-flex items-center gap-0.5 text-slate-600 font-semibold">
+                                <span>·</span>
+                                <MapPin className="h-2.5 w-2.5 text-violet-600 shrink-0" />
+                                <span>{parcel.deliveryCity}</span>
+                              </span>
+                            )}
                           </p>
                         </div>
                       </div>

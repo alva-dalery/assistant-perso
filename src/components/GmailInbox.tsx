@@ -441,6 +441,7 @@ interface TrackingInfo {
     numbers: string[];
     status: string | null;
     estimatedDelivery: string | null;
+    deliveryCity?: string | null;
     history?: string[];
     url: string | null;
     images?: string[];
@@ -1226,6 +1227,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     url: labelled.tracking.url,
                     status: labelled.tracking.status,
                     estimatedDelivery: labelled.tracking.estimatedDelivery ?? null,
+                    deliveryCity: labelled.tracking.deliveryCity ?? null,
                     shippedAt: labelled.date,
                     subject: labelled.subject,
                     history: mergedInitialHistory,
@@ -1948,6 +1950,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 url: tracking.url,
                 status: tracking.status,
                 estimatedDelivery: tracking.estimatedDelivery ?? null,
+                deliveryCity: tracking.deliveryCity ?? null,
                 orderedAt: target.date,
                 shippedAt: target.date,
                 subject: target.subject,

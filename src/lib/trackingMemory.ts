@@ -20,6 +20,8 @@ export interface SavedParcel {
     status: string | null;
     /** Date ou créneau de livraison estimée (ex. « 19.11.2026 – 24.11.2026 »). */
     estimatedDelivery?: string | null;
+    /** Ville de livraison. */
+    deliveryCity?: string | null;
     /** Date de la commande (ISO, conservée lors des mises à jour ultérieures). */
     orderedAt?: string;
     /** Date de réception de l'email d'expédition ou dernier événement (ISO). */
@@ -64,6 +66,7 @@ function sanitize(value: unknown): SavedParcel | null {
         url: text(raw.url),
         status: text(raw.status),
         estimatedDelivery: text(raw.estimatedDelivery),
+        deliveryCity: text(raw.deliveryCity),
         orderedAt: text(raw.orderedAt) ?? text(raw.shippedAt) ?? new Date().toISOString(),
         shippedAt: text(raw.shippedAt) ?? new Date().toISOString(),
         subject: text(raw.subject) ?? "",
@@ -248,6 +251,7 @@ function mergeParcelData(
         url: incoming.url || existing.url,
         status: nextStatus,
         estimatedDelivery: nextEstimatedDelivery,
+        deliveryCity: incoming.deliveryCity || existing.deliveryCity || null,
         orderedAt,
         shippedAt: incomingIsNewerOrEqual
             ? incoming.shippedAt || existing.shippedAt
