@@ -1020,57 +1020,120 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 key: string;
                 title: string;
                 orderNumber: string | null;
+                trackingNumber: string | null;
                 items: InboxMessage[];
             }
         >();
-        const storeSingleGroupKey = new Map<string, string>();
+        // Associe chaque numéro de suivi connu à une clé de commande canonique
+        // (ex. un mail marchand qui contient à la fois n° de commande et n° Colissimo
+        // permet de rattacher les mails Colissimo portant ce même n° de suivi).
+        const trackToGroupKey = new Map<string, string>();
+        const orderToGroupKey = new Map<string, string>();
 
+        const normOrder = (v: string | null | undefined) =>
+            v ? v.trim().replace(/^[#°\s]+/, "").toUpperCase() : "";
+        const normTrack = (v: string | null | undefined) =>
+            v ? v.trim().toUpperCase() : "";
+        const isGenericCarrier = (name: string) =>
+            /^(?:la poste|colissimo|chronopost|ups|dhl|fedex|dpd|gls|mondial\s*relay|relais\s*colis|colis\s*priv[ée])$/i.test(
+                name.trim()
+            );
+
+        // Passe 1 : indexer les correspondances orderNumber <-> trackingNumber connues
         for (const msg of visibleMessages) {
-            const cachedDetail = detailSessionCache.get(msg.uid);
-            const orderNum =
-                cachedDetail?.tracking?.orderNumber ?? msg.orderNumber ?? null;
-            const trackNum =
-                cachedDetail?.tracking?.numbers?.[0] ?? msg.trackingNumber ?? null;
-            const storeLabel =
-                cachedDetail?.tracking?.store?.trim() ||
-                msg.fromName ||
-                msg.fromEmail ||
-                "Commande";
-            const normStore = storeLabel.toLowerCase().replace(/[^a-z0-9]/g, "");
+            const cached = detailSessionCache.get(msg.uid);
+            const oNum = normOrder(cached?.tracking?.orderNumber ?? msg.orderNumber);
+            const tNums = Array.from(
+                new Set(
+                    [
+                        ...(cached?.tracking?.numbers ?? []),
+                        ...(msg.trackingNumber ? [msg.trackingNumber] : []),
+                    ]
+                        .map(normTrack)
+                        .filter(Boolean)
+                )
+            );
             const matchedParcel = findMatchingParcel({
                 uid: msg.uid,
-                store: storeLabel,
-                orderNumber: orderNum,
-                numbers: trackNum ? [trackNum] : [],
-                shippedAt: msg.date,
+                orderNumber: oNum || null,
+                numbers: tNums,
+                url: cached?.tracking?.url ?? null,
+            });
+            const canonicalKey = oNum
+                ? `order:${oNum}`
+                : matchedParcel
+                  ? `parcel:${matchedParcel.uid}`
+                  : tNums[0]
+                    ? `track:${tNums[0]}`
+                    : "";
+            if (!canonicalKey) continue;
+            if (oNum && !orderToGroupKey.has(oNum)) orderToGroupKey.set(oNum, canonicalKey);
+            for (const tn of tNums) {
+                if (!trackToGroupKey.has(tn)) trackToGroupKey.set(tn, canonicalKey);
+            }
+            if (matchedParcel) {
+                for (const tn of matchedParcel.numbers.map(normTrack).filter(Boolean)) {
+                    if (!trackToGroupKey.has(tn)) trackToGroupKey.set(tn, canonicalKey);
+                }
+            }
+        }
+
+        // Passe 2 : regrouper strictement par commande / n° de suivi / colis suivi (jamais par expéditeur seul)
+        for (const msg of visibleMessages) {
+            const cached = detailSessionCache.get(msg.uid);
+            const rawOrder = cached?.tracking?.orderNumber ?? msg.orderNumber ?? null;
+            const oNum = normOrder(rawOrder);
+            const tNums = Array.from(
+                new Set(
+                    [
+                        ...(cached?.tracking?.numbers ?? []),
+                        ...(msg.trackingNumber ? [msg.trackingNumber] : []),
+                    ]
+                        .map(normTrack)
+                        .filter(Boolean)
+                )
+            );
+            const matchedParcel = findMatchingParcel({
+                uid: msg.uid,
+                orderNumber: oNum || null,
+                numbers: tNums,
+                url: cached?.tracking?.url ?? null,
             });
 
             let key = "";
-            if (orderNum) {
-                key = `order:${orderNum.replace(/^[#°\s]+/, "").toUpperCase()}`;
-            } else if (matchedParcel) {
-                key = `parcel:${matchedParcel.uid}`;
-            } else if (trackNum) {
-                key = `track:${trackNum.toUpperCase()}`;
-            } else if (normStore && storeSingleGroupKey.has(normStore)) {
-                key = storeSingleGroupKey.get(normStore)!;
+            if (oNum && orderToGroupKey.has(oNum)) {
+                key = orderToGroupKey.get(oNum)!;
+            } else if (oNum) {
+                key = `order:${oNum}`;
             } else {
-                key = normStore ? `store:${normStore}` : `uid:${msg.uid}`;
+                const linkedByTrack = tNums.map((tn) => trackToGroupKey.get(tn)).find(Boolean);
+                if (linkedByTrack) {
+                    key = linkedByTrack;
+                } else if (matchedParcel) {
+                    key = `parcel:${matchedParcel.uid}`;
+                } else if (tNums[0]) {
+                    key = `track:${tNums[0]}`;
+                } else {
+                    key = `uid:${msg.uid}`;
+                }
             }
 
-            if (normStore && !storeSingleGroupKey.has(normStore)) {
-                storeSingleGroupKey.set(normStore, key);
-            }
-
+            const candidateStore =
+                cached?.tracking?.store?.trim() || msg.fromName || msg.fromEmail || "Commande";
             const existing = groups.get(key);
             if (existing) {
                 existing.items.push(msg);
-                if (!existing.orderNumber && orderNum) existing.orderNumber = orderNum;
+                if (!existing.orderNumber && rawOrder) existing.orderNumber = rawOrder;
+                if (!existing.trackingNumber && tNums[0]) existing.trackingNumber = tNums[0];
+                if (isGenericCarrier(existing.title) && !isGenericCarrier(candidateStore)) {
+                    existing.title = candidateStore;
+                }
             } else {
                 groups.set(key, {
                     key,
-                    title: matchedParcel?.productTitle || storeLabel,
-                    orderNumber: orderNum ?? matchedParcel?.orderNumber ?? null,
+                    title: matchedParcel?.productTitle || matchedParcel?.store || candidateStore,
+                    orderNumber: rawOrder ?? matchedParcel?.orderNumber ?? null,
+                    trackingNumber: tNums[0] ?? matchedParcel?.numbers[0] ?? null,
                     items: [msg],
                 });
             }
