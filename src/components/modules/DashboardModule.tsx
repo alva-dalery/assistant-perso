@@ -14,6 +14,7 @@ import {
   FolderGit2,
   ArrowUpRight,
   X,
+  Edit3,
 } from "lucide-react";
 import type {
   DisputeCase,
@@ -28,7 +29,7 @@ import type {
   UserProfile,
   WorkoutLog,
 } from "@/types";
-import { loadParcels, removeParcel, TRACKING_EVENT } from "@/lib/trackingMemory";
+import { loadParcels, removeParcel, TRACKING_EVENT, updateParcel } from "@/lib/trackingMemory";
 import type { SavedParcel } from "@/lib/trackingMemory";
 import { todayDateString } from "@/lib/storage";
 
@@ -83,6 +84,9 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
   const [selectedEmailUid, setSelectedEmailUid] = useState<number | null>(null);
   const [parcels, setParcels] = useState<SavedParcel[]>([]);
   const [openParcel, setOpenParcel] = useState<number | null>(null);
+  const [editingParcelUid, setEditingParcelUid] = useState<number | null>(null);
+  const [editParcelNumber, setEditParcelNumber] = useState("");
+  const [editParcelCarrier, setEditParcelCarrier] = useState("");
 
   // Calendrier réel dynamique (hydraté côté client pour éviter toute divergence UTC SSR / navigateur)
   const [todayStr, setTodayStr] = useState<string>("");
@@ -508,7 +512,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       {parcel.url && (
                         <a
                           href={parcel.url}
@@ -531,6 +535,21 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                         <span>Historique</span>
                       </button>
                       <button
+                        onClick={() => {
+                          if (editingParcelUid === parcel.uid) {
+                            setEditingParcelUid(null);
+                          } else {
+                            setEditingParcelUid(parcel.uid);
+                            setEditParcelNumber(parcel.numbers[0] ?? "");
+                            setEditParcelCarrier(parcel.carrier ?? "");
+                          }
+                        }}
+                        title="Modifier le numéro de suivi"
+                        className="h-8 w-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-violet-700 hover:bg-violet-50 transition-all"
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
                         onClick={() => setParcels(removeParcel(parcel.uid))}
                         aria-label="Retirer ce colis"
                         className="ml-auto h-8 w-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all"
@@ -538,6 +557,53 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
+
+                    {editingParcelUid === parcel.uid && (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const num = editParcelNumber.trim().toUpperCase();
+                          const car = editParcelCarrier.trim();
+                          const isColissimo =
+                            /colissimo|la poste/i.test(car) ||
+                            /^[689][A-Z][0-9A-Z]{11,13}$/.test(num) ||
+                            /^[A-Z]{2}\d{9}[A-Z]{2}$/.test(num);
+                          const nextUrl =
+                            num && isColissimo
+                              ? `https://www.laposte.fr/outils/suivre-vos-envois?code=${encodeURIComponent(num)}`
+                              : parcel.url;
+                          const next = updateParcel(parcel.uid, {
+                            numbers: num ? [num] : parcel.numbers,
+                            carrier: car || (isColissimo ? "La Poste / Colissimo" : parcel.carrier),
+                            url: nextUrl,
+                          });
+                          setParcels(next);
+                          setEditingParcelUid(null);
+                        }}
+                        className="pt-2 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]"
+                      >
+                        <input
+                          type="text"
+                          value={editParcelNumber}
+                          onChange={(e) => setEditParcelNumber(e.target.value)}
+                          placeholder="N° Colissimo (ex: 6A...)"
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 font-mono"
+                        />
+                        <input
+                          type="text"
+                          value={editParcelCarrier}
+                          onChange={(e) => setEditParcelCarrier(e.target.value)}
+                          placeholder="Transporteur"
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200"
+                        />
+                        <button
+                          type="submit"
+                          className="px-3 py-1.5 rounded-lg bg-violet-600 text-white font-bold hover:bg-violet-700"
+                        >
+                          Enregistrer
+                        </button>
+                      </form>
+                    )}
 
                     {open && (
                       <div className="pt-2 border-t border-slate-100 space-y-2">

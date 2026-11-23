@@ -311,12 +311,12 @@ const TRACKING_PATTERNS: RegExp[] = [
     /\bTB[AC]\d{10,14}\b/g, // Amazon
     /\b(?:JD|JJD)\d{16,20}\b/g, // DHL eCommerce
     /\bLP\d{14,16}\b/g, // Cainiao / AliExpress
-    /\b[A-Z]{2}\d{9}[A-Z]{2}\b/g, // format international S10
-    /\b[6-9][A-Z]\d{11,12}\b/g, // Colissimo 13 caractères
+    /\b[A-Z]{2}\d{9}[A-Z]{2}\b/g, // format international S10 (La Poste / Colissimo / OPT)
+    /\b[689][A-Z][0-9A-Z]{11,13}\b/g, // Colissimo (6A..., 8R..., 6G..., 9V...)
 ];
 
 const TRACKING_KEYWORD_NUMBER =
-    /(?:n[°o]\s*(?:de\s*)?suivi|num[ée]ro\s*de\s*suivi|num[ée]ro\s*d.exp[ée]dition|num[ée]ro\s*de\s*colis|tracking(?:\s*(?:number|no|num[ée]ro))?)\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{7,34})/gi;
+    /(?:n[°o]\s*(?:de\s*)?suivi|num[ée]ro\s*de\s*suivi|num[ée]ro\s*d.exp[ée]dition|num[ée]ro\s*de\s*colis|tracking(?:\s*(?:number|no|num[ée]ro))?|tracking_number|trackingNo|parcelNumber)\s*[:#="']+\s*([A-Z0-9][A-Z0-9-]{7,34})/gi;
 
 /** Transporteurs reconnaissables au seul format du numéro. */
 const SIGNATURE_CARRIERS: Array<{ pattern: RegExp; name: string }> = [
@@ -324,6 +324,7 @@ const SIGNATURE_CARRIERS: Array<{ pattern: RegExp; name: string }> = [
     { pattern: /^TB[AC]\d{10,14}$/i, name: "Amazon" },
     { pattern: /^JD\d{16,20}$/i, name: "DHL" },
     { pattern: /^LP\d{14,16}$/i, name: "AliExpress / Cainiao" },
+    { pattern: /^[689][A-Z][0-9A-Z]{11,13}$/i, name: "La Poste / Colissimo" },
 ];
 
 const TRACKING_STATUS: Array<{ label: string; match: RegExp }> = [
@@ -426,6 +427,24 @@ function trackingHistory(body: string): string[] {
     return events;
 }
 
+function htmlLinksIn(html: string): Array<{ url: string; label: string }> {
+    if (!html) return [];
+    const results: Array<{ url: string; label: string }> = [];
+    const linkRe = /<a\b[^>]*\bhref\s*=\s*(?:"(https?:\/\/[^"]+)"|'(https?:\/\/[^']+)')[^>]*>([\s\S]*?)<\/a>/gi;
+    for (const match of html.matchAll(linkRe)) {
+        const rawUrl = (match[1] ?? match[2] ?? "").replace(/&amp;/gi, "&").trim();
+        const label = (match[3] ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        if (rawUrl) results.push({ url: rawUrl, label });
+    }
+    return results;
+}
+
+const EXCLUDED_TRACKING_LINK =
+    /(unsubscribe|d[ée]sabon|privacy|confidentialit|terms|cgv|cgu|facebook\.com|instagram\.com|twitter\.com|x\.com|linkedin\.com|youtube\.com|tiktok\.com|pinterest\.com)/i;
+
+const TRACKING_LINK_SIGNAL =
+    /(suivi|suivre|track|colis|shipment|parcel|expedition|delivery|parcellab|sendcloud|narvar|aftership|laposte|colissimo|chronopost|dhl|ups|fedex|dpd|mondialrelay|gls)/i;
+
 /**
  * Reconnaît un suivi de colis et rassemble les informations utiles
  * (transporteur, numéro, statut, date de livraison, lien de suivi).
@@ -435,10 +454,15 @@ export function extractTracking(input: {
     fromEmail: string;
     fromName: string;
     text: string;
+    html?: string;
 }): GmailTracking | null {
     const body = input.text ?? "";
     const sender = `${input.fromEmail} ${input.fromName}`;
-    const numbers = trackingNumbersIn(body);
+    const htmlLinks = htmlLinksIn(input.html ?? "");
+    const textUrls = urlsInText(body);
+    const allUrls = [...new Set([...htmlLinks.map((l) => l.url), ...textUrls])];
+
+    const numbers = trackingNumbersIn(`${body}\n${allUrls.join("\n")}`);
 
     const signature = SIGNATURE_CARRIERS.find((entry) =>
         numbers.some((number) => entry.pattern.test(number))
@@ -446,21 +470,23 @@ export function extractTracking(input: {
     const carrier =
         CARRIERS.find((rule) => rule.sender.test(sender)) ??
         (signature ? CARRIERS.find((rule) => rule.name === signature.name) : undefined) ??
-        CARRIERS.find((rule) => rule.host && urlsInText(body).some((url) => rule.host!.test(url)));
+        CARRIERS.find((rule) => rule.host && allUrls.some((url) => rule.host!.test(url)));
 
     const status = TRACKING_STATUS.find((entry) => entry.match.test(body))?.label ?? null;
     const estimatedDelivery = body.match(DELIVERY_DATE_RE)?.[1]?.trim() ?? null;
 
-    const urls = urlsInText(body);
-    const byHost = carrier?.host ? urls.find((url) => carrier.host!.test(url)) : undefined;
-    const byKeyword = urls.find((url) =>
-        /(suivi|track|colis|shipment|parcel|expedition|delivery)/i.test(url)
+    const byHost = carrier?.host ? allUrls.find((url) => carrier.host!.test(url)) : undefined;
+    const byAnchor = htmlLinks.find(
+        (l) => !EXCLUDED_TRACKING_LINK.test(l.url) && TRACKING_LINK_SIGNAL.test(l.label)
+    )?.url;
+    const byKeyword = allUrls.find(
+        (url) => !EXCLUDED_TRACKING_LINK.test(url) && TRACKING_LINK_SIGNAL.test(url)
     );
     const byTemplate =
         carrier?.url && numbers.length > 0 ? carrier.url(numbers[0]) : null;
-    const url = byHost ?? byKeyword ?? byTemplate ?? null;
+    const url = byHost ?? byAnchor ?? byKeyword ?? byTemplate ?? null;
 
-    if (!carrier && numbers.length === 0 && !status && !estimatedDelivery) return null;
+    if (!carrier && numbers.length === 0 && !status && !estimatedDelivery && !url) return null;
 
     return {
         store: storeFromSender(input.fromName, input.fromEmail),
@@ -470,6 +496,37 @@ export function extractTracking(input: {
         estimatedDelivery,
         history: trackingHistory(body),
         url,
+    };
+}
+
+/**
+ * Extrait transporteur, numéros de suivi (ex. Colissimo) et statut depuis une page de suivi externe.
+ */
+export function extractTrackingFromExternalPage(pageText: string, finalUrl: string): {
+    numbers: string[];
+    carrier: string | null;
+    status: string | null;
+    directCarrierUrl: string | null;
+} {
+    const combined = `${finalUrl}\n${pageText}`;
+    const numbers = trackingNumbersIn(combined);
+
+    const signature = SIGNATURE_CARRIERS.find((entry) =>
+        numbers.some((number) => entry.pattern.test(number))
+    );
+    const carrierRule =
+        (signature ? CARRIERS.find((rule) => rule.name === signature.name) : undefined) ??
+        CARRIERS.find((rule) => rule.sender.test(combined) || (rule.host && rule.host.test(finalUrl)));
+
+    const status = TRACKING_STATUS.find((entry) => entry.match.test(pageText))?.label ?? null;
+    const directCarrierUrl =
+        carrierRule?.url && numbers.length > 0 ? carrierRule.url(numbers[0]) : null;
+
+    return {
+        numbers,
+        carrier: carrierRule?.name ?? null,
+        status,
+        directCarrierUrl,
     };
 }
 
@@ -1618,6 +1675,7 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             fromEmail: envelope?.from?.[0]?.address ?? "",
             fromName: envelope?.from?.[0]?.name ?? "",
             text: breakdown.currentText || visibleText,
+            html: rawHtml,
         });
 
         const loans = extractBookLoans({

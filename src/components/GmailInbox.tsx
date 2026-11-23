@@ -693,6 +693,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [draftAiPowered, setDraftAiPowered] = useState<boolean | null>(null);
     const [draftInstruction, setDraftInstruction] = useState("");
     const [drafting, setDrafting] = useState(false);
+    const [resolvingTracking, setResolvingTracking] = useState(false);
+    const [trackingResolveNote, setTrackingResolveNote] = useState<string | null>(null);
+    const [editingTracking, setEditingTracking] = useState(false);
+    const [manualTrackingNumber, setManualTrackingNumber] = useState("");
+    const [manualTrackingCarrier, setManualTrackingCarrier] = useState("");
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(false);
     const autoAllRef = useRef(false);
@@ -979,6 +984,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setDraftAiPowered(null);
         setDraftInstruction("");
         setCommandFolder("");
+        setTrackingResolveNote(null);
+        setEditingTracking(false);
+        setManualTrackingNumber("");
+        setManualTrackingCarrier("");
         try {
             const response = await fetch(`/api/gmail/message?uid=${uid}`, {
                 cache: "no-store",
@@ -991,6 +1000,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             }
             const labelled = applyLabelOverride(data, labelOverrides[data.uid]);
             setDetail(labelled);
+            if (labelled.tracking) {
+                setManualTrackingNumber(labelled.tracking.numbers[0] ?? "");
+                setManualTrackingCarrier(labelled.tracking.carrier ?? "");
+                if (labelled.tracking.url && labelled.tracking.numbers.length === 0) {
+                    void resolveTrackingFromUrl(labelled.uid, labelled.tracking.url);
+                }
+            }
             // Pas de suggestion de dossier pour une commande : le dossier de
             // rangement est présélectionné (« Commandes et Factures »).
             if (labelled.category !== "commande") {
@@ -1012,6 +1028,86 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         } finally {
             setLoadingDetail(false);
         }
+    }
+
+    async function resolveTrackingFromUrl(uid: number, url: string) {
+        setResolvingTracking(true);
+        setTrackingResolveNote(null);
+        try {
+            const res = await fetch("/api/gmail/tracking-resolve", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({ url }),
+            });
+            const data = (await res.json()) as {
+                resolved?: boolean;
+                numbers?: string[];
+                carrier?: string | null;
+                status?: string | null;
+                directCarrierUrl?: string | null;
+                note?: string;
+            };
+            if (!res.ok) return;
+
+            if (data.resolved && Array.isArray(data.numbers) && data.numbers.length > 0) {
+                setDetail((prev) => {
+                    if (!prev || prev.uid !== uid || !prev.tracking) return prev;
+                    const mergedNumbers = Array.from(
+                        new Set([...data.numbers!, ...prev.tracking.numbers])
+                    );
+                    return {
+                        ...prev,
+                        tracking: {
+                            ...prev.tracking,
+                            numbers: mergedNumbers,
+                            carrier: data.carrier || prev.tracking.carrier,
+                            status: data.status || prev.tracking.status,
+                            url: data.directCarrierUrl || prev.tracking.url,
+                        },
+                    };
+                });
+                setManualTrackingNumber(data.numbers[0] ?? "");
+                if (data.carrier) setManualTrackingCarrier(data.carrier);
+            } else if (data.note) {
+                setTrackingResolveNote(data.note);
+            }
+        } catch {
+            // silent fallback
+        } finally {
+            setResolvingTracking(false);
+        }
+    }
+
+    function applyManualTracking() {
+        const cleanedNum = manualTrackingNumber.trim().toUpperCase();
+        const cleanedCarrier = manualTrackingCarrier.trim();
+        setDetail((prev) => {
+            if (!prev || !prev.tracking) return prev;
+            const nextNumbers = cleanedNum
+                ? Array.from(new Set([cleanedNum, ...prev.tracking.numbers.filter((n) => n !== cleanedNum)]))
+                : prev.tracking.numbers;
+            const isColissimo =
+                /colissimo|la poste/i.test(cleanedCarrier) ||
+                /^[689][A-Z][0-9A-Z]{11,13}$/.test(cleanedNum) ||
+                /^[A-Z]{2}\d{9}[A-Z]{2}$/.test(cleanedNum);
+            const nextCarrier = cleanedCarrier || (isColissimo ? "La Poste / Colissimo" : prev.tracking.carrier);
+            const nextUrl =
+                cleanedNum && isColissimo
+                    ? `https://www.laposte.fr/outils/suivre-vos-envois?code=${encodeURIComponent(cleanedNum)}`
+                    : prev.tracking.url;
+            return {
+                ...prev,
+                tracking: {
+                    ...prev.tracking,
+                    numbers: nextNumbers,
+                    carrier: nextCarrier,
+                    url: nextUrl,
+                },
+            };
+        });
+        setEditingTracking(false);
+        setTrackingResolveNote(null);
     }
 
     async function generateDraft(target: MessageDetail | null = detail) {
@@ -2290,7 +2386,78 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                     <span>Copier le numéro</span>
                                                 </button>
                                             )}
+                                            {detail.tracking.url && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        void resolveTrackingFromUrl(
+                                                            detail.uid,
+                                                            detail.tracking!.url!
+                                                        )
+                                                    }
+                                                    disabled={resolvingTracking}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-violet-200 text-violet-700 text-[11px] font-bold hover:bg-violet-50 disabled:opacity-50 transition-all"
+                                                >
+                                                    {resolvingTracking ? (
+                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                    ) : (
+                                                        <RefreshCw className="h-3.5 w-3.5" />
+                                                    )}
+                                                    <span>
+                                                        {resolvingTracking
+                                                            ? "Recherche n°..."
+                                                            : "Récupérer n° transporteur"}
+                                                    </span>
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditingTracking((v) => !v)}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-violet-200 text-violet-700 text-[11px] font-bold hover:bg-violet-50 transition-all"
+                                            >
+                                                <PenLine className="h-3.5 w-3.5" />
+                                                <span>
+                                                    {editingTracking
+                                                        ? "Fermer"
+                                                        : detail.tracking.numbers.length > 0
+                                                          ? "Modifier n°"
+                                                          : "Saisir n° Colissimo"}
+                                                </span>
+                                            </button>
                                         </div>
+
+                                        {trackingResolveNote && (
+                                            <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                                                {trackingResolveNote}
+                                            </p>
+                                        )}
+
+                                        {editingTracking && (
+                                            <div className="p-2.5 rounded-xl bg-white border border-violet-200 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                                                <input
+                                                    type="text"
+                                                    value={manualTrackingNumber}
+                                                    onChange={(e) => setManualTrackingNumber(e.target.value)}
+                                                    placeholder="N° Colissimo (ex: 6A...)"
+                                                    className="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 font-mono"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={manualTrackingCarrier}
+                                                    onChange={(e) => setManualTrackingCarrier(e.target.value)}
+                                                    placeholder="Transporteur (ex: Colissimo)"
+                                                    className="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={applyManualTracking}
+                                                    disabled={!manualTrackingNumber.trim()}
+                                                    className="px-3 py-1.5 rounded-lg bg-violet-600 text-white font-bold hover:bg-violet-700 disabled:opacity-40"
+                                                >
+                                                    Appliquer
+                                                </button>
+                                            </div>
+                                        )}
 
                                         <div className="pt-2 border-t border-violet-200/70 space-y-1.5">
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-2">
