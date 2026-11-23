@@ -588,7 +588,7 @@ const LabelMenu: React.FC<LabelMenuProps> = ({
     };
 
     return (
-        <div ref={containerRef} className={`relative shrink-0 ${className}`}>
+        <div ref={containerRef} className={`relative inline-flex items-center shrink-0 ${className}`}>
             <button
                 type="button"
                 onClick={(event) => {
@@ -2926,7 +2926,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                 className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50/60 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:border-teal-400"
                                             />
                                             <span
-                                                className={`text-[11px] shrink-0 tabular-nums ${
+                                                className={`inline-flex items-center leading-none text-[11px] shrink-0 tabular-nums ${
                                                     row.proposal.amount
                                                         ? "font-bold text-slate-700"
                                                         : "text-slate-400"
