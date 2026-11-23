@@ -438,6 +438,22 @@ interface TrackingInfo {
     history?: string[];
     url: string | null;
     images?: string[];
+    productTitle?: string | null;
+    imageLabels?: Record<string, string>;
+}
+
+function resolveSelectedProductTitle(
+    tracking: TrackingInfo,
+    selectedImages: string[]
+): string | null {
+    const labels = tracking.imageLabels;
+    if (labels && selectedImages.length > 0) {
+        const picked = Array.from(
+            new Set(selectedImages.map((u) => labels[u]).filter((v): v is string => Boolean(v)))
+        );
+        if (picked.length > 0) return picked.slice(0, 2).join(" · ");
+    }
+    return tracking.productTitle ?? null;
 }
 
 interface InvoiceFile {
@@ -1041,6 +1057,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     subject: labelled.subject,
                     history: labelled.tracking.history ?? [],
                     images: labelled.tracking.images ?? [],
+                    productTitle: labelled.tracking.productTitle ?? null,
                 });
                 if (labelled.tracking.url && labelled.tracking.numbers.length === 0) {
                     void resolveTrackingFromUrl(labelled.uid, labelled.tracking.url);
@@ -1745,6 +1762,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     folderLabel: label,
                     history: tracking.history ?? [],
                     images: selectedTrackingImages,
+                    productTitle: resolveSelectedProductTitle(tracking, selectedTrackingImages),
                     savedAt: new Date().toISOString(),
                 },
                 { replaceImages: Boolean(tracking.images && tracking.images.length > 0) }
@@ -2510,6 +2528,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                         url: detail.tracking?.url ?? null,
                                                         shippedAt: detail.date,
                                                         images: nextImages,
+                                                        productTitle: detail.tracking
+                                                            ? resolveSelectedProductTitle(
+                                                                  detail.tracking,
+                                                                  nextImages
+                                                              )
+                                                            : null,
                                                         replaceImages: true,
                                                     });
                                                 }
@@ -2521,8 +2545,17 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                     : [...selectedTrackingImages, imgUrl];
                                                 applyImageSelection(next);
                                             };
+                                            const selectedTitle = resolveSelectedProductTitle(
+                                                detail.tracking,
+                                                selectedTrackingImages
+                                            );
                                             return (
                                                 <div className="space-y-1.5">
+                                                    {selectedTitle && (
+                                                        <p className="text-[11px] font-semibold text-slate-800 truncate">
+                                                            {selectedTitle}
+                                                        </p>
+                                                    )}
                                                     <div className="flex items-center justify-between text-[10px]">
                                                         <span className="font-semibold text-slate-600">
                                                             Visuels ({selectedTrackingImages.length}/
@@ -2550,10 +2583,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                             </button>
                                                         </div>
                                                     </div>
-                                                    <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                                                    <div className="flex items-start gap-2 overflow-x-auto pb-0.5">
                                                         {detail.tracking.images.map((imgUrl, idx) => {
                                                             const selected =
                                                                 selectedTrackingImages.includes(imgUrl);
+                                                            const imgLabel =
+                                                                detail.tracking?.imageLabels?.[imgUrl];
                                                             return (
                                                                 <button
                                                                     key={`${detail.uid}-img-${idx}`}
@@ -2561,28 +2596,43 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                                     onClick={() => toggleImage(imgUrl)}
                                                                     aria-pressed={selected}
                                                                     title={
-                                                                        selected
-                                                                            ? "Cliquer pour retirer cette image"
-                                                                            : "Cliquer pour sélectionner cette image"
+                                                                        imgLabel
+                                                                            ? `${imgLabel} — ${
+                                                                                  selected
+                                                                                      ? "cliquer pour retirer"
+                                                                                      : "cliquer pour sélectionner"
+                                                                              }`
+                                                                            : selected
+                                                                              ? "Cliquer pour retirer cette image"
+                                                                              : "Cliquer pour sélectionner cette image"
                                                                     }
-                                                                    className={`relative h-14 w-14 rounded-xl overflow-hidden border-2 bg-white shrink-0 transition-all ${
-                                                                        selected
-                                                                            ? "border-violet-600 ring-2 ring-violet-200 opacity-100"
-                                                                            : "border-slate-200 opacity-45 grayscale hover:opacity-75"
-                                                                    }`}
+                                                                    className="flex flex-col items-center gap-1 w-16 shrink-0 text-left group"
                                                                 >
-                                                                    <img
-                                                                        src={imgUrl}
-                                                                        alt="Produit commandé"
-                                                                        onError={(e) => {
-                                                                            e.currentTarget.style.display =
-                                                                                "none";
-                                                                        }}
-                                                                        className="h-full w-full object-cover"
-                                                                    />
-                                                                    {selected && (
-                                                                        <span className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-violet-600 text-white flex items-center justify-center shadow">
-                                                                            <CheckCircle2 className="h-3 w-3" />
+                                                                    <div
+                                                                        className={`relative h-14 w-14 rounded-xl overflow-hidden border-2 bg-white transition-all ${
+                                                                            selected
+                                                                                ? "border-violet-600 ring-2 ring-violet-200 opacity-100"
+                                                                                : "border-slate-200 opacity-45 grayscale group-hover:opacity-75"
+                                                                        }`}
+                                                                    >
+                                                                        <img
+                                                                            src={imgUrl}
+                                                                            alt={imgLabel || "Produit commandé"}
+                                                                            onError={(e) => {
+                                                                                e.currentTarget.style.display =
+                                                                                    "none";
+                                                                            }}
+                                                                            className="h-full w-full object-cover"
+                                                                        />
+                                                                        {selected && (
+                                                                            <span className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-violet-600 text-white flex items-center justify-center shadow">
+                                                                                <CheckCircle2 className="h-3 w-3" />
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    {imgLabel && (
+                                                                        <span className="w-full text-[9px] leading-tight text-slate-600 line-clamp-2 text-center">
+                                                                            {imgLabel}
                                                                         </span>
                                                                     )}
                                                                 </button>

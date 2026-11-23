@@ -123,6 +123,10 @@ export interface GmailTracking {
     url: string | null;
     /** Visuels des produits commandés extraits de l'email. */
     images?: string[];
+    /** Intitulé du ou des produits commandés. */
+    productTitle?: string | null;
+    /** Intitulé associé à chaque URL d'image détectée. */
+    imageLabels?: Record<string, string>;
 }
 
 export interface GmailClassification {
@@ -510,10 +514,55 @@ function parsePixelSize(raw: string): number | null {
     return m ? Number(m[1]) : null;
 }
 
-/** Extrait les visuels des produits commandés depuis le HTML de l'email. */
-function extractProductImages(html: string): string[] {
-    if (!html) return [];
-    const scored: Array<{ url: string; score: number }> = [];
+function decodeBasicEntities(raw: string): string {
+    return raw
+        .replace(/&amp;/gi, "&")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;|&apos;|&rsquo;|&lsquo;/gi, "'")
+        .replace(/&ndash;|&mdash;/gi, "-")
+        .replace(/&eacute;/gi, "é")
+        .replace(/&egrave;/gi, "è")
+        .replace(/&ecirc;/gi, "ê")
+        .replace(/&agrave;/gi, "à")
+        .replace(/&ccedil;/gi, "ç")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+const GENERIC_IMAGE_ALT =
+    /^(?:image|photo|img|picture|product|produit|item|article|thumbnail|aperçu|visuel)$/i;
+
+const NON_PRODUCT_LINE =
+    /^(?:qty|quantit[ée]|qt[ée]|prix|price|total|sous-total|subtotal|livraison|shipping|taille|size|couleur|color|colis|suivi|voir|view|commander|order|x\s*\d+|\d+(?:[.,]\d{2})?\s*(?:€|eur|usd|\$|£|xpf))/i;
+
+function extractNearbyProductLabel(html: string, afterIndex: number): string | null {
+    const slice = html.slice(afterIndex, afterIndex + 700);
+    if (!slice) return null;
+    const withBreaks = slice.replace(/<(?:br|\/p|\/div|\/td|\/tr|\/li|\/h[1-6]|\/a)\b[^>]*>/gi, "\n");
+    const lines = withBreaks
+        .split(/\n/)
+        .map((line) => decodeBasicEntities(line))
+        .filter((line) => line.length >= 4 && line.length <= 90);
+    for (const line of lines) {
+        if (!/[a-zA-ZÀ-ÿ]{3,}/.test(line)) continue;
+        if (/^https?:\/\//i.test(line)) continue;
+        if (NON_PRODUCT_LINE.test(line)) continue;
+        if (EXCLUDED_IMAGE_ALT_OR_CLASS.test(line)) continue;
+        return line;
+    }
+    return null;
+}
+
+/** Extrait les visuels et intitulés des produits commandés depuis le HTML de l'email. */
+function extractProductVisuals(html: string): {
+    images: string[];
+    imageLabels: Record<string, string>;
+    productTitle: string | null;
+} {
+    if (!html) return { images: [], imageLabels: {}, productTitle: null };
+    const scored: Array<{ url: string; score: number; label: string | null }> = [];
     const seen = new Set<string>();
     const imgRe = /<img\b[^>]*>/gi;
 
@@ -531,7 +580,7 @@ function extractProductImages(html: string): string[] {
         if (EXCLUDED_IMAGE_URL.test(rawSrc)) continue;
         if (/[/_-](?:logo|favicon|spacer|pixel|icon|arrow|badge)[._/-]/i.test(rawSrc)) continue;
 
-        const alt = parseHtmlAttr(tag, "alt");
+        const alt = decodeBasicEntities(parseHtmlAttr(tag, "alt"));
         const className = parseHtmlAttr(tag, "class");
         const style = parseHtmlAttr(tag, "style");
         if (EXCLUDED_IMAGE_ALT_OR_CLASS.test(`${alt} ${className}`)) continue;
@@ -548,21 +597,38 @@ function extractProductImages(html: string): string[] {
         if (seen.has(rawSrc)) continue;
         seen.add(rawSrc);
 
+        const cleanAlt =
+            alt.length >= 4 && alt.length <= 90 && !GENERIC_IMAGE_ALT.test(alt) ? alt : null;
+        const label =
+            cleanAlt ??
+            (match.index !== undefined
+                ? extractNearbyProductLabel(html, match.index + tag.length)
+                : null);
+
         let score = 0;
         if ((width !== null && width >= 80) || (height !== null && height >= 80)) score += 3;
-        if (alt.length >= 4 && !/^(?:image|photo|img|picture)$/i.test(alt)) score += 2;
+        if (cleanAlt) score += 2;
         if (/(?:product|item|cdn|shopify|media|catalog|goods|article|upload|thumb|image)/i.test(rawSrc)) {
             score += 2;
         }
         if (/\.(?:jpe?g|webp|png)(?:\?|$)/i.test(rawSrc)) score += 1;
 
-        scored.push({ url: rawSrc, score });
+        scored.push({ url: rawSrc, score, label });
     }
 
-    return scored
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 4)
-        .map((entry) => entry.url);
+    const top = scored.sort((a, b) => b.score - a.score).slice(0, 4);
+    const images = top.map((entry) => entry.url);
+    const imageLabels: Record<string, string> = {};
+    const titles: string[] = [];
+    for (const entry of top) {
+        if (entry.label) {
+            imageLabels[entry.url] = entry.label;
+            if (!titles.includes(entry.label)) titles.push(entry.label);
+        }
+    }
+    const productTitle = titles.length > 0 ? titles.slice(0, 2).join(" · ") : null;
+
+    return { images, imageLabels, productTitle };
 }
 
 /**
@@ -584,7 +650,7 @@ export function extractTracking(input: {
 
     const numbers = trackingNumbersIn(`${body}\n${allUrls.join("\n")}`);
     const orderNumber = extractOrderNumber({ subject: input.subject, text: body });
-    const images = extractProductImages(input.html ?? "");
+    const { images, imageLabels, productTitle } = extractProductVisuals(input.html ?? "");
 
     const signature = SIGNATURE_CARRIERS.find((entry) =>
         numbers.some((number) => entry.pattern.test(number))
@@ -622,6 +688,8 @@ export function extractTracking(input: {
         history: trackingHistory(body),
         url,
         images,
+        productTitle,
+        imageLabels,
     };
 }
 

@@ -28,6 +28,8 @@ export interface SavedParcel {
     history: string[];
     /** Visuels des produits commandés. */
     images?: string[];
+    /** Intitulé du ou des produits commandés. */
+    productTitle?: string | null;
     savedAt: string;
 }
 
@@ -63,6 +65,7 @@ function sanitize(value: unknown): SavedParcel | null {
         folderLabel: text(raw.folderLabel) ?? undefined,
         history: strings(raw.history),
         images: strings(raw.images).slice(0, 4),
+        productTitle: text(raw.productTitle),
         savedAt: text(raw.savedAt) ?? new Date().toISOString(),
     };
 }
@@ -204,6 +207,10 @@ function mergeParcelData(
         folder: incoming.folder || existing.folder,
         folderLabel: incoming.folderLabel ?? existing.folderLabel,
         images: mergedImages,
+        productTitle:
+            incoming.productTitle !== undefined
+                ? incoming.productTitle || existing.productTitle || null
+                : existing.productTitle || null,
         history: uniqueStrings([...incomingHistory, ...existing.history], 12),
         savedAt: new Date().toISOString(),
     };

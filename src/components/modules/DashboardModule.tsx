@@ -562,6 +562,11 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           <p className="text-sm font-extrabold text-slate-900 truncate">
                             {parcel.store}
                           </p>
+                          {parcel.productTitle && (
+                            <p className="text-[11px] font-semibold text-slate-700 truncate">
+                              {parcel.productTitle}
+                            </p>
+                          )}
                           <p className="text-[10px] text-slate-500 truncate">
                             {parcel.carrier ?? "Transporteur non précisé"}
                             {parcel.orderNumber ? ` · #${parcel.orderNumber}` : ""}
