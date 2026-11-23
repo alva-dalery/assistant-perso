@@ -863,6 +863,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     if (firstToReply) {
                         autoOpenedRef.current = true;
                         void openMessage(firstToReply.uid);
+                    } else if (labelled.length > 0) {
+                        void prefetchUids(labelled.slice(0, 5).map((m) => m.uid));
                     }
                 }
             } catch {
@@ -1038,6 +1040,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         const list = messagesForFilter(value);
         if (list.length > 0) {
             void openMessage(list[0].uid);
+            void prefetchUids(list.slice(1, 6).map((m) => m.uid));
         } else {
             setDetail(null);
         }
@@ -1075,15 +1078,40 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         return promise;
     }
 
-    function prefetchNextMessage(currentUid: number) {
+    async function prefetchUids(uids: number[], concurrency = 2) {
+        const pending = uids.filter(
+            (id) => !detailSessionCache.has(id) && !inflightDetailFetches.has(id)
+        );
+        if (pending.length === 0) return;
+        let cursor = 0;
+        const worker = async () => {
+            while (cursor < pending.length) {
+                const nextId = pending[cursor++];
+                await fetchMessageDetail(nextId);
+            }
+        };
+        const workers = Array.from({ length: Math.min(concurrency, pending.length) }, () =>
+            worker()
+        );
+        await Promise.all(workers);
+    }
+
+    function prefetchNextMessages(currentUid: number) {
         const idx = visibleMessages.findIndex((item) => item.uid === currentUid);
-        const nextCandidate =
-            idx >= 0 ? (visibleMessages[idx + 1] ?? visibleMessages[idx - 1] ?? null) : null;
-        if (!nextCandidate) return;
-        if (detailSessionCache.has(nextCandidate.uid) || inflightDetailFetches.has(nextCandidate.uid)) {
-            return;
+        if (idx < 0) return;
+        const ahead: number[] = [];
+        for (let offset = 1; offset <= 6; offset += 1) {
+            const forward = visibleMessages[idx + offset];
+            if (forward) ahead.push(forward.uid);
         }
-        void fetchMessageDetail(nextCandidate.uid);
+        // Si on est vers la fin de la liste (ex. traitement des plus anciens), on précharge aussi en remontant.
+        if (ahead.length < 3) {
+            for (let offset = 1; offset <= 4; offset += 1) {
+                const backward = visibleMessages[idx - offset];
+                if (backward) ahead.push(backward.uid);
+            }
+        }
+        void prefetchUids(ahead);
     }
 
     async function openMessage(uid: number) {
@@ -1113,7 +1141,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             }
             const labelled = applyLabelOverride(data, labelOverrides[data.uid]);
             setDetail(labelled);
-            prefetchNextMessage(uid);
+            prefetchNextMessages(uid);
             if (labelled.tracking) {
                 setManualTrackingNumber(labelled.tracking.numbers[0] ?? "");
                 setManualTrackingCarrier(labelled.tracking.carrier ?? "");
