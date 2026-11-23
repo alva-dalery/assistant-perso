@@ -676,10 +676,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           </div>
                         )}
                         <div className="min-w-0">
-                          <p className="text-sm font-extrabold text-slate-900 truncate">
-                            {parcel.store}
-                          </p>
-                          {parcel.productTitle && (
+                          {parcel.productTitle ? (
                             <button
                               type="button"
                               onClick={() => {
@@ -689,16 +686,22 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                                 setEditParcelTitle(parcel.productTitle ?? "");
                               }}
                               title="Modifier l'intitulé du produit"
-                              className="text-left text-[11px] font-semibold text-slate-700 hover:text-violet-700 truncate block max-w-full"
+                              className="text-left text-sm font-extrabold text-slate-900 hover:text-violet-700 truncate block max-w-full"
                             >
                               {parcel.productTitle}
                             </button>
+                          ) : (
+                            <p className="text-sm font-extrabold text-slate-900 truncate">
+                              {parcel.store}
+                            </p>
                           )}
                           <p className="text-[10px] text-slate-500 truncate flex items-center gap-1.5">
-                            <span>{parcel.carrier ?? "Transporteur non précisé"}</span>
+                            {parcel.productTitle && (
+                              <span className="font-semibold text-slate-600">{parcel.store}</span>
+                            )}
                             {parcel.deliveryCity && (
                               <span className="inline-flex items-center gap-0.5 text-slate-600 font-semibold">
-                                <span>·</span>
+                                {parcel.productTitle && <span>·</span>}
                                 <MapPin className="h-2.5 w-2.5 text-violet-600 shrink-0" />
                                 <span>{parcel.deliveryCity}</span>
                               </span>
