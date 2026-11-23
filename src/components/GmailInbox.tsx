@@ -1837,16 +1837,16 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         const label =
             folders.find((folder) => folder.path === destination)?.label ?? destination;
         const storeName = tracking.store?.trim() || target.fromName || tracking.carrier || "Colis";
-        const alreadyTracked = Boolean(
-            findMatchingParcel({
-                uid: target.uid,
-                store: storeName,
-                orderNumber: tracking.orderNumber ?? null,
-                numbers: tracking.numbers,
-                url: tracking.url,
-                shippedAt: target.date,
-            })
-        );
+        const existingMatch = findMatchingParcel({
+            uid: target.uid,
+            store: storeName,
+            orderNumber: tracking.orderNumber ?? null,
+            numbers: tracking.numbers,
+            url: tracking.url,
+            shippedAt: target.date,
+        });
+        const alreadyTracked = Boolean(existingMatch);
+        const hasExistingImages = Boolean(existingMatch?.images && existingMatch.images.length > 0);
         const removedSummary = messages.find((item) => item.uid === target.uid) ?? null;
 
         addParcel(
@@ -1864,14 +1864,18 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 folder: destination,
                 folderLabel: label,
                 history: tracking.history ?? [],
-                images: selectedTrackingImages,
+                images: hasExistingImages ? existingMatch!.images! : selectedTrackingImages,
                 productTitle:
+                    existingMatch?.productTitle?.trim() ||
                     manualProductTitle.trim() ||
                     resolveSelectedProductTitle(tracking, selectedTrackingImages) ||
                     null,
                 savedAt: new Date().toISOString(),
             },
-            { replaceImages: Boolean(tracking.images && tracking.images.length > 0) }
+            {
+                replaceImages:
+                    !hasExistingImages && Boolean(tracking.images && tracking.images.length > 0),
+            }
         );
 
         setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
@@ -2632,6 +2636,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                         url: detail.tracking.url,
                                         shippedAt: detail.date,
                                     });
+                                    const hasExistingTitle = Boolean(
+                                        matchingExisting?.productTitle?.trim()
+                                    );
+                                    const hasExistingImages = Boolean(
+                                        matchingExisting?.images &&
+                                            matchingExisting.images.length > 0
+                                    );
                                     return (
                                     <div className="mt-3 rounded-2xl bg-violet-50/70 border border-violet-200/70 p-3 space-y-2.5">
                                         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -2658,6 +2669,32 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             </div>
                                         </div>
 
+                                        {(hasExistingTitle || hasExistingImages) && (
+                                            <div className="flex items-center gap-2.5 rounded-xl bg-white/80 border border-violet-200/60 px-2.5 py-1.5">
+                                                {hasExistingImages && (
+                                                    <img
+                                                        src={matchingExisting!.images![0]}
+                                                        alt={matchingExisting?.productTitle || "Produit"}
+                                                        onError={(e) => {
+                                                            e.currentTarget.style.display = "none";
+                                                        }}
+                                                        className="h-9 w-9 rounded-lg object-cover border border-violet-200/70 shrink-0"
+                                                    />
+                                                )}
+                                                <div className="min-w-0">
+                                                    {hasExistingTitle && (
+                                                        <p className="text-[11px] font-semibold text-slate-800 truncate">
+                                                            {matchingExisting!.productTitle}
+                                                        </p>
+                                                    )}
+                                                    <p className="text-[9px] text-slate-500">
+                                                        Visuel et intitulé déjà enregistrés (modifiables dans le dashboard)
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {!hasExistingTitle && (
                                         <div>
                                             <label className="block text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-1">
                                                 Intitulé du produit
@@ -2692,8 +2729,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                 className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-violet-200/80 text-[11px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-100"
                                             />
                                         </div>
+                                        )}
 
-                                        {detail.tracking.images && detail.tracking.images.length > 0 && (() => {
+                                        {!hasExistingImages && detail.tracking.images && detail.tracking.images.length > 0 && (() => {
                                             const applyImageSelection = (nextImages: string[]) => {
                                                 setSelectedTrackingImages(nextImages);
                                                 const autoTitle = detail.tracking

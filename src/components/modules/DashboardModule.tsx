@@ -532,6 +532,11 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                 const open = openParcel === parcel.uid;
                 const number = parcel.numbers[0] ?? "";
                 const delivered = Boolean(parcel.status && /livr/i.test(parcel.status));
+                const isShipped = Boolean(
+                  number ||
+                    (parcel.status &&
+                      /exp[ée]di|transit|cours|livr|relais|pris en charge/i.test(parcel.status))
+                );
                 return (
                   <div
                     key={parcel.uid}
@@ -564,9 +569,19 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                             {parcel.store}
                           </p>
                           {parcel.productTitle && (
-                            <p className="text-[11px] font-semibold text-slate-700 truncate">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingParcelUid(parcel.uid);
+                                setEditParcelNumber(parcel.numbers[0] ?? "");
+                                setEditParcelCarrier(parcel.carrier ?? "");
+                                setEditParcelTitle(parcel.productTitle ?? "");
+                              }}
+                              title="Modifier l'intitulé du produit"
+                              className="text-left text-[11px] font-semibold text-slate-700 hover:text-violet-700 truncate block max-w-full"
+                            >
                               {parcel.productTitle}
-                            </p>
+                            </button>
                           )}
                           <p className="text-[10px] text-slate-500 truncate">
                             {parcel.carrier ?? "Transporteur non précisé"}
@@ -587,7 +602,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
 
                     <div
                       className={`grid gap-2 text-[11px] ${
-                        number || parcel.url ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2"
+                        isShipped ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2"
                       }`}
                     >
                       <div className="min-w-0">
@@ -606,7 +621,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           {formatDay(parcel.orderedAt ?? parcel.shippedAt)}
                         </p>
                       </div>
-                      {(number || parcel.url) && (
+                      {isShipped && (
                         <div>
                           <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
                             Expédié le
