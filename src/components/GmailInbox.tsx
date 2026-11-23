@@ -1054,60 +1054,147 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
 
         const normSender = (v: string | null | undefined) =>
             v ? v.trim().toLowerCase().replace(/\s+/g, " ") : "";
+        const normOrder = (v: string | null | undefined) =>
+            v ? v.trim().replace(/^[#°\s]+/, "").toUpperCase() : "";
+        const normTrack = (v: string | null | undefined) =>
+            v ? v.trim().toUpperCase() : "";
+        const isGenericCarrier = (name: string) =>
+            /^(?:colis|la poste|colissimo|la poste\s*\/\s*colissimo|chronopost|ups|dhl|fedex|dpd|gls|mondial\s*relay|relais\s*colis|colis\s*priv[ée])$/i.test(
+                name.trim()
+            );
 
-        // Passe 1 : créer les clés par nom d'expéditeur (sauf déplacement manuel/appris)
-        const senderToKey = new Map<string, string>();
-        for (const msg of visibleMessages) {
-            const senderLabel = msg.fromName?.trim() || msg.fromEmail?.trim() || "Expéditeur inconnu";
-            const norm = normSender(senderLabel);
-            const key = norm ? `sender:${norm}` : `uid:${msg.uid}`;
-            if (norm && !senderToKey.has(norm)) senderToKey.set(norm, key);
-        }
+        // Passe 1 : recenser les marchands (non-transporteurs) et relier n° de commande / n° de suivi -> marchand
+        const knownMerchants = new Set<string>();
+        const orderToMerchant = new Map<string, string>();
+        const trackToMerchant = new Map<string, string>();
+        const urlToMerchant = new Map<string, string>();
 
-        // Passe 2 : assigner chaque email à son groupe d'expéditeur (ou groupe appris/déplacé)
         for (const msg of visibleMessages) {
             const cached = detailSessionCache.get(msg.uid);
-            const senderLabel = msg.fromName?.trim() || msg.fromEmail?.trim() || "Expéditeur inconnu";
-            const norm = normSender(senderLabel);
-            const rawOrder = cached?.tracking?.orderNumber ?? msg.orderNumber ?? null;
-            const tNum = cached?.tracking?.numbers?.[0] ?? msg.trackingNumber ?? null;
+            const rawOrder = normOrder(cached?.tracking?.orderNumber ?? msg.orderNumber);
+            const tNums = Array.from(
+                new Set(
+                    [
+                        ...(cached?.tracking?.numbers ?? []),
+                        ...(msg.trackingNumber ? [msg.trackingNumber] : []),
+                    ]
+                        .map(normTrack)
+                        .filter(Boolean)
+                )
+            );
+            const tUrl = cached?.tracking?.url?.trim() || "";
             const matchedParcel = findMatchingParcel({
                 uid: msg.uid,
-                orderNumber: rawOrder,
-                numbers: tNum ? [tNum] : [],
-                url: cached?.tracking?.url ?? null,
+                orderNumber: rawOrder || null,
+                numbers: tNums,
+                url: tUrl || null,
             });
-            const candidateProduct =
-                matchedParcel?.productTitle || cached?.tracking?.productTitle || null;
+            const candidateStore =
+                (matchedParcel?.store && !isGenericCarrier(matchedParcel.store)
+                    ? matchedParcel.store
+                    : null) ||
+                (cached?.tracking?.store && !isGenericCarrier(cached.tracking.store)
+                    ? cached.tracking.store.trim()
+                    : null) ||
+                (!isGenericCarrier(msg.fromName) ? msg.fromName.trim() : null);
+
+            if (candidateStore) {
+                knownMerchants.add(candidateStore);
+                if (rawOrder && !orderToMerchant.has(rawOrder)) {
+                    orderToMerchant.set(rawOrder, candidateStore);
+                }
+                for (const tn of tNums) {
+                    if (!trackToMerchant.has(tn)) trackToMerchant.set(tn, candidateStore);
+                }
+                if (tUrl && !urlToMerchant.has(tUrl)) {
+                    urlToMerchant.set(tUrl, candidateStore);
+                }
+            }
+        }
+
+        // Passe 2 : assigner chaque email au groupe de son site marchand (jamais au transporteur si le marchand est connu)
+        for (const msg of visibleMessages) {
+            const cached = detailSessionCache.get(msg.uid);
+            const rawOrder = cached?.tracking?.orderNumber ?? msg.orderNumber ?? null;
+            const oNum = normOrder(rawOrder);
+            const tNums = Array.from(
+                new Set(
+                    [
+                        ...(cached?.tracking?.numbers ?? []),
+                        ...(msg.trackingNumber ? [msg.trackingNumber] : []),
+                    ]
+                        .map(normTrack)
+                        .filter(Boolean)
+                )
+            );
+            const tUrl = cached?.tracking?.url?.trim() || "";
+            const matchedParcel = findMatchingParcel({
+                uid: msg.uid,
+                orderNumber: oNum || null,
+                numbers: tNums,
+                url: tUrl || null,
+            });
+
+            let merchantName =
+                (matchedParcel?.store && !isGenericCarrier(matchedParcel.store)
+                    ? matchedParcel.store
+                    : null) ||
+                (oNum ? orderToMerchant.get(oNum) : undefined) ||
+                tNums.map((tn) => trackToMerchant.get(tn)).find(Boolean) ||
+                (tUrl ? urlToMerchant.get(tUrl) : undefined) ||
+                (cached?.tracking?.store && !isGenericCarrier(cached.tracking.store)
+                    ? cached.tracking.store.trim()
+                    : null) ||
+                (!isGenericCarrier(msg.fromName) ? msg.fromName.trim() : null);
+
+            // Si l'email vient d'un transporteur (ex. Colissimo), vérifier si l'objet ou le corps cite un marchand connu
+            if (!merchantName) {
+                const haystack = `${msg.subject}\n${cached?.text ?? ""}`.toLowerCase();
+                merchantName =
+                    Array.from(knownMerchants).find((m) => haystack.includes(m.toLowerCase())) ??
+                    null;
+            }
+
+            const fallbackSender =
+                msg.fromName?.trim() || msg.fromEmail?.trim() || "Expéditeur inconnu";
+            const resolvedStore = merchantName || fallbackSender;
+            const norm = normSender(resolvedStore);
 
             const manualOverride = orderGroupOverrides[msg.uid];
             const learnedRule = !manualOverride
                 ? findLearnedOrderGroupRule({ fromEmail: msg.fromEmail, subject: msg.subject })
                 : null;
-            const learnedKey = learnedRule?.targetStore
-                ? senderToKey.get(normSender(learnedRule.targetStore))
-                : undefined;
+            const learnedStore =
+                learnedRule?.targetStore && !isGenericCarrier(learnedRule.targetStore)
+                    ? learnedRule.targetStore
+                    : null;
 
             const key =
                 manualOverride ||
-                learnedKey ||
+                (learnedStore ? `sender:${normSender(learnedStore)}` : undefined) ||
                 (norm ? `sender:${norm}` : `uid:${msg.uid}`);
+
+            const candidateProduct =
+                matchedParcel?.productTitle || cached?.tracking?.productTitle || null;
 
             const existing = groups.get(key);
             if (existing) {
                 existing.items.push(msg);
                 if (!existing.orderNumber && rawOrder) existing.orderNumber = rawOrder;
-                if (!existing.trackingNumber && tNum) existing.trackingNumber = tNum;
+                if (!existing.trackingNumber && tNums[0]) existing.trackingNumber = tNums[0];
+                if (isGenericCarrier(existing.storeName) && !isGenericCarrier(resolvedStore)) {
+                    existing.storeName = resolvedStore;
+                }
                 if (!existing.productTitle && candidateProduct) {
                     existing.productTitle = candidateProduct;
                 }
             } else {
                 groups.set(key, {
                     key,
-                    storeName: senderLabel,
+                    storeName: learnedStore || resolvedStore,
                     productTitle: candidateProduct,
                     orderNumber: rawOrder ?? matchedParcel?.orderNumber ?? null,
-                    trackingNumber: tNum ?? matchedParcel?.numbers[0] ?? null,
+                    trackingNumber: tNums[0] ?? matchedParcel?.numbers[0] ?? null,
                     items: [msg],
                 });
             }
