@@ -31,7 +31,7 @@ import type {
 } from "@/types";
 import { loadParcels, removeParcel, TRACKING_EVENT, updateParcel } from "@/lib/trackingMemory";
 import type { SavedParcel } from "@/lib/trackingMemory";
-import { getAiHeaders, getLaPosteHeaders } from "@/lib/aiClient";
+import { getLaPosteHeaders } from "@/lib/aiClient";
 import { todayDateString } from "@/lib/storage";
 
 const FRENCH_MONTHS: Record<string, number> = {
@@ -167,8 +167,6 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
   const [editParcelTitle, setEditParcelTitle] = useState("");
   const [refreshingParcelUid, setRefreshingParcelUid] = useState<number | null>(null);
   const [parcelErrors, setParcelErrors] = useState<Record<number, string>>({});
-  const [pasteTrackingUid, setPasteTrackingUid] = useState<number | null>(null);
-  const [pasteTrackingText, setPasteTrackingText] = useState("");
 
   // Calendrier réel dynamique (hydraté côté client pour éviter toute divergence UTC SSR / navigateur)
   const [todayStr, setTodayStr] = useState<string>("");
@@ -855,84 +853,6 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                             l'historique complet.
                           </p>
                         )}
-                        <div className="pt-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPasteTrackingUid(
-                                pasteTrackingUid === parcel.uid ? null : parcel.uid
-                              );
-                              setPasteTrackingText("");
-                            }}
-                            className="text-[10px] font-bold text-violet-700 hover:underline"
-                          >
-                            {pasteTrackingUid === parcel.uid
-                              ? "Fermer le collage"
-                              : "+ Coller le texte de la page de suivi (extraction IA)"}
-                          </button>
-                          {pasteTrackingUid === parcel.uid && (
-                            <form
-                              onSubmit={async (e) => {
-                                e.preventDefault();
-                                if (!pasteTrackingText.trim()) return;
-                                setRefreshingParcelUid(parcel.uid);
-                                try {
-                                  const res = await fetch("/api/gmail/tracking-history", {
-                                    method: "POST",
-                                    headers: {
-                                      "Content-Type": "application/json",
-                                      ...getAiHeaders(),
-                                    },
-                                    credentials: "same-origin",
-                                    body: JSON.stringify({ rawText: pasteTrackingText.trim() }),
-                                  });
-                                  const data = (await res.json()) as {
-                                    status?: string | null;
-                                    carrier?: string | null;
-                                    history?: string[];
-                                    error?: string;
-                                  };
-                                  if (!res.ok) {
-                                    setParcelErrors((prev) => ({
-                                      ...prev,
-                                      [parcel.uid]: data.error || "Extraction impossible.",
-                                    }));
-                                  } else {
-                                    const next = updateParcel(parcel.uid, {
-                                      status: data.status || parcel.status,
-                                      carrier: data.carrier || parcel.carrier,
-                                      history:
-                                        Array.isArray(data.history) && data.history.length > 0
-                                          ? data.history
-                                          : parcel.history,
-                                    });
-                                    setParcels(next);
-                                    setPasteTrackingUid(null);
-                                    setPasteTrackingText("");
-                                  }
-                                } finally {
-                                  setRefreshingParcelUid(null);
-                                }
-                              }}
-                              className="mt-2 space-y-1.5"
-                            >
-                              <textarea
-                                rows={3}
-                                value={pasteTrackingText}
-                                onChange={(e) => setPasteTrackingText(e.target.value)}
-                                placeholder="Copiez-collez ici le texte de la page Colissimo / Kapten & Son..."
-                                className="w-full p-2 rounded-xl bg-slate-50 border border-slate-200 text-[11px]"
-                              />
-                              <button
-                                type="submit"
-                                disabled={!pasteTrackingText.trim() || refreshingParcelUid === parcel.uid}
-                                className="px-3 py-1 rounded-lg bg-violet-600 text-white text-[10px] font-bold disabled:opacity-40"
-                              >
-                                Extraire l'historique (DeepSeek)
-                              </button>
-                            </form>
-                          )}
-                        </div>
                       </div>
                     )}
                   </div>
