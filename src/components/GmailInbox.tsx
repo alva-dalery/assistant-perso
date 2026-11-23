@@ -80,6 +80,8 @@ interface InboxMessage {
     category: GmailCategory;
     needsReply: boolean;
     reason: string;
+    orderNumber?: string | null;
+    trackingNumber?: string | null;
 }
 
 interface MessageDetail extends InboxMessage {
@@ -1009,6 +1011,73 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                             : filter === "later"
                                 ? later
                                 : messages;
+
+    const commandeGroups = useMemo(() => {
+        if (filter !== "commande") return [];
+        const groups = new Map<
+            string,
+            {
+                key: string;
+                title: string;
+                orderNumber: string | null;
+                items: InboxMessage[];
+            }
+        >();
+        const storeSingleGroupKey = new Map<string, string>();
+
+        for (const msg of visibleMessages) {
+            const cachedDetail = detailSessionCache.get(msg.uid);
+            const orderNum =
+                cachedDetail?.tracking?.orderNumber ?? msg.orderNumber ?? null;
+            const trackNum =
+                cachedDetail?.tracking?.numbers?.[0] ?? msg.trackingNumber ?? null;
+            const storeLabel =
+                cachedDetail?.tracking?.store?.trim() ||
+                msg.fromName ||
+                msg.fromEmail ||
+                "Commande";
+            const normStore = storeLabel.toLowerCase().replace(/[^a-z0-9]/g, "");
+            const matchedParcel = findMatchingParcel({
+                uid: msg.uid,
+                store: storeLabel,
+                orderNumber: orderNum,
+                numbers: trackNum ? [trackNum] : [],
+                shippedAt: msg.date,
+            });
+
+            let key = "";
+            if (orderNum) {
+                key = `order:${orderNum.replace(/^[#°\s]+/, "").toUpperCase()}`;
+            } else if (matchedParcel) {
+                key = `parcel:${matchedParcel.uid}`;
+            } else if (trackNum) {
+                key = `track:${trackNum.toUpperCase()}`;
+            } else if (normStore && storeSingleGroupKey.has(normStore)) {
+                key = storeSingleGroupKey.get(normStore)!;
+            } else {
+                key = normStore ? `store:${normStore}` : `uid:${msg.uid}`;
+            }
+
+            if (normStore && !storeSingleGroupKey.has(normStore)) {
+                storeSingleGroupKey.set(normStore, key);
+            }
+
+            const existing = groups.get(key);
+            if (existing) {
+                existing.items.push(msg);
+                if (!existing.orderNumber && orderNum) existing.orderNumber = orderNum;
+            } else {
+                groups.set(key, {
+                    key,
+                    title: matchedParcel?.productTitle || storeLabel,
+                    orderNumber: orderNum ?? matchedParcel?.orderNumber ?? null,
+                    items: [msg],
+                });
+            }
+        }
+
+        return Array.from(groups.values());
+    }, [filter, visibleMessages, detail]);
 
     const invoiceRowList = useMemo(
         () =>
@@ -2618,7 +2687,70 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                 : "Aucun message dans cette catégorie."}
                         </p>
                     )}
-                    {visibleMessages.map((message) => (
+                    {filter === "commande"
+                        ? commandeGroups.map((group) => (
+                              <div
+                                  key={group.key}
+                                  className="rounded-2xl bg-violet-50/40 border border-violet-200/70 p-2 space-y-1.5"
+                              >
+                                  <div className="flex items-center justify-between gap-2 px-1.5 pt-0.5">
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                          <Package className="h-3.5 w-3.5 text-violet-600 shrink-0" />
+                                          <span className="text-[11px] font-extrabold text-slate-800 truncate">
+                                              {group.title}
+                                          </span>
+                                          {group.orderNumber && (
+                                              <span className="font-mono text-[9px] font-bold text-violet-700 bg-white px-1.5 py-0.5 rounded-md border border-violet-200/70 shrink-0">
+                                                  #{group.orderNumber}
+                                              </span>
+                                          )}
+                                      </div>
+                                      <span className="text-[10px] font-bold text-violet-700 shrink-0">
+                                          {group.items.length} mail{group.items.length > 1 ? "s" : ""}
+                                      </span>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                      {group.items.map((message) => (
+                                          <div
+                                              key={message.uid}
+                                              role="button"
+                                              tabIndex={0}
+                                              onClick={() => void openMessage(message.uid)}
+                                              onKeyDown={(event) => {
+                                                  if (
+                                                      event.key === "Enter" ||
+                                                      event.key === " "
+                                                  ) {
+                                                      event.preventDefault();
+                                                      void openMessage(message.uid);
+                                                  }
+                                              }}
+                                              className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer ${
+                                                  detail?.uid === message.uid
+                                                      ? "bg-white border-teal-500 shadow-sm ring-2 ring-teal-50"
+                                                      : "bg-white/90 border-slate-200/70 hover:bg-white hover:border-slate-300"
+                                              }`}
+                                          >
+                                              <div className="flex items-center justify-between gap-2 mb-0.5">
+                                                  <span className="text-[11px] font-bold text-slate-800 truncate">
+                                                      {!message.seen && (
+                                                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-500 mr-1.5 align-middle" />
+                                                      )}
+                                                      {message.fromName}
+                                                  </span>
+                                                  <span className="text-[10px] text-slate-400 shrink-0">
+                                                      {formatDate(message.date)}
+                                                  </span>
+                                              </div>
+                                              <p className="text-[11px] font-medium text-slate-600 truncate">
+                                                  {message.subject}
+                                              </p>
+                                          </div>
+                                      ))}
+                                  </div>
+                              </div>
+                          ))
+                        : visibleMessages.map((message) => (
                         <div
                             key={message.uid}
                             role="button"

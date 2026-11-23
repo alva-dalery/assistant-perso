@@ -135,6 +135,8 @@ export interface GmailClassification {
     category: GmailCategory;
     needsReply: boolean;
     reason: string;
+    orderNumber?: string | null;
+    trackingNumber?: string | null;
 }
 
 /** En-têtes utiles pour reconnaître une diffusion de masse. */
@@ -1832,6 +1834,14 @@ function toSummary(
               reason: `Déjà répondu — ${classification.reason}`,
           }
         : classification;
+    const orderNumber =
+        finalClassification.category === "commande"
+            ? extractOrderNumber({ subject, text: snippet })
+            : null;
+    const trackingNumber =
+        finalClassification.category === "commande"
+            ? (trackingNumbersIn(`${subject}\n${snippet}`)[0] ?? null)
+            : null;
     return {
         uid: message.uid,
         subject,
@@ -1841,6 +1851,8 @@ function toSummary(
         seen: message.flags ? message.flags.has("\\Seen") : false,
         answered,
         ...finalClassification,
+        orderNumber,
+        trackingNumber,
     };
 }
 
