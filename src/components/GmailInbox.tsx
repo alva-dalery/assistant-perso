@@ -1187,7 +1187,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 (norm ? `sender:${norm}` : `uid:${msg.uid}`);
 
             const candidateProduct =
-                matchedParcel?.productTitle || cached?.tracking?.productTitle || null;
+                (detail?.uid === msg.uid && manualProductTitle.trim()
+                    ? manualProductTitle.trim()
+                    : null) ||
+                matchedParcel?.productTitle ||
+                cached?.tracking?.productTitle ||
+                null;
 
             const existing = groups.get(key);
             if (existing) {
@@ -1213,7 +1218,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         }
 
         return Array.from(groups.values());
-    }, [filter, visibleMessages, detail, detailCacheVersion, orderGroupOverrides]);
+    }, [filter, visibleMessages, detail, detailCacheVersion, orderGroupOverrides, manualProductTitle]);
 
     function moveMessageToOrderGroup(msg: InboxMessage, targetKey: string) {
         const nextOverrides = { ...orderGroupOverrides, [msg.uid]: targetKey };

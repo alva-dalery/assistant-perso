@@ -751,6 +751,21 @@ function extractProductVisuals(html: string): {
     return { images, imageLabels, productTitle };
 }
 
+function extractProductTitleFromText(text: string): string | null {
+    if (!text) return null;
+    // Ex: "1 x Tromso Backpack Sandstone" ou "1x Sac à dos..."
+    const qtyMatch = text.match(
+        /(?:^|\n)\s*\d{1,2}\s*[x×]\s+([A-ZÀ-ÖØ-Ý0-9][^\n]{3,75})/m
+    );
+    if (qtyMatch?.[1]) {
+        const candidate = qtyMatch[1].replace(/\s+\d+[.,]\d{2}\s*(?:€|eur|\$|£|xpf).*$/i, "").trim();
+        if (candidate.length >= 4 && !NON_PRODUCT_LINE.test(candidate)) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
 /**
  * Reconnaît un suivi de colis et rassemble les informations utiles
  * (transporteur, numéro, statut, date de livraison, lien de suivi, visuels).
@@ -771,7 +786,10 @@ export function extractTracking(input: {
 
     const numbers = trackingNumbersIn(`${body}\n${allUrls.join("\n")}`);
     const orderNumber = extractOrderNumber({ subject: input.subject, text: body });
-    const { images, imageLabels, productTitle } = extractProductVisuals(input.html ?? "");
+    const { images, imageLabels, productTitle: visualProductTitle } = extractProductVisuals(
+        input.html ?? ""
+    );
+    const productTitle = visualProductTitle ?? extractProductTitleFromText(body);
 
     const signature = SIGNATURE_CARRIERS.find((entry) =>
         numbers.some((number) => entry.pattern.test(number))
