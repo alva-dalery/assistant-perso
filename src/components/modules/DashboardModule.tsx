@@ -676,7 +676,10 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           </div>
                         )}
                         <div className="min-w-0">
-                          {parcel.productTitle ? (
+                          <p className="text-sm font-extrabold text-slate-900 truncate">
+                            {parcel.store}
+                          </p>
+                          {parcel.productTitle && (
                             <button
                               type="button"
                               onClick={() => {
@@ -686,27 +689,17 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                                 setEditParcelTitle(parcel.productTitle ?? "");
                               }}
                               title="Modifier l'intitulé du produit"
-                              className="text-left text-sm font-extrabold text-slate-900 hover:text-violet-700 truncate block max-w-full"
+                              className="text-left text-[11px] font-semibold text-slate-700 hover:text-violet-700 truncate block max-w-full"
                             >
                               {parcel.productTitle}
                             </button>
-                          ) : (
-                            <p className="text-sm font-extrabold text-slate-900 truncate">
-                              {parcel.store}
+                          )}
+                          {parcel.deliveryCity && (
+                            <p className="text-[10px] text-slate-500 truncate flex items-center gap-1 mt-0.5">
+                              <MapPin className="h-2.5 w-2.5 text-violet-600 shrink-0" />
+                              <span>{parcel.deliveryCity}</span>
                             </p>
                           )}
-                          <p className="text-[10px] text-slate-500 truncate flex items-center gap-1.5">
-                            {parcel.productTitle && (
-                              <span className="font-semibold text-slate-600">{parcel.store}</span>
-                            )}
-                            {parcel.deliveryCity && (
-                              <span className="inline-flex items-center gap-0.5 text-slate-600 font-semibold">
-                                {parcel.productTitle && <span>·</span>}
-                                <MapPin className="h-2.5 w-2.5 text-violet-600 shrink-0" />
-                                <span>{parcel.deliveryCity}</span>
-                              </span>
-                            )}
-                          </p>
                         </div>
                       </div>
                       <span

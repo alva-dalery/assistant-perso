@@ -416,21 +416,35 @@ function isValidCityCandidate(city: string): boolean {
 }
 
 const POSTAL_CITY_RE =
-    /\b(\d{5})\s+([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{1,35}?)(?=\s*(?:\r?\n|,|France|Nouvelle-Cal[ée]donie|New Caledonia|\d|$))/gi;
+    /\b(\d{5})(?:\s*[-–—,]\s*|\s+)([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{1,35}?)(?=\s*(?:\r?\n|,|France|Nouvelle-Cal[ée]donie|New Caledonia|\d|$))/gi;
+
+const CITY_POSTAL_RE =
+    /\b([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{2,35}?)(?:\s*[-–—,]\s*|\s+)(\d{5})\b/gi;
+
+function extractCityFromBlock(block: string): string | null {
+    POSTAL_CITY_RE.lastIndex = 0;
+    for (const m of block.matchAll(POSTAL_CITY_RE)) {
+        const city = formatCityName(m[2] ?? "");
+        if (isValidCityCandidate(city)) return city;
+    }
+    CITY_POSTAL_RE.lastIndex = 0;
+    for (const m of block.matchAll(CITY_POSTAL_RE)) {
+        const city = formatCityName(m[1] ?? "");
+        if (isValidCityCandidate(city)) return city;
+    }
+    return null;
+}
 
 /** Extrait la ville de livraison depuis l'adresse de livraison de l'email. */
 function extractDeliveryCity(text: string): string | null {
     if (!text) return null;
     const deliverySectionRe =
-        /(?:adresse\s+de\s+livraison|livr[ée]\s+[àa]|livraison\s+[àa]|shipping\s+address|delivery\s+address|ship\s+to|deliver\s+to|destinataire)\b([\s\S]{0,280})/gi;
+        /(?:adresse\s+de\s+livraison|lieu\s+de\s+livraison|adresse\s+d.exp[ée]dition|adresse\s+d.envoi|livr[ée]\s+[àa]|livraison\s+[àa]|shipping\s+address|delivery\s+address|ship\s+to|deliver\s+to|destinataire)\b([\s\S]{0,450})/gi;
 
     for (const section of text.matchAll(deliverySectionRe)) {
         const block = section[1] ?? "";
-        POSTAL_CITY_RE.lastIndex = 0;
-        for (const m of block.matchAll(POSTAL_CITY_RE)) {
-            const city = formatCityName(m[2] ?? "");
-            if (isValidCityCandidate(city)) return city;
-        }
+        const found = extractCityFromBlock(block);
+        if (found) return found;
     }
 
     POSTAL_CITY_RE.lastIndex = 0;
