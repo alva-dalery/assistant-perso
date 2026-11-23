@@ -763,6 +763,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [manualHistoryEntry, setManualHistoryEntry] = useState("");
     const [autoHistoryEntry, setAutoHistoryEntry] = useState("");
     const [historyEntryLearned, setHistoryEntryLearned] = useState(false);
+    const [detailCacheVersion, setDetailCacheVersion] = useState(0);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(Boolean(inboxSessionCache?.messages.length));
     const autoAllRef = useRef(false);
@@ -1024,22 +1025,24 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 items: InboxMessage[];
             }
         >();
-        // Associe chaque numéro de suivi connu à une clé de commande canonique
-        // (ex. un mail marchand qui contient à la fois n° de commande et n° Colissimo
-        // permet de rattacher les mails Colissimo portant ce même n° de suivi).
         const trackToGroupKey = new Map<string, string>();
         const orderToGroupKey = new Map<string, string>();
+        const urlToGroupKey = new Map<string, string>();
+        // Store -> ensemble des clés d'ordres distincts pour ce marchand
+        const storeOrderKeys = new Map<string, Set<string>>();
 
         const normOrder = (v: string | null | undefined) =>
             v ? v.trim().replace(/^[#°\s]+/, "").toUpperCase() : "";
         const normTrack = (v: string | null | undefined) =>
             v ? v.trim().toUpperCase() : "";
+        const normStore = (v: string | null | undefined) =>
+            v ? v.trim().toLowerCase().replace(/[^a-z0-9]/g, "") : "";
         const isGenericCarrier = (name: string) =>
             /^(?:la poste|colissimo|chronopost|ups|dhl|fedex|dpd|gls|mondial\s*relay|relais\s*colis|colis\s*priv[ée])$/i.test(
                 name.trim()
             );
 
-        // Passe 1 : indexer les correspondances orderNumber <-> trackingNumber connues
+        // Passe 1 : indexer toutes les clés canoniques (orderNumber, trackingNumber, trackingUrl, parcel)
         for (const msg of visibleMessages) {
             const cached = detailSessionCache.get(msg.uid);
             const oNum = normOrder(cached?.tracking?.orderNumber ?? msg.orderNumber);
@@ -1053,11 +1056,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                         .filter(Boolean)
                 )
             );
+            const tUrl = cached?.tracking?.url?.trim() || "";
             const matchedParcel = findMatchingParcel({
                 uid: msg.uid,
                 orderNumber: oNum || null,
                 numbers: tNums,
-                url: cached?.tracking?.url ?? null,
+                url: tUrl || null,
             });
             const canonicalKey = oNum
                 ? `order:${oNum}`
@@ -1065,9 +1069,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                   ? `parcel:${matchedParcel.uid}`
                   : tNums[0]
                     ? `track:${tNums[0]}`
-                    : "";
+                    : tUrl
+                      ? `url:${tUrl}`
+                      : "";
             if (!canonicalKey) continue;
+
             if (oNum && !orderToGroupKey.has(oNum)) orderToGroupKey.set(oNum, canonicalKey);
+            if (tUrl && !urlToGroupKey.has(tUrl)) urlToGroupKey.set(tUrl, canonicalKey);
             for (const tn of tNums) {
                 if (!trackToGroupKey.has(tn)) trackToGroupKey.set(tn, canonicalKey);
             }
@@ -1075,10 +1083,24 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 for (const tn of matchedParcel.numbers.map(normTrack).filter(Boolean)) {
                     if (!trackToGroupKey.has(tn)) trackToGroupKey.set(tn, canonicalKey);
                 }
+                if (matchedParcel.url && !urlToGroupKey.has(matchedParcel.url)) {
+                    urlToGroupKey.set(matchedParcel.url, canonicalKey);
+                }
+            }
+
+            const storeName =
+                matchedParcel?.store ||
+                cached?.tracking?.store?.trim() ||
+                msg.fromName ||
+                "";
+            const sNorm = normStore(storeName);
+            if (sNorm && !isGenericCarrier(storeName)) {
+                if (!storeOrderKeys.has(sNorm)) storeOrderKeys.set(sNorm, new Set());
+                storeOrderKeys.get(sNorm)!.add(canonicalKey);
             }
         }
 
-        // Passe 2 : regrouper strictement par commande / n° de suivi / colis suivi (jamais par expéditeur seul)
+        // Passe 2 : regrouper chaque email vers sa commande
         for (const msg of visibleMessages) {
             const cached = detailSessionCache.get(msg.uid);
             const rawOrder = cached?.tracking?.orderNumber ?? msg.orderNumber ?? null;
@@ -1093,12 +1115,16 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                         .filter(Boolean)
                 )
             );
+            const tUrl = cached?.tracking?.url?.trim() || "";
             const matchedParcel = findMatchingParcel({
                 uid: msg.uid,
                 orderNumber: oNum || null,
                 numbers: tNums,
-                url: cached?.tracking?.url ?? null,
+                url: tUrl || null,
             });
+            const candidateStore =
+                cached?.tracking?.store?.trim() || msg.fromName || msg.fromEmail || "Commande";
+            const sNorm = normStore(candidateStore);
 
             let key = "";
             if (oNum && orderToGroupKey.has(oNum)) {
@@ -1107,19 +1133,30 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 key = `order:${oNum}`;
             } else {
                 const linkedByTrack = tNums.map((tn) => trackToGroupKey.get(tn)).find(Boolean);
+                const linkedByUrl = tUrl ? urlToGroupKey.get(tUrl) : undefined;
                 if (linkedByTrack) {
                     key = linkedByTrack;
+                } else if (linkedByUrl) {
+                    key = linkedByUrl;
                 } else if (matchedParcel) {
                     key = `parcel:${matchedParcel.uid}`;
                 } else if (tNums[0]) {
                     key = `track:${tNums[0]}`;
+                } else if (tUrl) {
+                    key = `url:${tUrl}`;
+                } else if (
+                    sNorm &&
+                    !isGenericCarrier(candidateStore) &&
+                    storeOrderKeys.get(sNorm)?.size === 1
+                ) {
+                    // Si ce marchand n'a qu'une seule commande identifiée, rattacher les mails
+                    // de ce même marchand qui n'avaient pas répété le n° de commande.
+                    key = Array.from(storeOrderKeys.get(sNorm)!)[0];
                 } else {
                     key = `uid:${msg.uid}`;
                 }
             }
 
-            const candidateStore =
-                cached?.tracking?.store?.trim() || msg.fromName || msg.fromEmail || "Commande";
             const existing = groups.get(key);
             if (existing) {
                 existing.items.push(msg);
@@ -1140,7 +1177,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         }
 
         return Array.from(groups.values());
-    }, [filter, visibleMessages, detail]);
+    }, [filter, visibleMessages, detail, detailCacheVersion]);
 
     const invoiceRowList = useMemo(
         () =>
@@ -1226,6 +1263,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     const oldestKey = detailSessionCache.keys().next().value;
                     if (oldestKey !== undefined) detailSessionCache.delete(oldestKey);
                 }
+                setDetailCacheVersion((v) => v + 1);
                 return data;
             } catch {
                 return null;
@@ -1806,6 +1844,17 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             setInvoiceWorking(false);
         }
     }
+
+    // Quand on est sur l'onglet Commandes, précharger tous les mails de commande
+    // pour lire leur n° de commande, n° de suivi et lien afin de bien les regrouper.
+    useEffect(() => {
+        if (filter !== "commande" || commandes.length === 0) return;
+        void prefetchUids(
+            commandes.map((m) => m.uid),
+            3
+        );
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filter, commandes.length]);
 
     // ----- Onglet Factures : analyse en lot, sans ouvrir chaque email -----
     useEffect(() => {
