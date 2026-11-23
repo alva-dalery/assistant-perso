@@ -771,6 +771,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [orderGroupOverrides, setOrderGroupOverrides] = useState<Record<number, string>>(() =>
         loadOrderGroupOverrides()
     );
+    const [collapsedOrderGroups, setCollapsedOrderGroups] = useState<Record<string, boolean>>({});
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(Boolean(inboxSessionCache?.messages.length));
     const autoAllRef = useRef(false);
@@ -2860,12 +2861,24 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                         </p>
                     )}
                     {filter === "commande"
-                        ? commandeGroups.map((group) => (
+                        ? commandeGroups.map((group) => {
+                              const isCollapsed = Boolean(collapsedOrderGroups[group.key]);
+                              return (
                               <div
                                   key={group.key}
                                   className="rounded-2xl bg-violet-50/40 border border-violet-200/70 p-2 space-y-1.5"
                               >
-                                  <div className="flex items-start justify-between gap-2 px-1.5 pt-0.5">
+                                  <button
+                                      type="button"
+                                      onClick={() =>
+                                          setCollapsedOrderGroups((prev) => ({
+                                              ...prev,
+                                              [group.key]: !prev[group.key],
+                                          }))
+                                      }
+                                      aria-expanded={!isCollapsed}
+                                      className="w-full text-left flex items-start justify-between gap-2 px-1.5 py-0.5 rounded-xl hover:bg-violet-100/50 transition-colors"
+                                  >
                                       <div className="flex items-start gap-1.5 min-w-0">
                                           <Package className="h-3.5 w-3.5 text-violet-600 shrink-0 mt-0.5" />
                                           <div className="min-w-0">
@@ -2879,10 +2892,18 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                               )}
                                           </div>
                                       </div>
-                                      <span className="text-[10px] font-bold text-violet-700 shrink-0">
-                                          {group.items.length} mail{group.items.length > 1 ? "s" : ""}
-                                      </span>
-                                  </div>
+                                      <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+                                          <span className="text-[10px] font-bold text-violet-700">
+                                              {group.items.length} mail{group.items.length > 1 ? "s" : ""}
+                                          </span>
+                                          <ChevronDown
+                                              className={`h-3.5 w-3.5 text-violet-600 transition-transform ${
+                                                  isCollapsed ? "-rotate-90" : ""
+                                              }`}
+                                          />
+                                      </div>
+                                  </button>
+                                  {!isCollapsed && (
                                   <div className="space-y-1.5">
                                       {group.items.map((message) => (
                                           <div
@@ -2953,8 +2974,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                           </div>
                                       ))}
                                   </div>
+                                  )}
                               </div>
-                          ))
+                              );
+                          })
                         : visibleMessages.map((message) => (
                         <div
                             key={message.uid}
