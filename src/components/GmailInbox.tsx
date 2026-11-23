@@ -694,6 +694,10 @@ interface InboxSessionCache {
 /** Cache en mémoire de session pour éviter de recharger toute la boîte IMAP à chaque changement d'onglet. */
 let inboxSessionCache: InboxSessionCache | null = null;
 
+/** Cache des messages complets déjà ouverts ou préchargés (évite l'attente IMAP entre deux emails). */
+const detailSessionCache = new Map<number, MessageDetail>();
+const inflightDetailFetches = new Map<number, Promise<MessageDetail | null>>();
+
 interface GmailInboxProps {
     /** Ligne de signature utilisée dans les brouillons (ex. « Bien cordialement, Alva DALERY »). */
     signature?: string;
@@ -1039,9 +1043,53 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         }
     };
 
+    async function fetchMessageDetail(uid: number): Promise<MessageDetail | null> {
+        const cached = detailSessionCache.get(uid);
+        if (cached) return cached;
+
+        const existingInflight = inflightDetailFetches.get(uid);
+        if (existingInflight) return existingInflight;
+
+        const promise = (async (): Promise<MessageDetail | null> => {
+            try {
+                const response = await fetch(`/api/gmail/message?uid=${uid}`, {
+                    cache: "no-store",
+                    credentials: "same-origin",
+                });
+                const data = (await response.json()) as MessageDetail & { error?: string };
+                if (!response.ok) return null;
+                detailSessionCache.set(uid, data);
+                if (detailSessionCache.size > 40) {
+                    const oldestKey = detailSessionCache.keys().next().value;
+                    if (oldestKey !== undefined) detailSessionCache.delete(oldestKey);
+                }
+                return data;
+            } catch {
+                return null;
+            } finally {
+                inflightDetailFetches.delete(uid);
+            }
+        })();
+
+        inflightDetailFetches.set(uid, promise);
+        return promise;
+    }
+
+    function prefetchNextMessage(currentUid: number) {
+        const idx = visibleMessages.findIndex((item) => item.uid === currentUid);
+        const nextCandidate =
+            idx >= 0 ? (visibleMessages[idx + 1] ?? visibleMessages[idx - 1] ?? null) : null;
+        if (!nextCandidate) return;
+        if (detailSessionCache.has(nextCandidate.uid) || inflightDetailFetches.has(nextCandidate.uid)) {
+            return;
+        }
+        void fetchMessageDetail(nextCandidate.uid);
+    }
+
     async function openMessage(uid: number) {
-        setLoadingDetail(true);
-        setDetail(null);
+        const cached = detailSessionCache.get(uid);
+        setLoadingDetail(!cached);
+        if (!cached) setDetail(null);
         setExpanded(true);
         setViewMode("html");
         setForceReply(false);
@@ -1058,17 +1106,14 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setManualTrackingNumber("");
         setManualTrackingCarrier("");
         try {
-            const response = await fetch(`/api/gmail/message?uid=${uid}`, {
-                cache: "no-store",
-                credentials: "same-origin",
-            });
-            const data = (await response.json()) as MessageDetail & { error?: string };
-            if (!response.ok) {
-                setError(data.error ?? "Impossible d'ouvrir ce message.");
+            const data = cached ?? (await fetchMessageDetail(uid));
+            if (!data) {
+                setError("Impossible d'ouvrir ce message.");
                 return;
             }
             const labelled = applyLabelOverride(data, labelOverrides[data.uid]);
             setDetail(labelled);
+            prefetchNextMessage(uid);
             if (labelled.tracking) {
                 setManualTrackingNumber(labelled.tracking.numbers[0] ?? "");
                 setManualTrackingCarrier(labelled.tracking.carrier ?? "");
