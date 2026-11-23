@@ -3827,21 +3827,27 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
 
                                         <div className="pt-2 border-t border-violet-200/70 space-y-1.5">
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                                                <select
-                                                    value={commandFolder || defaultCommandFolder}
-                                                    onChange={(event) =>
-                                                        setCommandFolder(event.target.value)
-                                                    }
-                                                    aria-label="Dossier de rangement de la commande"
-                                                    className="flex-1 min-w-0 rounded-xl border border-violet-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-100"
-                                                >
-                                                    <option value="">Choisir un dossier…</option>
-                                                    {folders.map((folder) => (
-                                                        <option key={folder.path} value={folder.path}>
-                                                            {folder.label}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                <div className="relative flex-1 min-w-0">
+                                                    <select
+                                                        value={commandFolder || defaultCommandFolder}
+                                                        onChange={(event) =>
+                                                            setCommandFolder(event.target.value)
+                                                        }
+                                                        aria-label="Dossier de rangement de la commande"
+                                                        className="w-full appearance-none rounded-xl border border-violet-200 bg-white pl-3 pr-9 py-2 text-[11px] font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-100"
+                                                    >
+                                                        <option value="">Choisir un dossier…</option>
+                                                        {folders.map((folder) => (
+                                                            <option
+                                                                key={folder.path}
+                                                                value={folder.path}
+                                                            >
+                                                                {folder.label}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                                                </div>
                                                 <button
                                                     onClick={() => void validateCommand()}
                                                     disabled={
