@@ -2187,6 +2187,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             {/* Barre d'état */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200/70 shadow-sm">
                 <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <button
+                        type="button"
+                        onClick={() => void load(limit)}
+                        title="Rafraîchir"
+                        aria-label="Rafraîchir"
+                        className="h-8 w-8 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all shrink-0"
+                    >
+                        <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                    </button>
                     <Mail className="h-4 w-4 text-teal-600" />
                     <span className="font-bold text-slate-800">{status?.email}</span>
                     <span className="text-slate-400">•</span>
@@ -2194,8 +2203,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                         {messages.length} sur {total} message{total > 1 ? "s" : ""} analysés
                     </span>
                 </div>
-                <div className="flex items-center gap-2">
-                    {messages.length < Math.min(total, MAX_MESSAGES) && (
+                {messages.length < Math.min(total, MAX_MESSAGES) && (
+                    <div className="flex items-center gap-2">
                         <button
                             onClick={() => void load(Math.min(total, MAX_MESSAGES))}
                             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 text-xs font-bold hover:bg-teal-100 transition-all"
@@ -2209,15 +2218,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                 Tout charger ({Math.min(total, MAX_MESSAGES) - messages.length})
                             </span>
                         </button>
-                    )}
-                    <button
-                        onClick={() => void load(limit)}
-                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all"
-                    >
-                        <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-                        <span>Rafraîchir</span>
-                    </button>
-                </div>
+                    </div>
+                )}
             </div>
 
             {error && (
