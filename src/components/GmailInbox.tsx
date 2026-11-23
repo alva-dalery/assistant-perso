@@ -731,6 +731,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     });
     const [expanded, setExpanded] = useState(true);
     const [viewMode, setViewMode] = useState<"html" | "text">("html");
+    const [iframeHeight, setIframeHeight] = useState(320);
+    const iframeObserverRef = useRef<ResizeObserver | null>(null);
     const [loadingDetail, setLoadingDetail] = useState(false);
     const [reply, setReply] = useState("");
     const [forceReply, setForceReply] = useState(false);
@@ -1125,6 +1127,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         if (!cached) setDetail(null);
         setExpanded(true);
         setViewMode("html");
+        setIframeHeight(320);
         setForceReply(false);
         setFolderTarget("");
         setReply("");
@@ -3191,13 +3194,46 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
 
                                         {detail.html && viewMode === "html" ? (
                                             <iframe
+                                                key={detail.uid}
                                                 title={detail.subject || "Contenu de l'email"}
                                                 srcDoc={detail.html}
                                                 sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                                                className="w-full min-h-[320px] h-[440px] rounded-xl border border-slate-200 bg-white"
+                                                scrolling="no"
+                                                style={{ height: `${iframeHeight}px` }}
+                                                onLoad={(e) => {
+                                                    const frame = e.currentTarget;
+                                                    const doc = frame.contentDocument;
+                                                    if (!doc) return;
+                                                    const measure = () => {
+                                                        const h = Math.max(
+                                                            doc.documentElement?.scrollHeight ?? 0,
+                                                            doc.body?.scrollHeight ?? 0,
+                                                            200
+                                                        );
+                                                        setIframeHeight(h + 16);
+                                                    };
+                                                    measure();
+                                                    iframeObserverRef.current?.disconnect();
+                                                    if (typeof ResizeObserver !== "undefined" && doc.body) {
+                                                        const observer = new ResizeObserver(measure);
+                                                        observer.observe(doc.body);
+                                                        iframeObserverRef.current = observer;
+                                                    }
+                                                    doc.querySelectorAll("img").forEach((img) => {
+                                                        if (!img.complete) {
+                                                            img.addEventListener("load", measure, {
+                                                                once: true,
+                                                            });
+                                                            img.addEventListener("error", measure, {
+                                                                once: true,
+                                                            });
+                                                        }
+                                                    });
+                                                }}
+                                                className="w-full rounded-xl border border-slate-200 bg-white overflow-hidden"
                                             />
                                         ) : (
-                                            <div className="max-h-80 overflow-y-auto text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed bg-white rounded-xl border border-slate-200/70 p-3">
+                                            <div className="text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed bg-white rounded-xl border border-slate-200/70 p-3">
                                                 {detail.text}
                                             </div>
                                         )}
