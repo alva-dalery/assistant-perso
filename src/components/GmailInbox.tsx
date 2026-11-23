@@ -1217,6 +1217,39 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             }
         }
 
+        // Passe 3 : résoudre l'intitulé du produit en priorité depuis le mail le plus ancien du groupe
+        for (const group of groups.values()) {
+            const byOldest = [...group.items].sort((a, b) =>
+                a.date < b.date ? -1 : a.date > b.date ? 1 : 0
+            );
+            let resolvedTitle: string | null = null;
+            for (const item of byOldest) {
+                const cached = detailSessionCache.get(item.uid);
+                const matched = findMatchingParcel({
+                    uid: item.uid,
+                    orderNumber: cached?.tracking?.orderNumber ?? item.orderNumber ?? null,
+                    numbers:
+                        cached?.tracking?.numbers ??
+                        (item.trackingNumber ? [item.trackingNumber] : []),
+                    url: cached?.tracking?.url ?? null,
+                });
+                const candidate =
+                    (detail?.uid === item.uid && manualProductTitle.trim()
+                        ? manualProductTitle.trim()
+                        : null) ||
+                    matched?.productTitle ||
+                    cached?.tracking?.productTitle ||
+                    null;
+                if (candidate) {
+                    resolvedTitle = candidate;
+                    break;
+                }
+            }
+            if (resolvedTitle) {
+                group.productTitle = resolvedTitle;
+            }
+        }
+
         return Array.from(groups.values());
     }, [filter, visibleMessages, detail, detailCacheVersion, orderGroupOverrides, manualProductTitle]);
 
@@ -1910,10 +1943,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     // pour lire leur n° de commande, n° de suivi et lien afin de bien les regrouper.
     useEffect(() => {
         if (filter !== "commande" || commandes.length === 0) return;
-        void prefetchUids(
-            commandes.map((m) => m.uid),
-            3
-        );
+        // Précharger en commençant par les plus anciens (qui contiennent les confirmations de commande)
+        const oldestFirstUids = [...commandes].reverse().map((m) => m.uid);
+        void prefetchUids(oldestFirstUids, 3);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filter, commandes.length]);
 

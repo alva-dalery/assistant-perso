@@ -658,7 +658,7 @@ const NON_PRODUCT_LINE =
     /^(?:qty|quantit[ée]|qt[ée]|prix|price|total|sous-total|subtotal|livraison|shipping|taille|size|couleur|color|colis|suivi|voir|view|commander|order|x\s*\d+|\d+(?:[.,]\d{2})?\s*(?:€|eur|usd|\$|£|xpf))/i;
 
 function extractNearbyProductLabel(html: string, afterIndex: number): string | null {
-    const slice = html.slice(afterIndex, afterIndex + 700);
+    const slice = html.slice(afterIndex, afterIndex + 2200);
     if (!slice) return null;
     const withBreaks = slice.replace(/<(?:br|\/p|\/div|\/td|\/tr|\/li|\/h[1-6]|\/a)\b[^>]*>/gi, "\n");
     const lines = withBreaks
