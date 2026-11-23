@@ -59,12 +59,20 @@ const FRENCH_MONTHS: Record<string, number> = {
   décembre: 11,
 };
 
+function formatSingleTime(rawTime: string): string {
+  const m = rawTime.trim().match(/^(\d{1,2})(?:[:h](\d{2})|h)?$/i);
+  if (!m) return rawTime.trim();
+  const h = Number(m[1]);
+  const min = m[2];
+  return min && min !== "00" ? `${h}h${min}` : `${h}h`;
+}
+
 function compactTimeSlot(rawSlot: string): string {
   const range = rawSlot.match(
     /(?:entre|de|à partir de)?\s*(\d{1,2}(?:[:h]\d{2}|h))\s*(?:et|à|[-–—])\s*(\d{1,2}(?:[:h]\d{2}|h))/i
   );
   if (range?.[1] && range?.[2]) {
-    return `${range[1]}-${range[2]}`;
+    return `${formatSingleTime(range[1])}-${formatSingleTime(range[2])}`;
   }
   return rawSlot.trim();
 }
@@ -87,7 +95,7 @@ function formatDeliveryDisplay(
   const timeMatch = raw.match(/\(([^)]+)\)\s*$/);
   const inlineTimeMatch = !timeMatch
     ? raw.match(
-        /\b((?:entre|de|à partir de)\s+\d{1,2}(?:[:h]\d{2}|h)\s*(?:et|à|[-–—])\s*\d{1,2}(?:[:h]\d{2}|h))\s*$/i
+        /\b((?:(?:entre|de|à partir de)\s+)?\d{1,2}(?:[:h]\d{2}|h)\s*(?:et|à|[-–—])\s*\d{1,2}(?:[:h]\d{2}|h))\s*$/i
       )
     : null;
   const rawSlot = timeMatch?.[1] ?? inlineTimeMatch?.[1] ?? null;
@@ -124,11 +132,25 @@ function formatDeliveryDisplay(
       targetDate = new Date(year, month, day);
     } else {
       const textMatch = dateOnly.match(
-        /(\d{1,2})\s+(janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)(?:\s+(20\d{2}))?/i
+        /(\d{1,2})\s+(janvier|janv\.?|f[ée]vrier|f[ée]vr\.?|mars|avril|avr\.?|mai|juin|juillet|juil\.?|ao[uû]t|septembre|sept\.?|octobre|oct\.?|novembre|nov\.?|d[ée]cembre|d[ée]c\.?)(?:\s+(20\d{2}))?/i
       );
       if (textMatch) {
         const day = Number(textMatch[1]);
-        const month = FRENCH_MONTHS[textMatch[2].toLowerCase()];
+        const monthKey = textMatch[2].toLowerCase().replace(/\.$/, "");
+        const abbrMap: Record<string, number> = {
+          ...FRENCH_MONTHS,
+          janv: 0,
+          fevr: 1,
+          févr: 1,
+          avr: 3,
+          juil: 6,
+          sept: 8,
+          oct: 9,
+          nov: 10,
+          dec: 11,
+          déc: 11,
+        };
+        const month = abbrMap[monthKey];
         const year = textMatch[3] ? Number(textMatch[3]) : now.getFullYear();
         if (month !== undefined) {
           targetDate = new Date(year, month, day);
