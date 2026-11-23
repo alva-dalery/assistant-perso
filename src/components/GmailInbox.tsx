@@ -15,6 +15,7 @@ import {
     Eye,
     FileText,
     FolderInput,
+    GripVertical,
     KeyRound,
     Library,
     Loader2,
@@ -772,6 +773,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         loadOrderGroupOverrides()
     );
     const [collapsedOrderGroups, setCollapsedOrderGroups] = useState<Record<string, boolean>>({});
+    const [draggingOrderUid, setDraggingOrderUid] = useState<number | null>(null);
+    const [dragOverGroupKey, setDragOverGroupKey] = useState<string | null>(null);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(Boolean(inboxSessionCache?.messages.length));
     const autoAllRef = useRef(false);
@@ -2860,13 +2863,46 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                 : "Aucun message dans cette catégorie."}
                         </p>
                     )}
-                    {filter === "commande"
-                        ? commandeGroups.map((group) => {
+                    {filter === "commande" ? (
+                        <>
+                        {commandeGroups.map((group) => {
                               const isCollapsed = Boolean(collapsedOrderGroups[group.key]);
+                              const isDropTarget = dragOverGroupKey === group.key;
                               return (
                               <div
                                   key={group.key}
-                                  className="rounded-2xl bg-violet-50/40 border border-violet-200/70 p-2 space-y-1.5"
+                                  onDragOver={(e) => {
+                                      if (draggingOrderUid === null) return;
+                                      e.preventDefault();
+                                      e.dataTransfer.dropEffect = "move";
+                                      if (dragOverGroupKey !== group.key) {
+                                          setDragOverGroupKey(group.key);
+                                      }
+                                  }}
+                                  onDragLeave={(e) => {
+                                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                          setDragOverGroupKey((prev) =>
+                                              prev === group.key ? null : prev
+                                          );
+                                      }
+                                  }}
+                                  onDrop={(e) => {
+                                      e.preventDefault();
+                                      const raw = e.dataTransfer.getData("text/plain");
+                                      const uid = Number(raw) || draggingOrderUid;
+                                      setDraggingOrderUid(null);
+                                      setDragOverGroupKey(null);
+                                      if (!uid) return;
+                                      const draggedMsg = visibleMessages.find((m) => m.uid === uid);
+                                      if (!draggedMsg) return;
+                                      if (group.items.some((m) => m.uid === uid)) return;
+                                      moveMessageToOrderGroup(draggedMsg, group.key);
+                                  }}
+                                  className={`rounded-2xl border p-2 space-y-1.5 transition-all ${
+                                      isDropTarget
+                                          ? "bg-violet-100/80 border-violet-500 ring-2 ring-violet-300"
+                                          : "bg-violet-50/40 border-violet-200/70"
+                                  }`}
                               >
                                   <button
                                       type="button"
@@ -2908,6 +2944,19 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                       {group.items.map((message) => (
                                           <div
                                               key={message.uid}
+                                              draggable
+                                              onDragStart={(e) => {
+                                                  e.dataTransfer.setData(
+                                                      "text/plain",
+                                                      String(message.uid)
+                                                  );
+                                                  e.dataTransfer.effectAllowed = "move";
+                                                  setDraggingOrderUid(message.uid);
+                                              }}
+                                              onDragEnd={() => {
+                                                  setDraggingOrderUid(null);
+                                                  setDragOverGroupKey(null);
+                                              }}
                                               role="button"
                                               tabIndex={0}
                                               onClick={() => void openMessage(message.uid)}
@@ -2920,65 +2969,71 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                       void openMessage(message.uid);
                                                   }
                                               }}
-                                              className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer ${
-                                                  detail?.uid === message.uid
-                                                      ? "bg-white border-teal-500 shadow-sm ring-2 ring-teal-50"
-                                                      : "bg-white/90 border-slate-200/70 hover:bg-white hover:border-slate-300"
+                                              className={`w-full text-left p-3 rounded-xl border transition-all cursor-grab active:cursor-grabbing ${
+                                                  draggingOrderUid === message.uid
+                                                      ? "opacity-45 border-violet-300 bg-violet-50"
+                                                      : detail?.uid === message.uid
+                                                        ? "bg-white border-teal-500 shadow-sm ring-2 ring-teal-50"
+                                                        : "bg-white/90 border-slate-200/70 hover:bg-white hover:border-slate-300"
                                               }`}
                                           >
                                               <div className="flex items-center justify-between gap-2 mb-0.5">
-                                                  <span className="text-[11px] font-bold text-slate-800 truncate">
+                                                  <span className="flex items-center gap-1 text-[11px] font-bold text-slate-800 truncate">
+                                                      <GripVertical className="h-3 w-3 text-slate-300 shrink-0" />
                                                       {!message.seen && (
-                                                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-500 mr-1.5 align-middle" />
+                                                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-500 mr-0.5 align-middle" />
                                                       )}
-                                                      {message.fromName}
+                                                      <span className="truncate">{message.fromName}</span>
                                                   </span>
                                                   <span className="text-[10px] text-slate-400 shrink-0">
                                                       {formatDate(message.date)}
                                                   </span>
                                               </div>
-                                              <p className="text-[11px] font-medium text-slate-600 truncate">
+                                              <p className="text-[11px] font-medium text-slate-600 truncate pl-4">
                                                   {message.subject}
                                               </p>
-                                              {(commandeGroups.length > 1 || group.items.length > 1) && (
-                                                  <div
-                                                      className="mt-1.5 flex justify-end"
-                                                      onClick={(e) => e.stopPropagation()}
-                                                  >
-                                                      <select
-                                                          value={group.key}
-                                                          onChange={(e) =>
-                                                              moveMessageToOrderGroup(
-                                                                  message,
-                                                                  e.target.value
-                                                              )
-                                                          }
-                                                          aria-label="Déplacer cet email vers une autre commande"
-                                                          className="max-w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-semibold text-slate-600 hover:border-violet-300 focus:outline-none"
-                                                      >
-                                                          {commandeGroups.map((g) => (
-                                                              <option key={g.key} value={g.key}>
-                                                                  {g.key === group.key
-                                                                      ? `Groupe : ${g.storeName}${g.productTitle ? ` — ${g.productTitle}` : ""}`
-                                                                      : `Déplacer → ${g.storeName}${g.productTitle ? ` — ${g.productTitle}` : ""}`}
-                                                              </option>
-                                                          ))}
-                                                          {group.items.length > 1 && (
-                                                              <option value={`uid:${message.uid}`}>
-                                                                  + Séparer dans un nouveau groupe
-                                                              </option>
-                                                          )}
-                                                      </select>
-                                                  </div>
-                                              )}
                                           </div>
                                       ))}
                                   </div>
                                   )}
                               </div>
                               );
-                          })
-                        : visibleMessages.map((message) => (
+                          })}
+                        {draggingOrderUid !== null && (
+                            <div
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = "move";
+                                    if (dragOverGroupKey !== "__new__") {
+                                        setDragOverGroupKey("__new__");
+                                    }
+                                }}
+                                onDragLeave={() =>
+                                    setDragOverGroupKey((prev) => (prev === "__new__" ? null : prev))
+                                }
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    const raw = e.dataTransfer.getData("text/plain");
+                                    const uid = Number(raw) || draggingOrderUid;
+                                    setDraggingOrderUid(null);
+                                    setDragOverGroupKey(null);
+                                    if (!uid) return;
+                                    const draggedMsg = visibleMessages.find((m) => m.uid === uid);
+                                    if (draggedMsg) {
+                                        moveMessageToOrderGroup(draggedMsg, `uid:${uid}`);
+                                    }
+                                }}
+                                className={`rounded-2xl border-2 border-dashed p-3 text-center text-[11px] font-bold transition-all ${
+                                    dragOverGroupKey === "__new__"
+                                        ? "border-violet-500 bg-violet-100/80 text-violet-800"
+                                        : "border-violet-300 bg-violet-50/40 text-violet-600"
+                                }`}
+                            >
+                                + Déposer ici pour séparer dans un nouveau groupe
+                            </div>
+                        )}
+                        </>
+                    ) : visibleMessages.map((message) => (
                         <div
                             key={message.uid}
                             role="button"
