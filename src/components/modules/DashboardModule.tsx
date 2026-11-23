@@ -585,7 +585,11 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div
+                      className={`grid gap-2 text-[11px] ${
+                        number || parcel.url ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2"
+                      }`}
+                    >
                       <div className="min-w-0">
                         <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
                           N° de suivi
@@ -596,12 +600,22 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                       </div>
                       <div>
                         <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
-                          {number || parcel.url ? "Expédié le" : "Commandé le"}
+                          Commandé le
                         </p>
                         <p className="font-semibold text-slate-800">
-                          {formatDay(parcel.shippedAt)}
+                          {formatDay(parcel.orderedAt ?? parcel.shippedAt)}
                         </p>
                       </div>
+                      {(number || parcel.url) && (
+                        <div>
+                          <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
+                            Expédié le
+                          </p>
+                          <p className="font-semibold text-slate-800">
+                            {formatDay(parcel.shippedAt)}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">

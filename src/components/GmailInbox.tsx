@@ -1766,6 +1766,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 numbers: tracking.numbers,
                 url: tracking.url,
                 status: tracking.status,
+                orderedAt: target.date,
                 shippedAt: target.date,
                 subject: target.subject,
                 folder: destination,

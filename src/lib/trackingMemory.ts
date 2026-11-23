@@ -18,7 +18,9 @@ export interface SavedParcel {
     numbers: string[];
     url: string | null;
     status: string | null;
-    /** Date de réception de l'email (ISO). */
+    /** Date de la commande (ISO, conservée lors des mises à jour ultérieures). */
+    orderedAt?: string;
+    /** Date de réception de l'email d'expédition ou dernier événement (ISO). */
     shippedAt: string;
     subject: string;
     /** Dossier Gmail choisi pour le rangement. */
@@ -59,6 +61,7 @@ function sanitize(value: unknown): SavedParcel | null {
         numbers: strings(raw.numbers),
         url: text(raw.url),
         status: text(raw.status),
+        orderedAt: text(raw.orderedAt) ?? text(raw.shippedAt) ?? new Date().toISOString(),
         shippedAt: text(raw.shippedAt) ?? new Date().toISOString(),
         subject: text(raw.subject) ?? "",
         folder: text(raw.folder) ?? "",
@@ -181,6 +184,13 @@ export function findMatchingParcel(candidate: ParcelMatchCandidate): SavedParcel
     return loadParcels().find((item) => isSameOrder(item, candidate)) ?? null;
 }
 
+function earliestIso(a?: string, b?: string): string {
+    const t1 = a ? Date.parse(a) : NaN;
+    const t2 = b ? Date.parse(b) : NaN;
+    if (!Number.isNaN(t1) && !Number.isNaN(t2)) return t1 <= t2 ? a! : b!;
+    return a || b || new Date().toISOString();
+}
+
 function mergeParcelData(
     existing: SavedParcel,
     incoming: Partial<SavedParcel> & { replaceImages?: boolean }
@@ -191,6 +201,10 @@ function mergeParcelData(
     const mergedImages = incoming.replaceImages
         ? uniqueStrings(incomingImages, 4)
         : uniqueStrings([...(existing.images ?? []), ...incomingImages], 4);
+    const orderedAt = earliestIso(
+        existing.orderedAt || existing.shippedAt,
+        incoming.orderedAt || incoming.shippedAt
+    );
     return {
         ...existing,
         store:
@@ -202,6 +216,7 @@ function mergeParcelData(
         numbers: uniqueStrings([...incomingNumbers, ...existing.numbers], 5),
         url: incoming.url || existing.url,
         status: incoming.status || existing.status,
+        orderedAt,
         shippedAt: incoming.shippedAt || existing.shippedAt,
         subject: incoming.subject || existing.subject,
         folder: incoming.folder || existing.folder,
