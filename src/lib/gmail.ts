@@ -462,14 +462,103 @@ function extractDeliveryCity(text: string): string | null {
     return null;
 }
 
+const WEEKDAY_ABBR: Record<string, string> = {
+    lundi: "lun.",
+    mardi: "mar.",
+    mercredi: "mer.",
+    jeudi: "jeu.",
+    vendredi: "ven.",
+    samedi: "sam.",
+    dimanche: "dim.",
+};
+
+const MONTH_ABBR: Record<string, string> = {
+    janvier: "janv.",
+    fevrier: "févr.",
+    février: "févr.",
+    mars: "mars",
+    avril: "avr.",
+    mai: "mai",
+    juin: "juin",
+    juillet: "juil.",
+    aout: "août",
+    août: "août",
+    septembre: "sept.",
+    octobre: "oct.",
+    novembre: "nov.",
+    decembre: "déc.",
+    décembre: "déc.",
+};
+
+function normalizeTimeToken(raw: string): string {
+    const match = raw.trim().match(/^(\d{1,2})(?:[:h](\d{2})|h)?$/i);
+    if (!match) return raw.trim();
+    const hour = match[1].padStart(2, "0");
+    const min = match[2] ?? "00";
+    return `${hour}:${min}`;
+}
+
+function formatCompactDateToken(raw: string): string {
+    let out = raw.replace(/\s+/g, " ").trim().replace(/^le\s+/i, "");
+    // Numeric date: DD/MM(/YYYY) or DD-MM(-YYYY)
+    const numMatch = out.match(
+        /^(?:(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+)?(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/i
+    );
+    if (numMatch) {
+        const day = Number(numMatch[2]);
+        const month = Number(numMatch[3]);
+        const yearRaw = numMatch[4];
+        const year = yearRaw
+            ? yearRaw.length === 2
+                ? 2000 + Number(yearRaw)
+                : Number(yearRaw)
+            : new Date().getFullYear();
+        const d = new Date(year, month - 1, day);
+        if (!Number.isNaN(d.getTime())) {
+            const formatted = new Intl.DateTimeFormat("fr-FR", {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+            }).format(d);
+            return formatted.replace(/\s+/g, " ").trim();
+        }
+    }
+
+    out = out.replace(
+        /\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/gi,
+        (m) => WEEKDAY_ABBR[m.toLowerCase()] ?? m
+    );
+    out = out.replace(
+        /\b(janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)\b/gi,
+        (m) => MONTH_ABBR[m.toLowerCase()] ?? m
+    );
+    out = out.replace(/\s+20\d{2}\b/, "");
+    return out.trim();
+}
+
+function formatCompactTimeSlot(raw: string): string {
+    let out = raw.replace(/\s+/g, " ").trim();
+    const range = out.match(
+        /^(?:entre|de|à partir de)?\s*(\d{1,2}(?:[:h]\d{2}|h))\s*(?:et|à|[-–—])\s*(\d{1,2}(?:[:h]\d{2}|h))$/i
+    );
+    if (range) {
+        return `${normalizeTimeToken(range[1])}-${normalizeTimeToken(range[2])}`;
+    }
+    const single = out.match(/^(avant|à)\s+(\d{1,2}(?:[:h]\d{2}|h))$/i);
+    if (single) {
+        return `${single[1].toLowerCase()} ${normalizeTimeToken(single[2])}`;
+    }
+    return out;
+}
+
 function extractEstimatedDelivery(text: string): string | null {
     const rangeMatch = text.match(DELIVERY_RANGE_RE);
     if (rangeMatch?.[1] && rangeMatch?.[2]) {
-        return `${rangeMatch[1].trim()} – ${rangeMatch[2].trim()}`;
+        return `${formatCompactDateToken(rangeMatch[1])} – ${formatCompactDateToken(rangeMatch[2])}`;
     }
     const singleMatch = text.match(DELIVERY_DATE_WITH_TIME_RE);
     if (!singleMatch?.[1]) return null;
-    const datePart = singleMatch[1].trim();
+    const datePart = formatCompactDateToken(singleMatch[1]);
     let timePart = singleMatch[2]?.replace(/\s+/g, " ").trim();
     if (!timePart && singleMatch.index !== undefined) {
         const after = text.slice(
@@ -481,7 +570,8 @@ function extractEstimatedDelivery(text: string): string | null {
             timePart = nearbyTime[0].replace(/\s+/g, " ").trim();
         }
     }
-    return timePart ? `${datePart} (${timePart})` : datePart;
+    const compactTime = timePart ? formatCompactTimeSlot(timePart) : "";
+    return compactTime ? `${datePart} ${compactTime}` : datePart;
 }
 
 function urlsInText(text: string): string[] {
@@ -799,10 +889,16 @@ export function extractTracking(input: {
         (signature ? CARRIERS.find((rule) => rule.name === signature.name) : undefined) ??
         CARRIERS.find((rule) => rule.host && allUrls.some((url) => rule.host!.test(url)));
 
-    const status =
+    const rawStatus =
         TRACKING_STATUS.find((entry) => entry.match.test(`${input.subject}\n${body}`))?.label ??
         null;
     const estimatedDelivery = extractEstimatedDelivery(`${input.subject}\n${body}`);
+    const status =
+        rawStatus === "En cours de livraison" &&
+        estimatedDelivery &&
+        /sera\s+livr[ée]/i.test(`${input.subject}\n${body}`)
+            ? `Sera livré ${estimatedDelivery}`
+            : rawStatus;
     const htmlPlain = input.html ? htmlToText(input.html) : "";
     const deliveryCity =
         extractDeliveryCity(body) ?? (htmlPlain ? extractDeliveryCity(htmlPlain) : null);
@@ -839,6 +935,9 @@ export function extractTracking(input: {
             /(sera livr[ée][^\n.!?]{0,65})/i
         );
         if (scheduledMatch) {
+            if (estimatedDelivery) {
+                return `Sera livré ${estimatedDelivery}`;
+            }
             return scheduledMatch[1].replace(/\s+/g, " ").trim().replace(/^./, (c) => c.toUpperCase());
         }
         const failDetailMatch = fullText.match(
