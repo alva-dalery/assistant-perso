@@ -859,22 +859,20 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 }
 
                 // Première ouverture : on sélectionne directement l'email le plus ancien
-                // de la liste active, et on précharge les suivants.
+                // (en bas de la liste triée du plus récent au plus ancien) et on précharge
+                // les suivants du plus ancien au plus récent.
                 if (!autoOpenedRef.current) {
-                    const firstToReply = labelled.find((message) => message.needsReply);
-                    const firstTarget = firstToReply ?? labelled[0];
-                    if (firstTarget) {
+                    const replyPool = labelled.filter((message) => message.needsReply);
+                    const activePool = replyPool.length > 0 ? replyPool : labelled;
+                    const oldestTarget = activePool[activePool.length - 1];
+                    if (oldestTarget) {
                         autoOpenedRef.current = true;
-                        void openMessage(firstTarget.uid);
-                        const activePool = firstToReply
-                            ? labelled.filter((message) => message.needsReply)
-                            : labelled;
-                        void prefetchUids(
-                            activePool
-                                .filter((m) => m.uid !== firstTarget.uid)
-                                .slice(0, 6)
-                                .map((m) => m.uid)
-                        );
+                        void openMessage(oldestTarget.uid);
+                        const nextOldestToNewest = activePool
+                            .slice(Math.max(0, activePool.length - 7), activePool.length - 1)
+                            .reverse()
+                            .map((m) => m.uid);
+                        void prefetchUids(nextOldestToNewest);
                     }
                 }
             } catch {
@@ -1054,8 +1052,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         }
         const list = messagesForFilter(value);
         if (list.length > 0) {
-            void openMessage(list[0].uid);
-            void prefetchUids(list.slice(1, 6).map((m) => m.uid));
+            const oldest = list[list.length - 1];
+            void openMessage(oldest.uid);
+            const nextOldestToNewest = list
+                .slice(Math.max(0, list.length - 7), list.length - 1)
+                .reverse()
+                .map((m) => m.uid);
+            void prefetchUids(nextOldestToNewest);
         } else {
             setDetail(null);
         }
@@ -1115,15 +1118,16 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         const idx = visibleMessages.findIndex((item) => item.uid === currentUid);
         if (idx < 0) return;
         const ahead: number[] = [];
+        // La liste est triée du plus récent (0) au plus ancien (fin) :
+        // on précharge en priorité du plus ancien vers le plus récent (idx - 1, idx - 2…).
         for (let offset = 1; offset <= 6; offset += 1) {
-            const forward = visibleMessages[idx + offset];
-            if (forward) ahead.push(forward.uid);
+            const olderToNewer = visibleMessages[idx - offset];
+            if (olderToNewer) ahead.push(olderToNewer.uid);
         }
-        // Si on est vers la fin de la liste (ex. traitement des plus anciens), on précharge aussi en remontant.
         if (ahead.length < 3) {
             for (let offset = 1; offset <= 4; offset += 1) {
-                const backward = visibleMessages[idx - offset];
-                if (backward) ahead.push(backward.uid);
+                const downward = visibleMessages[idx + offset];
+                if (downward) ahead.push(downward.uid);
             }
         }
         void prefetchUids(ahead);
