@@ -45,6 +45,25 @@ const MAX_PARCELS = 20;
 /** Événement émis quand la liste change (le tableau de bord écoute). */
 export const TRACKING_EVENT = "assistantperso:tracking";
 
+function normalizeCompactTimeDisplay(value: string | null): string | null {
+    if (!value) return null;
+    // Normalize 08:00-12:00 / 08h00-12h00 -> 8h-12h
+    let out = value.replace(
+        /\b(\d{1,2})(?:[:h](\d{2})|h)\s*[-–—]\s*(\d{1,2})(?:[:h](\d{2})|h)\b/gi,
+        (_m, h1: string, m1: string | undefined, h2: string, m2: string | undefined) => {
+            const left = m1 && m1 !== "00" ? `${Number(h1)}h${m1}` : `${Number(h1)}h`;
+            const right = m2 && m2 !== "00" ? `${Number(h2)}h${m2}` : `${Number(h2)}h`;
+            return `${left}-${right}`;
+        }
+    );
+    // Deduplicate repeated time slots like "8h-12h 8h-12h"
+    out = out.replace(
+        /\b(\d{1,2}h(?:\d{2})?-\d{1,2}h(?:\d{2})?)(?:\s+\1)+\b/gi,
+        "$1"
+    );
+    return out.replace(/\s+/g, " ").trim() || null;
+}
+
 function sanitize(value: unknown): SavedParcel | null {
     if (!value || typeof value !== "object") return null;
     const raw = value as Record<string, unknown>;
@@ -77,8 +96,8 @@ function sanitize(value: unknown): SavedParcel | null {
         carrier: normalizedCarrier,
         numbers: strings(raw.numbers),
         url: text(raw.url),
-        status: text(raw.status),
-        estimatedDelivery: text(raw.estimatedDelivery),
+        status: normalizeCompactTimeDisplay(text(raw.status)),
+        estimatedDelivery: normalizeCompactTimeDisplay(text(raw.estimatedDelivery)),
         deliveryCity: cleanCity,
         orderedAt: text(raw.orderedAt) ?? text(raw.shippedAt) ?? new Date().toISOString(),
         shippedAt: text(raw.shippedAt) ?? new Date().toISOString(),
@@ -776,6 +795,11 @@ export function applyLearnedLabelEdits(
     if (exactFieldMatch) {
         current = exactFieldMatch.to;
         changed = true;
+    }
+
+    if (field === "estimatedDelivery" || field === "status") {
+        const normalized = normalizeCompactTimeDisplay(current);
+        if (normalized) current = normalized;
     }
 
     return { value: current, learned: changed };
