@@ -79,6 +79,7 @@ interface MessageDetail extends InboxMessage {
     to: string;
     cc: string;
     text: string;
+    html?: string;
     summary: string;
     currentText: string;
     historyText: string;
@@ -679,7 +680,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [filter, setFilter] = useState<Filter>("todo");
 
     const [detail, setDetail] = useState<MessageDetail | null>(null);
-    const [expanded, setExpanded] = useState(false);
+    const [expanded, setExpanded] = useState(true);
+    const [viewMode, setViewMode] = useState<"html" | "text">("html");
     const [loadingDetail, setLoadingDetail] = useState(false);
     const [reply, setReply] = useState("");
     const [forceReply, setForceReply] = useState(false);
@@ -971,7 +973,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     async function openMessage(uid: number) {
         setLoadingDetail(true);
         setDetail(null);
-        setExpanded(false);
+        setExpanded(true);
+        setViewMode("html");
         setForceReply(false);
         setFolderTarget("");
         setReply("");
@@ -2393,35 +2396,81 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                         />
                                     </button>
                                     {expanded && (
-                                        <div className="px-3 pb-3 pt-2 border-t border-slate-200/60">
-                                        {detail.exchanges > 1 && (
-                                            <p className="text-[10px] text-slate-400 mb-2">
-                                                {detail.exchanges} messages dans ce fil : la réponse tient compte des
-                                                échanges précédents.
-                                            </p>
-                                        )}
-                                        <div className="max-h-72 overflow-y-auto text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed">
-                                            {detail.text}
-                                        </div>
-                                        {detail.images && detail.images.length > 0 && (
-                                            <div className="mt-3 space-y-2">
-                                                {detail.images.map((image) => (
-                                                    <a
-                                                        key={image.part}
-                                                        href={attachmentUrl(detail.uid, image)}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="block rounded-xl border border-slate-200 bg-white overflow-hidden"
+                                        <div className="px-3 pb-3 pt-2 border-t border-slate-200/60 space-y-2.5">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            {detail.exchanges > 1 ? (
+                                                <p className="text-[10px] text-slate-400">
+                                                    {detail.exchanges} messages dans ce fil : la réponse tient compte des
+                                                    échanges précédents.
+                                                </p>
+                                            ) : (
+                                                <span />
+                                            )}
+                                            {detail.html && (
+                                                <div className="inline-flex items-center rounded-lg bg-white border border-slate-200 p-0.5 text-[10px] font-bold">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setViewMode("html")}
+                                                        className={`px-2 py-0.5 rounded-md transition-colors ${
+                                                            viewMode === "html"
+                                                                ? "bg-slate-900 text-white"
+                                                                : "text-slate-500 hover:text-slate-800"
+                                                        }`}
                                                     >
-                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                        <img
-                                                            src={attachmentUrl(detail.uid, image)}
-                                                            alt={image.filename}
-                                                            loading="lazy"
-                                                            className="w-full max-h-48 object-contain"
-                                                        />
-                                                    </a>
-                                                ))}
+                                                        HTML & images
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setViewMode("text")}
+                                                        className={`px-2 py-0.5 rounded-md transition-colors ${
+                                                            viewMode === "text"
+                                                                ? "bg-slate-900 text-white"
+                                                                : "text-slate-500 hover:text-slate-800"
+                                                        }`}
+                                                    >
+                                                        Texte brut
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {detail.html && viewMode === "html" ? (
+                                            <iframe
+                                                title={detail.subject || "Contenu de l'email"}
+                                                srcDoc={detail.html}
+                                                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                                                className="w-full min-h-[320px] h-[440px] rounded-xl border border-slate-200 bg-white"
+                                            />
+                                        ) : (
+                                            <div className="max-h-80 overflow-y-auto text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed bg-white rounded-xl border border-slate-200/70 p-3">
+                                                {detail.text}
+                                            </div>
+                                        )}
+
+                                        {detail.images && detail.images.length > 0 && (
+                                            <div className="mt-2 space-y-2">
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                                    Images du message ({detail.images.length})
+                                                </p>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                    {detail.images.map((image) => (
+                                                        <a
+                                                            key={image.part}
+                                                            href={attachmentUrl(detail.uid, image)}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="block rounded-xl border border-slate-200 bg-white overflow-hidden hover:border-teal-400 transition-colors"
+                                                        >
+                                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                            <img
+                                                                src={attachmentUrl(detail.uid, image)}
+                                                                alt={image.filename}
+                                                                loading="lazy"
+                                                                className="w-full max-h-48 object-contain"
+                                                            />
+                                                        </a>
+                                                    ))}
+                                                </div>
                                             </div>
                                         )}
                                     </div>

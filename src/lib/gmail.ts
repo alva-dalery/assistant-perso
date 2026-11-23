@@ -827,6 +827,8 @@ export interface GmailMessageDetail extends GmailMessageSummary {
     to: string;
     cc: string;
     text: string;
+    /** Corps HTML nettoyé (images `cid:` et distantes conservées) pour l'affichage fidèle. */
+    html?: string;
     /** Résumé court de l'email courant (hors historique cité). */
     summary: string;
     /** Texte du dernier message uniquement. */
@@ -1104,6 +1106,8 @@ export interface GmailPartInfo {
     size: number | null;
     /** Image insérée dans le corps (et non simple pièce jointe). */
     inline: boolean;
+    /** Identifiant MIME Content-ID (sans chevrons), utilisé pour les images `cid:`. */
+    contentId?: string;
 }
 
 /** Recense les pièces jointes et images du message, avec leur numéro de partie IMAP. */
@@ -1119,8 +1123,14 @@ export function collectParts(structure: MessageStructureObject | undefined): Gma
                 typeof node.disposition === "string" ? node.disposition.toLowerCase() : "";
             const isAttachment = disposition.includes("attachment");
             const isImage = typeof node.type === "string" && node.type.startsWith("image/");
+            const contentId =
+                typeof node.id === "string" && node.id.trim()
+                    ? node.id.replace(/^<|>$/g, "").trim()
+                    : undefined;
             const isInline =
-                disposition.includes("inline") || (Boolean(node.id) && !isAttachment) || (isImage && !isAttachment);
+                disposition.includes("inline") ||
+                (Boolean(contentId) && !isAttachment) ||
+                (isImage && !isAttachment);
 
             if ((filename || isAttachment || isImage) && node.type?.startsWith("image/") === true) {
                 found.push({
@@ -1129,6 +1139,7 @@ export function collectParts(structure: MessageStructureObject | undefined): Gma
                     type: node.type,
                     size: typeof node.size === "number" ? node.size : null,
                     inline: isInline,
+                    contentId,
                 });
             } else if (filename || isAttachment) {
                 found.push({
@@ -1137,6 +1148,7 @@ export function collectParts(structure: MessageStructureObject | undefined): Gma
                     type: node.type || "application/octet-stream",
                     size: typeof node.size === "number" ? node.size : null,
                     inline: isInline,
+                    contentId,
                 });
             }
 
@@ -1148,6 +1160,10 @@ export function collectParts(structure: MessageStructureObject | undefined): Gma
     else {
         const filename =
             structure.dispositionParameters?.filename || structure.parameters?.name || "";
+        const contentId =
+            typeof structure.id === "string" && structure.id.trim()
+                ? structure.id.replace(/^<|>$/g, "").trim()
+                : undefined;
         if (filename) {
             found.push({
                 part: structure.part ?? "1",
@@ -1155,11 +1171,62 @@ export function collectParts(structure: MessageStructureObject | undefined): Gma
                 type: structure.type || "application/octet-stream",
                 size: typeof structure.size === "number" ? structure.size : null,
                 inline: true,
+                contentId,
             });
         }
     }
 
     return found;
+}
+
+function sanitizeEmailHtml(rawHtml: string, uid: number, parts: GmailPartInfo[]): string {
+    let html = rawHtml
+        // Supprimer les balises actives ou dangereuses
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+        .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "")
+        .replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, "")
+        .replace(/<embed\b[^>]*>/gi, "")
+        .replace(/<base\b[^>]*>/gi, "")
+        .replace(/<meta\b[^>]*http-equiv=["']?refresh["']?[^>]*>/gi, "")
+        // Supprimer les gestionnaires d'événements inline (onclick, onerror, etc.)
+        .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+        // Neutraliser les URLs javascript: / vbscript: / data:text/html
+        .replace(/(href|src)\s*=\s*(["'])\s*(?:javascript|vbscript|data:text\/html):[^"']*\2/gi, '$1=$2#$2');
+
+    // Réécrire les images cid:... vers notre proxy sécurisé /api/gmail/attachment
+    html = html.replace(/src\s*=\s*(["'])cid:([^"']+)\1/gi, (_full, quote: string, rawCid: string) => {
+        const cid = rawCid.trim().toLowerCase();
+        const match =
+            parts.find((p) => p.contentId && p.contentId.toLowerCase() === cid) ||
+            parts.find((p) => p.contentId && cid.startsWith(p.contentId.toLowerCase())) ||
+            parts.find((p) => p.filename && cid.includes(p.filename.toLowerCase()));
+        if (!match) return `src=${quote}${quote}`;
+        const params = new URLSearchParams({
+            uid: String(uid),
+            part: match.part,
+            type: match.type,
+            name: match.filename,
+        });
+        return `src=${quote}/api/gmail/attachment?${params.toString()}${quote}`;
+    });
+
+    // Ouvrir tous les liens dans un nouvel onglet
+    html = html.replace(/<a\b(?![^>]*\btarget=)([^>]*)>/gi, '<a target="_blank" rel="noreferrer noopener"$1>');
+
+    const baseStyle = `<style>
+      html, body { margin: 0; padding: 12px; background: #ffffff; color: #1e293b; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; line-height: 1.5; word-break: break-word; }
+      img { max-width: 100% !important; height: auto !important; }
+      table { max-width: 100% !important; }
+      pre { white-space: pre-wrap; }
+    </style>`;
+
+    if (/<head\b[^>]*>/i.test(html)) {
+        return html.replace(/<head\b([^>]*)>/i, `<head$1>${baseStyle}`);
+    }
+    if (/<html\b[^>]*>/i.test(html)) {
+        return html.replace(/<html\b([^>]*)>/i, `<html$1><head>${baseStyle}</head>`);
+    }
+    return `<!doctype html><html><head><meta charset="utf-8">${baseStyle}</head><body>${html}</body></html>`;
 }
 
 function collectAttachments(
@@ -1368,21 +1435,39 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
 
         const envelope = message.envelope;
         const attachmentParts = collectParts(message.bodyStructure);
-        const images = attachmentParts.filter(
-            (item) => item.type.startsWith("image/") && item.inline
-        );
+        const images = attachmentParts.filter((item) => item.type.startsWith("image/"));
         const attachments = attachmentParts.map((item) => item.filename);
-        const inlineImages = images.map((item) => item.filename);
-        const part =
-            findPart(message.bodyStructure, "text/plain") ??
-            findPart(message.bodyStructure, "text/html");
+        const inlineImages = images.filter((item) => item.inline).map((item) => item.filename);
+        const plainPart = findPart(message.bodyStructure, "text/plain");
+        const htmlPart = findPart(message.bodyStructure, "text/html");
+        const part = plainPart ?? htmlPart;
 
         let text = "";
+        let rawHtml = "";
         if (part) {
             const download = await client.download(String(uid), part.part ?? "1", { uid: true });
             if (download && download.content) {
-                text = await readLimited(download.content, MAX_BODY_BYTES);
-                if (part.type === "text/html") text = htmlToText(text);
+                const downloaded = await readLimited(download.content, MAX_BODY_BYTES);
+                if (part.type === "text/html") {
+                    rawHtml = downloaded;
+                    text = htmlToText(downloaded);
+                } else {
+                    text = downloaded;
+                }
+            }
+        }
+
+        // Récupérer également la version HTML si le message principal était text/plain
+        if (!rawHtml && htmlPart && htmlPart.part !== part?.part) {
+            try {
+                const htmlDownload = await client.download(String(uid), htmlPart.part ?? "1", {
+                    uid: true,
+                });
+                if (htmlDownload && htmlDownload.content) {
+                    rawHtml = await readLimited(htmlDownload.content, MAX_BODY_BYTES);
+                }
+            } catch {
+                // fallback sur text/plain uniquement
             }
         }
 
@@ -1439,12 +1524,15 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
                   }
                 : {};
 
+        const html = rawHtml.trim() ? sanitizeEmailHtml(rawHtml, uid, attachmentParts) : undefined;
+
         return {
             ...base,
             ...trackingUpgrade,
             to: addressList(envelope?.to),
             cc: addressList(envelope?.cc),
             text: visibleText,
+            html,
             summary,
             currentText: breakdown.currentText || visibleText,
             historyText: breakdown.historyText,
