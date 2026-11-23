@@ -177,8 +177,15 @@ const IMPORTANT_SUBJECT =
 const INFO_SUBJECT =
     /(abonnement|renouvellement|renouvelé|expire|expiration|prend fin|fin de contrat|résiliation|réunion|compte rendu|confirmation|confirmée?|réservation|commande|livraison|expédition|embarquement|billet|invitation|planning|agenda|information)/i;
 
+/** Confirmations transactionnelles & annonces produit (Google Play/Pay, Apple, reçus…). */
+const TRANSACTIONAL_OR_PRODUCT_INFO =
+    /(confirmation de (?:votre )?(?:commande|paiement|achat|r[ée]servation|inscription)|re[çc]u (?:de |pour )?(?:votre )?(?:paiement|commande|achat)|votre commande google play|b[ée]n[ée]ficiez d.une exp[ée]rience|appareils? de confiance|paiement plus rapide|nouvelle fonctionnalit[ée]|d[ée]couvrez (?:nos|les))/i;
+
+const AUTO_BODY_MARKERS =
+    /(ne r[ée]pondez pas|do not reply|se d[ée]sabonner|se d[ée]sinscrire|unsubscribe|g[ée]rer vos pr[ée]f[ée]rences|cet e-?mail (?:a [ée]t[ée] |est )?envoy[ée] automatiquement|message g[ée]n[ée]r[ée] automatiquement)/i;
+
 const NO_REPLY_LOCAL =
-    /^(no-?reply|do-?not-?reply|ne-?pas-?repondre|nepasrepondre|notifications?|notify|alerts?|newsletter|news|infolettre|promo|promotions?|marketing|mailer|mailing|bounce|bounces|system|automated?|robot|service-?client|support)([._-].*)?$/i;
+    /^(no-?reply|do-?not-?reply|ne-?pas-?repondre|nepasrepondre|notifications?|notify|alerts?|newsletter|news|infolettre|promo|promotions?|marketing|mailer|mailing|bounce|bounces|system|automated?|robot|service-?client|support|payments?|billing|googleplay|googlepay|orders?)([._-].*)?$/i;
 
 /* ---------------------- Suivi de colis / commandes ---------------------- */
 
@@ -734,19 +741,19 @@ export function classifyMessage(
     const isMarketing = marketingHeaderNames.some((name) => Boolean(headerValue(headers, name)));
 
     const localPart = (fromEmail.split("@")[0] ?? "").toLowerCase();
-    const looksAutomated = NO_REPLY_LOCAL.test(localPart);
     const snippetHead = bodySnippet.slice(0, 600);
     const combinedText = `${subject}\n${snippetHead}`;
+    const looksAutomated =
+        NO_REPLY_LOCAL.test(localPart) || AUTO_BODY_MARKERS.test(bodySnippet);
 
     const promoSubject = PROMO_SUBJECT.test(subject);
     const hasSeveralRecipients = /,/.test(headerValue(headers, "to"));
     const isQuestion =
         subject.includes("?") ||
-        snippetHead.includes("?") ||
         /^(question|demande|renseignements?|peux-tu|pouvez-vous|pourriez-vous|merci de|besoin de|confirmer|valider)\b/i.test(
             subject.trim()
         ) ||
-        /\b(peux-tu|pouvez-vous|pourriez-vous|dis-moi|dites-moi|qu'en penses-tu|merci de me|merci de nous|merci d'avance)\b/i.test(
+        /\b(peux-tu|pouvez-vous|pourriez-vous|dis-moi|dites-moi|qu'en penses-tu|merci de me|merci de nous|merci d'avance|est-ce que|seriez-vous)\b/i.test(
             snippetHead
         );
 
@@ -806,6 +813,18 @@ export function classifyMessage(
             category: "infos",
             needsReply: false,
             reason: "Message de bienvenue ou activation de compte (à lire)",
+        };
+    }
+
+    // 5b. Confirmations transactionnelles / annonces produit (Google Play/Pay, reçus, etc.).
+    if (
+        TRANSACTIONAL_OR_PRODUCT_INFO.test(subject) ||
+        TRANSACTIONAL_OR_PRODUCT_INFO.test(snippetHead)
+    ) {
+        return {
+            category: "infos",
+            needsReply: false,
+            reason: "Confirmation transactionnelle ou information produit (à lire)",
         };
     }
 
