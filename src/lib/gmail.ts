@@ -372,15 +372,15 @@ const SINGLE_DATE_TOKEN =
     "(?:(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\\s+)?(?:\\d{1,2}[/.\\s-]\\d{1,2}(?:[/.\\s-]\\d{2,4})?|\\d{1,2}\\s+(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)(?:\\s+20\\d{2})?)";
 
 const DELIVERY_LABEL_PREFIX =
-    "(?:(?:date\\s+de\\s+)?livraison\\s+(?:pr[ée]vue|estim[ée]e|pr[ée]visionnelle|attendue)|estimated\\s+delivery(?:\\s+date)?|arriv[ée]e\\s+(?:pr[ée]vue|estim[ée]e?)|sera\\s+livr[ée])";
+    "(?:date\\s+(?:pr[ée]vue|estim[ée]e|attendue|pr[ée]visionnelle)\\s+(?:de|pour\\s+la)\\s+livraison|(?:date\\s+de\\s+)?livraison\\s+(?:pr[ée]vue|estim[ée]e|pr[ée]visionnelle|attendue)|estimated\\s+delivery(?:\\s+date)?|arriv[ée]e\\s+(?:pr[ée]vue|estim[ée]e?)|sera\\s+livr[ée]|livr[ée]\\s+(?:entre|du))";
 
 const DELIVERY_RANGE_RE = new RegExp(
-    `${DELIVERY_LABEL_PREFIX}[^\\n]{0,25}?(?:entre\\s+(?:le\\s+)?|du\\s+|between\\s+)?(${SINGLE_DATE_TOKEN})\\s*(?:et|au|and|[-–—])\\s*(?:le\\s+)?(${SINGLE_DATE_TOKEN})`,
+    `${DELIVERY_LABEL_PREFIX}[\\s\\S]{0,45}?(?:entre\\s+(?:le\\s+)?|du\\s+|between\\s+)?(${SINGLE_DATE_TOKEN})\\s*(?:et|au|and|[-–—])\\s*(?:le\\s+)?(${SINGLE_DATE_TOKEN})`,
     "i"
 );
 
 const DELIVERY_DATE_RE = new RegExp(
-    `${DELIVERY_LABEL_PREFIX}\\s*(?:le|:|-|\\s)?\\s*(${SINGLE_DATE_TOKEN})`,
+    `${DELIVERY_LABEL_PREFIX}[\\s\\S]{0,25}?(?:le|:|-)?\\s*(${SINGLE_DATE_TOKEN})`,
     "i"
 );
 
