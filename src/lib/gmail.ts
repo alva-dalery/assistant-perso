@@ -1848,7 +1848,7 @@ export async function listInbox(
         })) {
             messages.push(toSummary(message));
         }
-        messages.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+        messages.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
         return { messages, total: exists };
     });
 }

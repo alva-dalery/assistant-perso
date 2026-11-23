@@ -858,15 +858,23 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     void load(Math.min(totalAvailable, MAX_MESSAGES));
                 }
 
-                // Première ouverture : on sélectionne directement le premier email
-                // qui attend une réponse, et la proposition est rédigée aussitôt.
+                // Première ouverture : on sélectionne directement l'email le plus ancien
+                // de la liste active, et on précharge les suivants.
                 if (!autoOpenedRef.current) {
                     const firstToReply = labelled.find((message) => message.needsReply);
-                    if (firstToReply) {
+                    const firstTarget = firstToReply ?? labelled[0];
+                    if (firstTarget) {
                         autoOpenedRef.current = true;
-                        void openMessage(firstToReply.uid);
-                    } else if (labelled.length > 0) {
-                        void prefetchUids(labelled.slice(0, 5).map((m) => m.uid));
+                        void openMessage(firstTarget.uid);
+                        const activePool = firstToReply
+                            ? labelled.filter((message) => message.needsReply)
+                            : labelled;
+                        void prefetchUids(
+                            activePool
+                                .filter((m) => m.uid !== firstTarget.uid)
+                                .slice(0, 6)
+                                .map((m) => m.uid)
+                        );
                     }
                 }
             } catch {
