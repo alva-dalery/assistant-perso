@@ -408,20 +408,21 @@ function formatCityName(raw: string): string {
     return cleaned;
 }
 
+const NON_CITY_WORDS =
+    /\b(?:facture|commande|livraison|colis|suivi|adresse|votre|notre|bonjour|merci|cliquez|voir|t[ée]l[ée]charger|num[ée]ro|article|produit|montant|total|date|statut|client|france|nouvelle-cal[ée]donie|new caledonia|cedex|email|tel|bp|exp[ée]dition|destinataire|facturation|paiement)\b/i;
+
 function isValidCityCandidate(city: string): boolean {
     if (city.length < 2 || city.length > 35) return false;
     if (!/[a-zA-ZÀ-ÿ]{2,}/.test(city)) return false;
-    if (/^(?:france|nouvelle-cal[ée]donie|new caledonia|cedex|email|tel|bp)$/i.test(city)) {
-        return false;
-    }
+    if (NON_CITY_WORDS.test(city)) return false;
     return true;
 }
 
 const POSTAL_CITY_RE =
-    /\b(?:FR-)?(\d{5})(?:\s*[-–—,]\s*|\s+)([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{1,35}?)(?=\s*(?:\r?\n|,|France|Nouvelle-Cal[ée]donie|New Caledonia|\d|$))/gi;
+    /\b(?:FR-)?(\d{5})(?:[ \t]*[-–—,][ \t]*|[ \t]+)([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{1,35}?)(?=[ \t]*(?:\r?\n|,|France|Nouvelle-Cal[ée]donie|New Caledonia|\d|$))/g;
 
 const CITY_POSTAL_RE =
-    /\b([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{2,35}?)(?:\s*[-–—,]\s*|\s+)(?:FR-)?(\d{5})\b/gi;
+    /\b([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’ -]{2,35}?)(?:[ \t]*[-–—,][ \t]*|[ \t]+)(?:FR-)?(\d{5})\b/g;
 
 function extractCityFromBlock(block: string): string | null {
     POSTAL_CITY_RE.lastIndex = 0;

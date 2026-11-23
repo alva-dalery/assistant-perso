@@ -57,6 +57,13 @@ function sanitize(value: unknown): SavedParcel | null {
     const text = (input: unknown): string | null =>
         typeof input === "string" && input.trim() ? input.trim() : null;
 
+    const rawCity = text(raw.deliveryCity);
+    const cleanCity =
+        rawCity &&
+        !/\b(?:facture|commande|livraison|colis|suivi|adresse|votre|cliquez)\b/i.test(rawCity)
+            ? rawCity
+            : null;
+
     return {
         uid,
         store: text(raw.store) ?? "Colis",
@@ -66,7 +73,7 @@ function sanitize(value: unknown): SavedParcel | null {
         url: text(raw.url),
         status: text(raw.status),
         estimatedDelivery: text(raw.estimatedDelivery),
-        deliveryCity: text(raw.deliveryCity),
+        deliveryCity: cleanCity,
         orderedAt: text(raw.orderedAt) ?? text(raw.shippedAt) ?? new Date().toISOString(),
         shippedAt: text(raw.shippedAt) ?? new Date().toISOString(),
         subject: text(raw.subject) ?? "",
