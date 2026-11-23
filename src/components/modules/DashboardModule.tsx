@@ -531,12 +531,10 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
               {parcels.map((parcel) => {
                 const open = openParcel === parcel.uid;
                 const number = parcel.numbers[0] ?? "";
-                const delivered = Boolean(parcel.status && /livr/i.test(parcel.status));
-                const isShipped = Boolean(
-                  number ||
-                    (parcel.status &&
-                      /exp[ée]di|transit|cours|livr|relais|pris en charge/i.test(parcel.status))
-                );
+                const delivered = Boolean(parcel.status && /livr/i.test(parcel.status) && !/en cours|retard|[ée]chec/i.test(parcel.status));
+                const deliveryValue = delivered
+                  ? formatDay(parcel.shippedAt)
+                  : parcel.estimatedDelivery || null;
                 return (
                   <div
                     key={parcel.uid}
@@ -602,7 +600,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
 
                     <div
                       className={`grid gap-2 text-[11px] ${
-                        isShipped ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2"
+                        deliveryValue ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2"
                       }`}
                     >
                       <div className="min-w-0">
@@ -621,23 +619,13 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           {formatDay(parcel.orderedAt ?? parcel.shippedAt)}
                         </p>
                       </div>
-                      {isShipped && (
+                      {deliveryValue && (
                         <div>
                           <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
-                            Expédié le
-                          </p>
-                          <p className="font-semibold text-slate-800">
-                            {formatDay(parcel.shippedAt)}
-                          </p>
-                        </div>
-                      )}
-                      {parcel.estimatedDelivery && !delivered && (
-                        <div className="col-span-2 sm:col-span-3">
-                          <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
-                            Livraison estimée
+                            {delivered ? "Livré le" : "Livraison prévue"}
                           </p>
                           <p className="font-semibold text-violet-700">
-                            {parcel.estimatedDelivery}
+                            {deliveryValue}
                           </p>
                         </div>
                       )}

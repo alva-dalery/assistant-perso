@@ -229,6 +229,13 @@ function mergeParcelData(
         statusRank(incoming.status) >= statusRank(existing.status)
             ? incoming.status || existing.status
             : existing.status;
+    const tExisting = existing.shippedAt ? Date.parse(existing.shippedAt) : 0;
+    const tIncoming = incoming.shippedAt ? Date.parse(incoming.shippedAt) : 0;
+    const incomingIsNewerOrEqual =
+        !Number.isNaN(tIncoming) && (Number.isNaN(tExisting) || tIncoming >= tExisting);
+    const nextEstimatedDelivery = incomingIsNewerOrEqual
+        ? incoming.estimatedDelivery || existing.estimatedDelivery || null
+        : existing.estimatedDelivery || incoming.estimatedDelivery || null;
     return {
         ...existing,
         store:
@@ -240,9 +247,11 @@ function mergeParcelData(
         numbers: uniqueStrings([...incomingNumbers, ...existing.numbers], 5),
         url: incoming.url || existing.url,
         status: nextStatus,
-        estimatedDelivery: incoming.estimatedDelivery || existing.estimatedDelivery || null,
+        estimatedDelivery: nextEstimatedDelivery,
         orderedAt,
-        shippedAt: incoming.shippedAt || existing.shippedAt,
+        shippedAt: incomingIsNewerOrEqual
+            ? incoming.shippedAt || existing.shippedAt
+            : existing.shippedAt,
         subject: incoming.subject || existing.subject,
         folder: incoming.folder || existing.folder,
         folderLabel: incoming.folderLabel ?? existing.folderLabel,

@@ -369,7 +369,10 @@ const TRACKING_STATUS: Array<{ label: string; match: RegExp }> = [
 ];
 
 const SINGLE_DATE_TOKEN =
-    "(?:(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\\s+)?(?:\\d{1,2}[/.\\s-]\\d{1,2}(?:[/.\\s-]\\d{2,4})?|\\d{1,2}\\s+(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)(?:\\s+20\\d{2})?)";
+    "(?:(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\\s+)?(?:\\d{1,2}[/.\\s-]\\d{1,2}(?:[/.\\s-]\\d{2,4})?|\\d{1,2}\\s+(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)(?:\\s+20\\d{2})?|aujourd['’]hui|demain)";
+
+const TIME_SLOT_TOKEN =
+    "(?:(?:entre|de|à partir de)?\\s*\\d{1,2}(?:[:h]\\d{2}|h)\\s*(?:et|à|[-–—])\\s*\\d{1,2}(?:[:h]\\d{2}|h)|(?:avant|à)\\s*\\d{1,2}(?:[:h]\\d{2}|h))";
 
 const DELIVERY_LABEL_PREFIX =
     "(?:date\\s+(?:pr[ée]vue|estim[ée]e|attendue|pr[ée]visionnelle)\\s+(?:de|pour\\s+la)\\s+livraison|(?:date\\s+de\\s+)?livraison\\s+(?:pr[ée]vue|estim[ée]e|pr[ée]visionnelle|attendue)|estimated\\s+delivery(?:\\s+date)?|arriv[ée]e\\s+(?:pr[ée]vue|estim[ée]e?)|sera\\s+livr[ée]|livr[ée]\\s+(?:entre|du))";
@@ -379,8 +382,8 @@ const DELIVERY_RANGE_RE = new RegExp(
     "i"
 );
 
-const DELIVERY_DATE_RE = new RegExp(
-    `${DELIVERY_LABEL_PREFIX}[\\s\\S]{0,25}?(?:le|:|-)?\\s*(${SINGLE_DATE_TOKEN})`,
+const DELIVERY_DATE_WITH_TIME_RE = new RegExp(
+    `${DELIVERY_LABEL_PREFIX}[\\s\\S]{0,30}?(?:le|:|-)?\\s*(${SINGLE_DATE_TOKEN})(?:\\s+(${TIME_SLOT_TOKEN}))?`,
     "i"
 );
 
@@ -389,8 +392,11 @@ function extractEstimatedDelivery(text: string): string | null {
     if (rangeMatch?.[1] && rangeMatch?.[2]) {
         return `${rangeMatch[1].trim()} – ${rangeMatch[2].trim()}`;
     }
-    const singleMatch = text.match(DELIVERY_DATE_RE);
-    return singleMatch?.[1]?.trim() ?? null;
+    const singleMatch = text.match(DELIVERY_DATE_WITH_TIME_RE);
+    if (!singleMatch?.[1]) return null;
+    const datePart = singleMatch[1].trim();
+    const timePart = singleMatch[2]?.replace(/\s+/g, " ").trim();
+    return timePart ? `${datePart} (${timePart})` : datePart;
 }
 
 function urlsInText(text: string): string[] {
