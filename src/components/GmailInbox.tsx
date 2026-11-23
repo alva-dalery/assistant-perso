@@ -1712,8 +1712,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setFeedback(url ? "Lien de l'image enregistré." : "Couverture automatique rétablie.");
     }
 
-    /** Valide un suivi : range l'email dans le dossier choisi et l'ajoute au tableau de bord. */
-    async function validateCommand() {
+    /** Valide un suivi : met à jour immédiatement l'interface puis range l'email en arrière-plan. */
+    function validateCommand() {
         const target = detail;
         const tracking = target?.tracking;
         if (!target || !tracking) return;
@@ -1722,71 +1722,97 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             return;
         }
 
-        setCommandSaving(true);
-        setFeedback(null);
-        try {
-            const response = await fetch("/api/gmail/move", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "same-origin",
-                body: JSON.stringify({ uid: target.uid, destination: commandFolder }),
-            });
-            const data = (await response.json()) as { error?: string };
-            if (!response.ok) {
-                setFeedback(data.error ?? "Le déplacement a échoué.");
-                return;
+        const destination = commandFolder;
+        const label =
+            folders.find((folder) => folder.path === destination)?.label ?? destination;
+        const storeName = tracking.store?.trim() || target.fromName || tracking.carrier || "Colis";
+        const alreadyTracked = Boolean(
+            findMatchingParcel({
+                uid: target.uid,
+                store: storeName,
+                orderNumber: tracking.orderNumber ?? null,
+                numbers: tracking.numbers,
+                url: tracking.url,
+                shippedAt: target.date,
+            })
+        );
+        const removedSummary = messages.find((item) => item.uid === target.uid) ?? null;
+
+        addParcel(
+            {
+                uid: target.uid,
+                store: storeName,
+                orderNumber: tracking.orderNumber ?? null,
+                carrier: tracking.carrier,
+                numbers: tracking.numbers,
+                url: tracking.url,
+                status: tracking.status,
+                shippedAt: target.date,
+                subject: target.subject,
+                folder: destination,
+                folderLabel: label,
+                history: tracking.history ?? [],
+                images: selectedTrackingImages,
+                productTitle:
+                    manualProductTitle.trim() ||
+                    resolveSelectedProductTitle(tracking, selectedTrackingImages) ||
+                    null,
+                savedAt: new Date().toISOString(),
+            },
+            { replaceImages: Boolean(tracking.images && tracking.images.length > 0) }
+        );
+
+        setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
+        setTotal((previous) => Math.max(0, previous - 1));
+        setDetail(null);
+        setFeedback(
+            alreadyTracked
+                ? `Suivi mis à jour. Rangement dans « ${label} » en cours…`
+                : `Suivi ajouté au tableau de bord. Rangement dans « ${label} » en cours…`
+        );
+
+        void (async () => {
+            try {
+                const response = await fetch("/api/gmail/move", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "same-origin",
+                    body: JSON.stringify({ uid: target.uid, destination }),
+                });
+                const data = (await response.json()) as { error?: string };
+                if (!response.ok) {
+                    if (removedSummary) {
+                        setMessages((previous) =>
+                            previous.some((item) => item.uid === removedSummary.uid)
+                                ? previous
+                                : [removedSummary, ...previous]
+                        );
+                        setTotal((previous) => previous + 1);
+                    }
+                    setFeedback(
+                        data.error
+                            ? `Rangement échoué (${data.error}) — le suivi reste enregistré.`
+                            : `Le déplacement vers « ${label} » a échoué.`
+                    );
+                    return;
+                }
+                setFeedback(
+                    alreadyTracked
+                        ? `Commande rangée dans « ${label} ». Suivi mis à jour sur le tableau de bord.`
+                        : `Commande rangée dans « ${label} ». Suivi ajouté au tableau de bord.`
+                );
+            } catch {
+                if (removedSummary) {
+                    setMessages((previous) =>
+                        previous.some((item) => item.uid === removedSummary.uid)
+                            ? previous
+                            : [removedSummary, ...previous]
+                    );
+                    setTotal((previous) => previous + 1);
+                }
+                setFeedback(`Impossible de joindre le serveur pour ranger dans « ${label} ».`);
             }
-
-            const label =
-                folders.find((folder) => folder.path === commandFolder)?.label ?? commandFolder;
-            const storeName = tracking.store?.trim() || target.fromName || tracking.carrier || "Colis";
-            const alreadyTracked = Boolean(
-                findMatchingParcel({
-                    uid: target.uid,
-                    store: storeName,
-                    orderNumber: tracking.orderNumber ?? null,
-                    numbers: tracking.numbers,
-                    url: tracking.url,
-                    shippedAt: target.date,
-                })
-            );
-            addParcel(
-                {
-                    uid: target.uid,
-                    store: storeName,
-                    orderNumber: tracking.orderNumber ?? null,
-                    carrier: tracking.carrier,
-                    numbers: tracking.numbers,
-                    url: tracking.url,
-                    status: tracking.status,
-                    shippedAt: target.date,
-                    subject: target.subject,
-                    folder: commandFolder,
-                    folderLabel: label,
-                    history: tracking.history ?? [],
-                    images: selectedTrackingImages,
-                    productTitle:
-                        manualProductTitle.trim() ||
-                        resolveSelectedProductTitle(tracking, selectedTrackingImages) ||
-                        null,
-                    savedAt: new Date().toISOString(),
-                },
-                { replaceImages: Boolean(tracking.images && tracking.images.length > 0) }
-            );
-
-            setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
-            setTotal((previous) => Math.max(0, previous - 1));
-            setDetail(null);
-            setFeedback(
-                alreadyTracked
-                    ? `Commande rangée dans « ${label} ». Suivi mis à jour sur le tableau de bord.`
-                    : `Commande rangée dans « ${label} ». Suivi ajouté au tableau de bord.`
-            );
-        } catch {
-            setFeedback("Impossible de joindre le serveur.");
-        } finally {
-            setCommandSaving(false);
-        }
+        })();
     }
 
     async function copyTrackingNumber(value: string) {
