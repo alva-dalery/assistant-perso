@@ -52,14 +52,51 @@ const FRENCH_MONTHS: Record<string, number> = {
   décembre: 11,
 };
 
-function formatDeliveryDisplay(raw: string): { headline: string; detail: string | null } {
+function compactTimeSlot(rawSlot: string): string {
+  const range = rawSlot.match(
+    /(?:entre|de|à partir de)?\s*(\d{1,2}(?:[:h]\d{2}|h))\s*(?:et|à|[-–—])\s*(\d{1,2}(?:[:h]\d{2}|h))/i
+  );
+  if (range?.[1] && range?.[2]) {
+    return `${range[1]}-${range[2]}`;
+  }
+  return rawSlot.trim();
+}
+
+function extractTimeSlotFromHistory(history: string[]): string | null {
+  for (const line of history) {
+    if (!/livr/i.test(line)) continue;
+    const match = line.match(
+      /(?:entre|de|à partir de)\s+\d{1,2}(?:[:h]\d{2}|h)\s*(?:et|à|[-–—])\s*\d{1,2}(?:[:h]\d{2}|h)/i
+    );
+    if (match?.[0]) return compactTimeSlot(match[0]);
+  }
+  return null;
+}
+
+function formatDeliveryDisplay(
+  raw: string,
+  history: string[] = []
+): { headline: string; detail: string | null } {
   const timeMatch = raw.match(/\(([^)]+)\)\s*$/);
-  const timeSlot = timeMatch ? timeMatch[1].trim() : null;
-  const dateOnly = timeMatch ? raw.slice(0, timeMatch.index).trim() : raw.trim();
+  const inlineTimeMatch = !timeMatch
+    ? raw.match(
+        /\b((?:entre|de|à partir de)\s+\d{1,2}(?:[:h]\d{2}|h)\s*(?:et|à|[-–—])\s*\d{1,2}(?:[:h]\d{2}|h))\s*$/i
+      )
+    : null;
+  const rawSlot = timeMatch?.[1] ?? inlineTimeMatch?.[1] ?? null;
+  const timeSlot = rawSlot ? compactTimeSlot(rawSlot) : extractTimeSlotFromHistory(history);
+  const dateOnly = timeMatch
+    ? raw.slice(0, timeMatch.index).trim()
+    : inlineTimeMatch
+      ? raw.slice(0, inlineTimeMatch.index).trim()
+      : raw.trim();
 
   // Fourchette de dates : on l'affiche telle quelle.
   if (/\s[–-]\s/.test(dateOnly)) {
-    return { headline: dateOnly, detail: timeSlot };
+    return {
+      headline: timeSlot ? `${dateOnly} ${timeSlot}` : dateOnly,
+      detail: null,
+    };
   }
 
   const now = new Date();
@@ -96,18 +133,19 @@ function formatDeliveryDisplay(raw: string): { headline: string; detail: string 
     }
   }
 
+  const withTime = (label: string) => (timeSlot ? `${label} ${timeSlot}` : label);
+
   if (targetDate && !Number.isNaN(targetDate.getTime())) {
     const diffDays = Math.round(
       (targetDate.getTime() - todayMidnight.getTime()) / 86_400_000
     );
-    const subParts = [dateOnly, timeSlot].filter(Boolean).join(" · ");
-    if (diffDays === 0) return { headline: "Aujourd'hui", detail: subParts || null };
-    if (diffDays === 1) return { headline: "Demain", detail: subParts || null };
-    if (diffDays === 2) return { headline: "Dans 2 jours", detail: subParts || null };
-    if (diffDays === 3) return { headline: "Dans 3 jours", detail: subParts || null };
+    if (diffDays === 0) return { headline: withTime("Aujourd'hui"), detail: dateOnly };
+    if (diffDays === 1) return { headline: withTime("Demain"), detail: dateOnly };
+    if (diffDays === 2) return { headline: withTime("Dans 2 jours"), detail: dateOnly };
+    if (diffDays === 3) return { headline: withTime("Dans 3 jours"), detail: dateOnly };
   }
 
-  return { headline: dateOnly, detail: timeSlot };
+  return { headline: withTime(dateOnly), detail: null };
 }
 
 function formatDay(iso: string): string {
@@ -695,7 +733,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                       {deliveryValue && (() => {
                         const formatted = delivered
                           ? { headline: deliveryValue, detail: null }
-                          : formatDeliveryDisplay(deliveryValue);
+                          : formatDeliveryDisplay(deliveryValue, parcel.history);
                         return (
                           <div>
                             <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
