@@ -151,6 +151,62 @@ git push
 - Mauvais mot de passe → erreur 401 « Identifiants invalides ».
 - Bon mot de passe → l'application s'affiche normalement.
 
+### 3 bis. `SITE_USER` modifié par erreur sur Vercel
+
+Symptômes : la fenêtre de connexion revient en boucle, ou « Identifiants invalides » avec un mot
+de passe pourtant correct. **Rien n'est perdu** : `SITE_USER` n'est qu'un nom d'utilisateur comparé
+caractère par caractère par [`middleware.ts`](src/middleware.ts:77) (sensible à la casse, aucun
+espace toléré). L'accès au tableau de bord Vercel, lui, passe par votre compte GitHub/e-mail : il
+reste disponible même si l'application vous refuse.
+
+1. [vercel.com](https://vercel.com) → votre projet → **Settings → Environment Variables** →
+   ligne `SITE_USER` → menu `…` → **Edit**.
+2. Saisissez la valeur souhaitée (ou remettez l'ancienne), sans espace ni accent, puis **Save**.
+3. **Deployments** → dernier déploiement → `…` → **Redeploy**. Le middleware lit les variables
+   **au moment du build** : modifier la variable sans redéployer ne change rien.
+4. Rouvrez l'URL **en navigation privée**. Le navigateur mémorise l'ancien identifiant et le renvoie
+   silencieusement, ce qui donne l'impression que le mot de passe est faux.
+5. Vérification en une commande :
+
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}\n" -u "IDENTIFIANT:MOT_DE_PASSE" https://VOTRE-APP.vercel.app/
+   ```
+
+   `200` = identifiants acceptés · `401` = identifiant ou mot de passe incorrect ·
+   `503` = `SITE_USER` ou `SITE_PASSWORD` vide (le middleware bloque tout par sécurité).
+
+#### Retrouver l'ancien identifiant (facultatif)
+
+Vercel **ne conserve aucun historique** des valeurs modifiées : l'ancien `SITE_USER` n'est pas
+consultable depuis le tableau de bord. Il se retrouve ailleurs :
+
+1. **Le navigateur l'envoie à chaque requête.** Ouvrez l'URL déployée, puis `⌥⌘I` (ou clic droit →
+   **Inspecter**) → onglet **Réseau / Network** → cliquez sur la requête `document` (le `/`) →
+   **En-têtes de la requête** → ligne `Authorization: Basic …`. C'est du base64 : décodez-le pour
+   lire `identifiant:mot-de-passe`.
+
+   ```bash
+   printf %s "QkFTRTY0X0lDSA==" | base64 -d; echo
+   ```
+
+2. **Gestionnaire de mots de passe.** Safari → **Réglages → Mots de passe**, Chrome →
+   `chrome://password-manager/passwords`, ou **Trousseau d'accès** (Accès aux trousses → recherche
+   `vercel.app`) : la colonne « Compte » contient l'identifiant enregistré.
+
+3. **Vercel CLI** (affiche la valeur *actuelle*, celle modifiée par erreur) :
+
+   ```bash
+   cd "/Users/alvadalery/Projets IA/Antigravity projects/Assistant perso"
+   npx vercel@latest link
+   npx vercel@latest env pull .env.production --environment=production
+   ```
+
+   `.env.production` est ignoré par [`.gitignore`](.gitignore:15) : ne le committez jamais.
+
+> Le plus simple reste de **ne pas chercher** l'ancienne valeur : `SITE_USER` n'a aucune autre
+> fonction que d'être comparé au texte tapé dans la fenêtre du navigateur. Choisissez-en un nouveau
+> simple (`alex`, sans espace ni accent), redéployez, et connectez-vous avec celui-là.
+
 ### 3. (Optionnel) Nom de domaine personnel
 
 Vercel → **Settings → Domains** → ajoutez `assistant.votredomaine.fr` et suivez l'enregistrement DNS indiqué.
@@ -251,6 +307,12 @@ Environnements : **Production** (+ Preview). Puis **Deployments → `…` → Re
 en décochant le cache de build.
 
 En local, les mêmes lignes dans `.env.local` (fichier ignoré par Git), puis `npm run dev`.
+
+> 💡 **Raccourci** : double-cliquez sur [`configurer-gmail.command`](configurer-gmail.command:1).
+> Le script demande l'adresse et le mot de passe d'application (saisie invisible, rien ne reste dans
+> l'historique du shell), écrit `.env.local` avec les bonnes clés, protège le fichier (`chmod 600`)
+> puis teste la connexion via `/api/gmail/status`. Next.js recharge `.env.local` automatiquement :
+> inutile de redémarrer le serveur, un simple `⌘R` dans le navigateur suffit.
 
 ### 3. Utiliser
 
@@ -684,3 +746,16 @@ curl -s -o /dev/null -w "%{http_code}\n" https://assistant-perso.vercel.app/
 ```
 
 `503` = variables toujours absentes du build ; `401` = protection active et fonctionnelle.
+
+---
+
+## 🤖 Activer l'IA DeepSeek sur Vercel
+
+Pour que toutes les fonctionnalités IA (Brain Dump, rédaction Gmail, découpage de projets, courriers de litiges, recettes, tenues, coach TDAH, séances sport) fonctionnent sur votre URL Vercel :
+
+1. Ouvrez votre projet sur **vercel.com → Settings → Environment Variables**.
+2. Ajoutez pour l'environnement **Production** (et **Preview** si besoin) :
+   - `DEEPSEEK_API_KEY` → votre clé API DeepSeek (`sk-...`)
+   - `DEEPSEEK_MODEL` → `deepseek-chat` (optionnel, valeur par défaut ; ou `deepseek-reasoner`)
+3. Redéployez : **Deployments → `…` → Redeploy** (décochez *Use existing Build Cache*).
+4. *Alternative* : si vous ne souhaitez pas la stocker dans Vercel, vous pouvez la saisir directement dans l'interface en ligne via **Paramètres → IA DeepSeek & Clés** (stockée localement dans votre navigateur).

@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
 import { addParcel } from "@/lib/trackingMemory";
+import { getAiHeaders } from "@/lib/aiClient";
 import {
     coverSrc,
     loadCoverOverrides,
@@ -99,6 +100,9 @@ interface ReplyDraftResponse {
     register: "vouvoiement" | "tutoiement";
     needsReply: boolean;
     exchanges: number;
+    aiPowered?: boolean;
+    aiModel?: string;
+    aiWarning?: string;
     error?: string;
 }
 
@@ -657,9 +661,14 @@ function summarize(text: string, max = 280): string {
 interface GmailInboxProps {
     /** Ligne de signature utilisée dans les brouillons (ex. « Bien cordialement, Alva DALERY »). */
     signature?: string;
+    /** Directives stylistiques configurées par l'utilisateur. */
+    writingStyle?: string;
 }
 
-export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
+export const GmailInbox: React.FC<GmailInboxProps> = ({
+    signature = "",
+    writingStyle = "",
+}) => {
     const [status, setStatus] = useState<GmailStatus | null>(null);
     const [messages, setMessages] = useState<InboxMessage[]>([]);
     const [total, setTotal] = useState(0);
@@ -677,6 +686,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
     const [draftSubject, setDraftSubject] = useState<string | null>(null);
     const [draftIntent, setDraftIntent] = useState<string | null>(null);
     const [draftRegister, setDraftRegister] = useState<"vouvoiement" | "tutoiement" | null>(null);
+    const [draftAiPowered, setDraftAiPowered] = useState<boolean | null>(null);
+    const [draftInstruction, setDraftInstruction] = useState("");
     const [drafting, setDrafting] = useState(false);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(false);
@@ -967,6 +978,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         setDraftSubject(null);
         setDraftIntent(null);
         setDraftRegister(null);
+        setDraftAiPowered(null);
+        setDraftInstruction("");
         setCommandFolder("");
         try {
             const response = await fetch(`/api/gmail/message?uid=${uid}`, {
@@ -1010,11 +1023,16 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
         try {
             const response = await fetch("/api/gmail/reply-draft", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    ...getAiHeaders(),
+                },
                 credentials: "same-origin",
                 body: JSON.stringify({
                     uid: target.uid,
                     signature,
+                    writingStyle,
+                    instruction: draftInstruction.trim() || undefined,
                     style: computeStyleProfile(),
                 }),
             });
@@ -1027,11 +1045,14 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
             setDraftSubject(data.subject);
             setDraftIntent(data.intent);
             setDraftRegister(data.register);
+            setDraftAiPowered(Boolean(data.aiPowered));
+            const modeNote = data.aiPowered ? "DeepSeek IA" : "Mode règles local";
+            const warningNote = data.aiWarning ? ` · ${data.aiWarning}` : "";
             setFeedback(
                 data.needsReply
-                    ? `Proposition prête (${data.intent}, ${data.register}, ${
+                    ? `Proposition prête (${modeNote}, ${data.intent}, ${data.register}, ${
                           data.exchanges ?? 1
-                      } échange(s) analysé(s)). Relisez, ajustez, puis validez.`
+                      } échange(s) analysé(s))${warningNote}. Relisez, ajustez, puis validez.`
                     : `Diffusion probable (${target.reason}) : à vérifier avant d'envoyer.`
             );
         } catch {
@@ -2621,10 +2642,23 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                             {detail.needsReply || forceReply ? (
                                 <div className="p-4 space-y-3 bg-slate-50/40">
                                     <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <span className="text-[11px] font-bold text-slate-500">
-                                            {draftIntent ? `Réponse proposée · ${draftIntent}` : "Votre réponse"}
-                                            {styleSamples > 0 ? ` · style appris (${styleSamples})` : ""}
-                                        </span>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="text-[11px] font-bold text-slate-500">
+                                                {draftIntent ? `Réponse proposée · ${draftIntent}` : "Votre réponse"}
+                                                {styleSamples > 0 ? ` · style appris (${styleSamples})` : ""}
+                                            </span>
+                                            {draftAiPowered !== null && (
+                                                <span
+                                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                                        draftAiPowered
+                                                            ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                                            : "bg-slate-100 text-slate-600 border-slate-200"
+                                                    }`}
+                                                >
+                                                    {draftAiPowered ? "DeepSeek IA" : "Mode règles local"}
+                                                </span>
+                                            )}
+                                        </div>
                                         <button
                                             onClick={() => void generateDraft()}
                                             disabled={drafting}
@@ -2640,6 +2674,20 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({ signature = "" }) => {
                                             </span>
                                         </button>
                                     </div>
+
+                                    <input
+                                        type="text"
+                                        value={draftInstruction}
+                                        onChange={(event) => setDraftInstruction(event.target.value)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === "Enter") {
+                                                event.preventDefault();
+                                                void generateDraft();
+                                            }
+                                        }}
+                                        placeholder="Consigne rapide pour DeepSeek (ex: propose jeudi 14h, refuse poliment, demande la facture)..."
+                                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-[11px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-teal-500"
+                                    />
 
                                     <textarea
                                         value={reply}

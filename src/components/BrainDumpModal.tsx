@@ -1,75 +1,93 @@
 import React, { useState } from "react";
-import { X, Sparkles, Send, CheckCircle2, ArrowRight } from "lucide-react";
+import { X, Sparkles, Send, CheckCircle2, ArrowRight, Loader2, AlertCircle } from "lucide-react";
+import { aiPost } from "@/lib/aiClient";
+import type {
+  BrainDumpConfirmAction,
+  DisputeCase,
+  ModuleType,
+  PersonalProject,
+  UserProfile,
+} from "@/types";
 
 interface BrainDumpModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddThought: (thought: string, category: string) => void;
+  projects: PersonalProject[];
+  disputes: DisputeCase[];
+  userProfile: UserProfile;
+  onConfirmAction: (action: BrainDumpConfirmAction) => void;
 }
+
+interface BrainDumpApiResponse extends BrainDumpConfirmAction {
+  mode: "deepseek" | "local";
+}
+
+const ACTION_OPTIONS: Array<{
+  actionType: BrainDumpConfirmAction["actionType"];
+  targetModule: ModuleType;
+  label: string;
+}> = [
+  { actionType: "add_reminder", targetModule: "dashboard", label: "Rappel du jour (Dashboard)" },
+  { actionType: "add_shopping", targetModule: "courses", label: "Liste de courses (Food)" },
+  { actionType: "add_pantry", targetModule: "courses", label: "Inventaire Frigo (Food)" },
+  { actionType: "add_project_task", targetModule: "projets", label: "Étape de projet (Projets)" },
+  { actionType: "create_project", targetModule: "projets", label: "Nouveau projet (Projets)" },
+  { actionType: "add_dispute_note", targetModule: "litiges", label: "Note sur un litige (Litiges)" },
+  { actionType: "add_clothing", targetModule: "dressing", label: "Pièce vêtement (Dressing)" },
+];
 
 export const BrainDumpModal: React.FC<BrainDumpModalProps> = ({
   isOpen,
   onClose,
-  onAddThought,
+  projects,
+  disputes,
+  userProfile,
+  onConfirmAction,
 }) => {
   const [input, setInput] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
-  const [classification, setClassification] = useState<{
-    module: string;
-    suggestion: string;
-  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [classification, setClassification] = useState<BrainDumpApiResponse | null>(null);
 
   if (!isOpen) return null;
 
-  const handleAnalyze = () => {
-    if (!input.trim()) return;
+  const handleAnalyze = async () => {
+    if (!input.trim() || analyzing) return;
     setAnalyzing(true);
+    setError(null);
 
-    // Simulation d'analyse instantanée de l'IA
-    setTimeout(() => {
-      const lower = input.toLowerCase();
-      let module = "Tableau de bord (Rappel)";
-      let suggestion = "Classé comme action rapide pour aujourd'hui.";
-
-      if (lower.includes("mail") || lower.includes("répondre") || lower.includes("écrire")) {
-        module = "Emails & Correspondance";
-        suggestion = "Ajouté à la file des brouillons à préparer avec ton style d'écriture.";
-      } else if (lower.includes("assurance") || lower.includes("banque") || lower.includes("litige") || lower.includes("remboursement") || lower.includes("constat")) {
-        module = "Litiges & Démarches";
-        suggestion = "Ajouté au dossier juridique correspondant avec rappel d'échéance.";
-      } else if (lower.includes("bain") || lower.includes("nordique") || lower.includes("voyage") || lower.includes("thaïlande") || lower.includes("billet")) {
-        module = "Projets Personnels";
-        suggestion = "Intégré comme micro-étape découpée dans ton projet.";
-      } else if (lower.includes("courses") || lower.includes("manger") || lower.includes("acheter") || lower.includes("frigo") || lower.includes("avocat") || lower.includes("oeuf")) {
-        module = "Frigo & Courses";
-        suggestion = "Ajouté à ta liste de courses prévisionnelle avec score Yuka.";
-      } else if (lower.includes("tenue") || lower.includes("vêtement") || lower.includes("valise") || lower.includes("habit")) {
-        module = "Dressing & Valise";
-        suggestion = "Enregistré pour l'association vestimentaire ou la checklist de voyage.";
-      } else if (lower.includes("sport") || lower.includes("séance") || lower.includes("courir") || lower.includes("étirement")) {
-        module = "Sport & Énergie";
-        suggestion = "Planifié dans ta routine selon ton niveau d'énergie du jour.";
-      }
-
-      setClassification({ module, suggestion });
+    try {
+      const result = await aiPost<BrainDumpApiResponse>("/api/ai/brain-dump", {
+        text: input.trim(),
+        projects: projects.map((p) => ({ id: p.id, title: p.title })),
+        disputes: disputes.map((d) => ({ id: d.id, title: d.title, adversary: d.adversary })),
+        userProfile: { name: userProfile.name, tdahNotes: userProfile.tdahNotes },
+      });
+      setClassification(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible d'analyser cette pensée.");
+    } finally {
       setAnalyzing(false);
-    }, 600);
-  };
-
-  const handleConfirm = () => {
-    if (classification) {
-      onAddThought(input, classification.module);
-      setInput("");
-      setClassification(null);
-      onClose();
     }
   };
 
+  const handleConfirm = () => {
+    if (!classification) return;
+    onConfirmAction(classification);
+    setInput("");
+    setClassification(null);
+    setError(null);
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-slate-900/35 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-lg bg-white border border-slate-200/80 rounded-3xl shadow-2xl overflow-hidden p-6 relative">
         <button
-          onClick={onClose}
+          onClick={() => {
+            setError(null);
+            onClose();
+          }}
           className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 transition-colors"
         >
           <X className="h-5 w-5" />
@@ -80,20 +98,30 @@ export const BrainDumpModal: React.FC<BrainDumpModalProps> = ({
             <Sparkles className="h-6 w-6" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-slate-900">
-              Vider sa tête (Brain Dump)
-            </h3>
+            <h3 className="text-lg font-bold text-slate-900">Vider sa tête (Brain Dump)</h3>
             <p className="text-xs text-slate-500">
-              Écrivez tout sans tri manuel, l'IA range chaque idée au bon endroit.
+              Écrivez tout sans tri manuel : l'assistant crée directement l'action au bon endroit.
             </p>
           </div>
         </div>
+
+        {error && (
+          <div className="mb-3 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
 
         {!classification ? (
           <div>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  void handleAnalyze();
+                }
+              }}
               placeholder="Ex: Penser à relancer l'assurance pour les 450€, ou acheter des avocats et des oeufs pour demain..."
               rows={4}
               className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-teal-500 resize-none leading-relaxed shadow-inner"
@@ -102,17 +130,17 @@ export const BrainDumpModal: React.FC<BrainDumpModalProps> = ({
 
             <div className="mt-4 flex items-center justify-between">
               <span className="text-[11px] text-slate-400">
-                Zéro stress cognitif garanti.
+                Cmd/Ctrl + Entrée pour analyser.
               </span>
               <button
-                onClick={handleAnalyze}
+                onClick={() => void handleAnalyze()}
                 disabled={!input.trim() || analyzing}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition-all disabled:opacity-40 shadow-sm"
               >
                 {analyzing ? (
                   <>
-                    <span className="animate-spin">⏳</span>
-                    <span>Analyse IA en cours...</span>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Analyse en cours...</span>
                   </>
                 ) : (
                   <>
@@ -125,20 +153,63 @@ export const BrainDumpModal: React.FC<BrainDumpModalProps> = ({
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
-              <p className="text-[11px] text-slate-400 mb-1 font-semibold">Votre pensée :</p>
-              <p className="text-xs text-slate-800 italic">« {input} »</p>
-            </div>
-
             <div className="p-4 rounded-2xl bg-teal-50 border border-teal-200 flex items-start gap-3">
               <CheckCircle2 className="h-5 w-5 text-teal-600 shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-teal-900">
+                    {classification.moduleLabel}
+                  </p>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white text-teal-800 border border-teal-200">
+                    {classification.mode === "deepseek" ? "DeepSeek IA" : "Tri local"}
+                  </span>
+                </div>
+                <p className="text-xs text-teal-700">{classification.suggestion}</p>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 text-xs">
               <div>
-                <p className="text-xs font-bold text-teal-900">
-                  Destination suggérée : {classification.module}
-                </p>
-                <p className="text-xs text-teal-700 mt-1">
-                  {classification.suggestion}
-                </p>
+                <label className="text-[11px] font-bold text-slate-500 block mb-1">
+                  Action à créer :
+                </label>
+                <select
+                  value={classification.actionType}
+                  onChange={(e) => {
+                    const nextType = e.target.value as BrainDumpConfirmAction["actionType"];
+                    const found = ACTION_OPTIONS.find((opt) => opt.actionType === nextType);
+                    setClassification({
+                      ...classification,
+                      actionType: nextType,
+                      targetModule: found?.targetModule || classification.targetModule,
+                      moduleLabel: found?.label || classification.moduleLabel,
+                    });
+                  }}
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold"
+                >
+                  {ACTION_OPTIONS.map((opt) => (
+                    <option key={opt.actionType} value={opt.actionType}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-500 block mb-1">
+                  Titre / Libellé enregistré :
+                </label>
+                <input
+                  type="text"
+                  value={classification.payload.title || classification.summary}
+                  onChange={(e) =>
+                    setClassification({
+                      ...classification,
+                      payload: { ...classification.payload, title: e.target.value },
+                    })
+                  }
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-medium"
+                />
               </div>
             </div>
 
@@ -147,13 +218,13 @@ export const BrainDumpModal: React.FC<BrainDumpModalProps> = ({
                 onClick={() => setClassification(null)}
                 className="px-4 py-2 text-xs text-slate-500 hover:text-slate-800 font-semibold"
               >
-                Corriger
+                Modifier le texte
               </button>
               <button
                 onClick={handleConfirm}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition-all shadow-md"
               >
-                <span>Valider et classer</span>
+                <span>Valider et enregistrer</span>
                 <ArrowRight className="h-3.5 w-3.5 text-amber-400" />
               </button>
             </div>

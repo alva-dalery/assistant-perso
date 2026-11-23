@@ -14,6 +14,7 @@ export type EnergyLevel = "low" | "medium" | "high";
 
 export interface UserProfile {
   name: string;
+  city?: string;
   energyToday: EnergyLevel;
   focusMode: boolean;
   morphology: string; // ex: "Trapèze / H"
@@ -32,6 +33,20 @@ export interface EmailDraft {
   suggestedReply: string;
   status: "pending_review" | "approved" | "sent" | "rejected";
   urgency: "haute" | "normale" | "basse";
+  aiPowered?: boolean;
+}
+
+export interface LiveEmailSummary {
+  uid: number;
+  subject: string;
+  fromName: string;
+  fromEmail: string;
+  date: string;
+  seen: boolean;
+  answered: boolean;
+  category: string;
+  needsReply: boolean;
+  reason: string;
 }
 
 export interface ClothingItem {
@@ -169,4 +184,93 @@ export interface ExpoItem {
   link?: string;
   imageUrl?: string;
   notes?: string;
+}
+
+export interface ReminderItem {
+  id: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+  title: string;
+  note?: string;
+  module?: ModuleType;
+  completed: boolean;
+}
+
+export interface ShoppingItem {
+  id: string;
+  name: string;
+  category: string;
+  priceEst: number;
+  checked: boolean;
+}
+
+export interface WorkoutLog {
+  id: string;
+  workoutId: string;
+  title: string;
+  durationMinutes: number;
+  completedAt: string; // ISO
+}
+
+export interface PackingItem {
+  id: string;
+  label: string;
+  note: string;
+  category?: string;
+  checked: boolean;
+}
+
+export interface AppState {
+  version: number;
+  user: UserProfile;
+  clothes: ClothingItem[];
+  outfits: OutfitSuggestion[];
+  health: HealthData;
+  pantry: PantryItem[];
+  recipes: RecipeItem[];
+  shoppingList: ShoppingItem[];
+  workouts: WorkoutSession[];
+  workoutLogs: WorkoutLog[];
+  disputes: DisputeCase[];
+  projects: PersonalProject[];
+  reminders: ReminderItem[];
+  tripDestination: string;
+  tripDays: number;
+  packingList: PackingItem[];
+}
+
+export interface BrainDumpConfirmAction {
+  actionType:
+    | "add_reminder"
+    | "add_shopping"
+    | "add_pantry"
+    | "add_project_task"
+    | "create_project"
+    | "add_dispute_note"
+    | "add_clothing"
+    | "none";
+  targetModule: ModuleType;
+  moduleLabel: string;
+  summary: string;
+  suggestion: string;
+  payload: {
+    title?: string;
+    note?: string;
+    time?: string;
+    date?: string;
+    category?: string;
+    priceEst?: number;
+    quantity?: string;
+    projectId?: string;
+    disputeId?: string;
+    color?: string;
+  };
+}
+
+export interface GlobalSearchResult {
+  id: string;
+  title: string;
+  subtitle: string;
+  module: ModuleType;
+  moduleLabel: string;
 }
