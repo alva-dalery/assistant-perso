@@ -652,7 +652,11 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
               {parcels.map((parcel) => {
                 const open = openParcel === parcel.uid;
                 const number = parcel.numbers[0] ?? "";
-                const delivered = Boolean(parcel.status && /livr/i.test(parcel.status) && !/en cours|retard|[ée]chec/i.test(parcel.status));
+                const delivered = Boolean(
+                  parcel.status &&
+                    /livr/i.test(parcel.status) &&
+                    !/en cours|retard|[ée]chec|sera\s+livr|pr[ée]vue|attente/i.test(parcel.status)
+                );
                 const deliveryValue = delivered
                   ? formatDay(parcel.shippedAt)
                   : parcel.estimatedDelivery || null;

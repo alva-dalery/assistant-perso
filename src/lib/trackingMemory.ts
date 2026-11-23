@@ -85,7 +85,7 @@ function sanitize(value: unknown): SavedParcel | null {
         subject: text(raw.subject) ?? "",
         folder: text(raw.folder) ?? "",
         folderLabel: text(raw.folderLabel) ?? undefined,
-        history: strings(raw.history),
+        history: sortHistoryChronologically(strings(raw.history)),
         images: strings(raw.images).slice(0, 4),
         productTitle: text(raw.productTitle),
         savedAt: text(raw.savedAt) ?? new Date().toISOString(),
@@ -210,10 +210,62 @@ function earliestIso(a?: string, b?: string): string {
     return a || b || new Date().toISOString();
 }
 
+const FRENCH_SHORT_MONTHS: Record<string, number> = {
+    janv: 0,
+    jan: 0,
+    fevr: 1,
+    fev: 1,
+    mars: 2,
+    mar: 2,
+    avr: 3,
+    mai: 4,
+    juin: 5,
+    juil: 6,
+    aout: 7,
+    sept: 8,
+    sep: 8,
+    oct: 9,
+    nov: 10,
+    dec: 11,
+};
+
+function parseHistoryEntryDayKey(entry: string): number | null {
+    const match = entry
+        .trim()
+        .match(/^(\d{1,2})\s+([a-zA-Zéèêëàâùûîïôöç.]{2,8})\s*·/);
+    if (!match) return null;
+    const day = Number(match[1]);
+    const monthToken = match[2]
+        .toLowerCase()
+        .replace(/\.$/, "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+    const month = FRENCH_SHORT_MONTHS[monthToken];
+    if (month === undefined || Number.isNaN(day)) return null;
+    const now = new Date();
+    const nowMonth = now.getMonth();
+    const year = month > nowMonth + 2 ? now.getFullYear() - 1 : now.getFullYear();
+    return year * 400 + month * 32 + day;
+}
+
+function sortHistoryChronologically(entries: string[]): string[] {
+    return entries
+        .map((entry, idx) => ({ entry, idx, key: parseHistoryEntryDayKey(entry) }))
+        .sort((a, b) => {
+            if (a.key !== null && b.key !== null && a.key !== b.key) {
+                return b.key - a.key;
+            }
+            if (a.key !== null && b.key === null) return -1;
+            if (a.key === null && b.key !== null) return 1;
+            return a.idx - b.idx;
+        })
+        .map((item) => item.entry);
+}
 function statusRank(status: string | null | undefined): number {
     if (!status) return 0;
     const s = status.toLowerCase();
-    if (/livr/.test(s) && !/en cours|retard/.test(s)) return 6;
+    if (/sera\s+livr/.test(s)) return 5;
+    if (/livr/.test(s) && !/en cours|retard|[ée]chec/.test(s)) return 6;
     if (/point relais|retrait/.test(s)) return 5;
     if (/en cours de livraison/.test(s)) return 5;
     if (/transit|acheminement/.test(s)) return 4;
@@ -290,7 +342,9 @@ function mergeParcelData(
             incoming.productTitle !== undefined
                 ? incoming.productTitle || existing.productTitle || null
                 : existing.productTitle || null,
-        history: uniqueStrings([...incomingHistory, ...baseExistingHistory], 20),
+        history: sortHistoryChronologically(
+            uniqueStrings([...incomingHistory, ...baseExistingHistory], 20)
+        ),
         savedAt: new Date().toISOString(),
     };
 }
