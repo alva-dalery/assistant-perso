@@ -178,10 +178,16 @@ export function findMatchingParcel(candidate: ParcelMatchCandidate): SavedParcel
     return loadParcels().find((item) => isSameOrder(item, candidate)) ?? null;
 }
 
-function mergeParcelData(existing: SavedParcel, incoming: Partial<SavedParcel>): SavedParcel {
+function mergeParcelData(
+    existing: SavedParcel,
+    incoming: Partial<SavedParcel> & { replaceImages?: boolean }
+): SavedParcel {
     const incomingNumbers = incoming.numbers ?? [];
     const incomingImages = incoming.images ?? [];
     const incomingHistory = incoming.history ?? [];
+    const mergedImages = incoming.replaceImages
+        ? uniqueStrings(incomingImages, 4)
+        : uniqueStrings([...(existing.images ?? []), ...incomingImages], 4);
     return {
         ...existing,
         store:
@@ -197,17 +203,22 @@ function mergeParcelData(existing: SavedParcel, incoming: Partial<SavedParcel>):
         subject: incoming.subject || existing.subject,
         folder: incoming.folder || existing.folder,
         folderLabel: incoming.folderLabel ?? existing.folderLabel,
-        images: uniqueStrings([...(existing.images ?? []), ...incomingImages], 4),
+        images: mergedImages,
         history: uniqueStrings([...incomingHistory, ...existing.history], 12),
         savedAt: new Date().toISOString(),
     };
 }
 
 /** Ajoute (ou fusionne avec une commande existante) un colis, en tête de liste. */
-export function addParcel(parcel: SavedParcel): SavedParcel[] {
+export function addParcel(
+    parcel: SavedParcel,
+    options?: { replaceImages?: boolean }
+): SavedParcel[] {
     const current = loadParcels();
     const existing = current.find((item) => isSameOrder(item, parcel));
-    const merged = existing ? mergeParcelData(existing, parcel) : parcel;
+    const merged = existing
+        ? mergeParcelData(existing, { ...parcel, replaceImages: options?.replaceImages })
+        : parcel;
     const rest = current.filter((item) => item.uid !== merged.uid && item !== existing);
     const next = [merged, ...rest].slice(0, MAX_PARCELS);
     saveParcels(next);
@@ -220,7 +231,7 @@ export function addParcel(parcel: SavedParcel): SavedParcel[] {
  * correspond à la même commande, sans jamais créer de doublon.
  */
 export function syncExistingParcel(
-    candidate: ParcelMatchCandidate & Partial<SavedParcel>
+    candidate: ParcelMatchCandidate & Partial<SavedParcel> & { replaceImages?: boolean }
 ): SavedParcel | null {
     const current = loadParcels();
     const existing = current.find((item) => isSameOrder(item, candidate));

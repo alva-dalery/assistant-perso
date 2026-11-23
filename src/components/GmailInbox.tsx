@@ -701,6 +701,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [editingTracking, setEditingTracking] = useState(false);
     const [manualTrackingNumber, setManualTrackingNumber] = useState("");
     const [manualTrackingCarrier, setManualTrackingCarrier] = useState("");
+    const [selectedTrackingImages, setSelectedTrackingImages] = useState<string[]>([]);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(false);
     const autoAllRef = useRef(false);
@@ -1006,6 +1007,26 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             if (labelled.tracking) {
                 setManualTrackingNumber(labelled.tracking.numbers[0] ?? "");
                 setManualTrackingCarrier(labelled.tracking.carrier ?? "");
+                const emailImages = labelled.tracking.images ?? [];
+                const existingMatch = findMatchingParcel({
+                    uid: labelled.uid,
+                    store:
+                        labelled.tracking.store?.trim() ||
+                        labelled.fromName ||
+                        labelled.tracking.carrier ||
+                        "Colis",
+                    orderNumber: labelled.tracking.orderNumber ?? null,
+                    numbers: labelled.tracking.numbers,
+                    url: labelled.tracking.url,
+                    shippedAt: labelled.date,
+                });
+                const preservedImages =
+                    existingMatch?.images && existingMatch.images.length > 0
+                        ? emailImages.filter((u) => existingMatch.images!.includes(u))
+                        : [];
+                setSelectedTrackingImages(
+                    preservedImages.length > 0 ? preservedImages : emailImages
+                );
                 // Si cette commande existe déjà dans le tableau de bord, on la met à jour
                 // automatiquement avec les nouvelles infos (lien de suivi, numéro, statut, images).
                 syncExistingParcel({
@@ -1709,22 +1730,25 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     shippedAt: target.date,
                 })
             );
-            addParcel({
-                uid: target.uid,
-                store: storeName,
-                orderNumber: tracking.orderNumber ?? null,
-                carrier: tracking.carrier,
-                numbers: tracking.numbers,
-                url: tracking.url,
-                status: tracking.status,
-                shippedAt: target.date,
-                subject: target.subject,
-                folder: commandFolder,
-                folderLabel: label,
-                history: tracking.history ?? [],
-                images: tracking.images ?? [],
-                savedAt: new Date().toISOString(),
-            });
+            addParcel(
+                {
+                    uid: target.uid,
+                    store: storeName,
+                    orderNumber: tracking.orderNumber ?? null,
+                    carrier: tracking.carrier,
+                    numbers: tracking.numbers,
+                    url: tracking.url,
+                    status: tracking.status,
+                    shippedAt: target.date,
+                    subject: target.subject,
+                    folder: commandFolder,
+                    folderLabel: label,
+                    history: tracking.history ?? [],
+                    images: selectedTrackingImages,
+                    savedAt: new Date().toISOString(),
+                },
+                { replaceImages: Boolean(tracking.images && tracking.images.length > 0) }
+            );
 
             setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
             setTotal((previous) => Math.max(0, previous - 1));
@@ -2470,21 +2494,104 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             </div>
                                         </div>
 
-                                        {detail.tracking.images && detail.tracking.images.length > 0 && (
-                                            <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
-                                                {detail.tracking.images.map((imgUrl, idx) => (
-                                                    <img
-                                                        key={`${detail.uid}-img-${idx}`}
-                                                        src={imgUrl}
-                                                        alt="Produit commandé"
-                                                        onError={(e) => {
-                                                            e.currentTarget.style.display = "none";
-                                                        }}
-                                                        className="h-14 w-14 rounded-xl object-cover border border-violet-200/80 bg-white shrink-0"
-                                                    />
-                                                ))}
-                                            </div>
-                                        )}
+                                        {detail.tracking.images && detail.tracking.images.length > 0 && (() => {
+                                            const applyImageSelection = (nextImages: string[]) => {
+                                                setSelectedTrackingImages(nextImages);
+                                                if (matchingExisting) {
+                                                    syncExistingParcel({
+                                                        uid: detail.uid,
+                                                        store:
+                                                            detail.tracking?.store?.trim() ||
+                                                            detail.fromName ||
+                                                            detail.tracking?.carrier ||
+                                                            "Colis",
+                                                        orderNumber: detail.tracking?.orderNumber ?? null,
+                                                        numbers: detail.tracking?.numbers ?? [],
+                                                        url: detail.tracking?.url ?? null,
+                                                        shippedAt: detail.date,
+                                                        images: nextImages,
+                                                        replaceImages: true,
+                                                    });
+                                                }
+                                            };
+                                            const toggleImage = (imgUrl: string) => {
+                                                const exists = selectedTrackingImages.includes(imgUrl);
+                                                const next = exists
+                                                    ? selectedTrackingImages.filter((u) => u !== imgUrl)
+                                                    : [...selectedTrackingImages, imgUrl];
+                                                applyImageSelection(next);
+                                            };
+                                            return (
+                                                <div className="space-y-1.5">
+                                                    <div className="flex items-center justify-between text-[10px]">
+                                                        <span className="font-semibold text-slate-600">
+                                                            Visuels ({selectedTrackingImages.length}/
+                                                            {detail.tracking.images.length} sélectionné
+                                                            {selectedTrackingImages.length > 1 ? "s" : ""})
+                                                        </span>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    applyImageSelection(
+                                                                        detail.tracking?.images ?? []
+                                                                    )
+                                                                }
+                                                                className="text-violet-700 font-semibold hover:underline"
+                                                            >
+                                                                Tout
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => applyImageSelection([])}
+                                                                className="text-slate-500 font-semibold hover:underline"
+                                                            >
+                                                                Aucun
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                                                        {detail.tracking.images.map((imgUrl, idx) => {
+                                                            const selected =
+                                                                selectedTrackingImages.includes(imgUrl);
+                                                            return (
+                                                                <button
+                                                                    key={`${detail.uid}-img-${idx}`}
+                                                                    type="button"
+                                                                    onClick={() => toggleImage(imgUrl)}
+                                                                    aria-pressed={selected}
+                                                                    title={
+                                                                        selected
+                                                                            ? "Cliquer pour retirer cette image"
+                                                                            : "Cliquer pour sélectionner cette image"
+                                                                    }
+                                                                    className={`relative h-14 w-14 rounded-xl overflow-hidden border-2 bg-white shrink-0 transition-all ${
+                                                                        selected
+                                                                            ? "border-violet-600 ring-2 ring-violet-200 opacity-100"
+                                                                            : "border-slate-200 opacity-45 grayscale hover:opacity-75"
+                                                                    }`}
+                                                                >
+                                                                    <img
+                                                                        src={imgUrl}
+                                                                        alt="Produit commandé"
+                                                                        onError={(e) => {
+                                                                            e.currentTarget.style.display =
+                                                                                "none";
+                                                                        }}
+                                                                        className="h-full w-full object-cover"
+                                                                    />
+                                                                    {selected && (
+                                                                        <span className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-violet-600 text-white flex items-center justify-center shadow">
+                                                                            <CheckCircle2 className="h-3 w-3" />
+                                                                        </span>
+                                                                    )}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
 
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                                             <div className="min-w-0">
