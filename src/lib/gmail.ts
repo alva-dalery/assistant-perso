@@ -368,8 +368,30 @@ const TRACKING_STATUS: Array<{ label: string; match: RegExp }> = [
     },
 ];
 
-const DELIVERY_DATE_RE =
-    /(?:livraison (?:pr[ée]vue|estim[ée]e|pr[ée]visionnelle|attendue)|estimated delivery|arriv[ée]e (?:pr[ée]vue|estim[ée]))\s*(?:le|:|-)?\s*(\d{1,2}[\/.\s-]\d{1,2}(?:[\/.\s-]\d{2,4})?|\d{1,2}\s+(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)(?:\s+20\d{2})?|(?:lundi|mardi|mercredi|jeudi|vendredi|samedi)\s+\d{1,2}(?:\s+\w+)?)/i;
+const SINGLE_DATE_TOKEN =
+    "(?:(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\\s+)?(?:\\d{1,2}[/.\\s-]\\d{1,2}(?:[/.\\s-]\\d{2,4})?|\\d{1,2}\\s+(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)(?:\\s+20\\d{2})?)";
+
+const DELIVERY_LABEL_PREFIX =
+    "(?:(?:date\\s+de\\s+)?livraison\\s+(?:pr[ée]vue|estim[ée]e|pr[ée]visionnelle|attendue)|estimated\\s+delivery(?:\\s+date)?|arriv[ée]e\\s+(?:pr[ée]vue|estim[ée]e?)|sera\\s+livr[ée])";
+
+const DELIVERY_RANGE_RE = new RegExp(
+    `${DELIVERY_LABEL_PREFIX}[^\\n]{0,25}?(?:entre\\s+(?:le\\s+)?|du\\s+|between\\s+)?(${SINGLE_DATE_TOKEN})\\s*(?:et|au|and|[-–—])\\s*(?:le\\s+)?(${SINGLE_DATE_TOKEN})`,
+    "i"
+);
+
+const DELIVERY_DATE_RE = new RegExp(
+    `${DELIVERY_LABEL_PREFIX}\\s*(?:le|:|-|\\s)?\\s*(${SINGLE_DATE_TOKEN})`,
+    "i"
+);
+
+function extractEstimatedDelivery(text: string): string | null {
+    const rangeMatch = text.match(DELIVERY_RANGE_RE);
+    if (rangeMatch?.[1] && rangeMatch?.[2]) {
+        return `${rangeMatch[1].trim()} – ${rangeMatch[2].trim()}`;
+    }
+    const singleMatch = text.match(DELIVERY_DATE_RE);
+    return singleMatch?.[1]?.trim() ?? null;
+}
 
 function urlsInText(text: string): string[] {
     return (text.match(/https?:\/\/[^\s<>"')]+/gi) ?? []).map((url) =>
@@ -671,7 +693,7 @@ export function extractTracking(input: {
     const status =
         TRACKING_STATUS.find((entry) => entry.match.test(`${input.subject}\n${body}`))?.label ??
         null;
-    const estimatedDelivery = body.match(DELIVERY_DATE_RE)?.[1]?.trim() ?? null;
+    const estimatedDelivery = extractEstimatedDelivery(`${input.subject}\n${body}`);
 
     const byHost = carrier?.host ? allUrls.find((url) => carrier.host!.test(url)) : undefined;
     const byAnchor = htmlLinks.find(

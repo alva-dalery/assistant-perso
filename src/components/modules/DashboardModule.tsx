@@ -631,6 +631,16 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           </p>
                         </div>
                       )}
+                      {parcel.estimatedDelivery && !delivered && (
+                        <div className="col-span-2 sm:col-span-3">
+                          <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
+                            Livraison estimée
+                          </p>
+                          <p className="font-semibold text-violet-700">
+                            {parcel.estimatedDelivery}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
