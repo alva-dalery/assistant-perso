@@ -20,8 +20,11 @@ import {
 } from "lucide-react";
 import {
   getAiHeaders,
+  getShip24Headers,
   loadAiConfig,
+  loadShip24Key,
   saveAiConfig,
+  saveShip24Key,
   type DeepSeekModel,
 } from "@/lib/aiClient";
 import { exportBackupJson, importBackupJson } from "@/lib/storage";
@@ -77,6 +80,13 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
   // Import/Export state
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+
+  // Ship24 parcel tracking key state
+  const [ship24KeyInput, setShip24KeyInput] = useState("");
+  const [ship24Status, setShip24Status] = useState<{
+    configured: boolean;
+    source: "env" | "header" | "none";
+  } | null>(null);
 
   useEffect(() => {
     setFormData(user);
@@ -137,13 +147,35 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
     }
   }, []);
 
+  const refreshShip24Status = useCallback(async () => {
+    try {
+      const res = await fetch("/api/gmail/tracking-history", {
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: getShip24Headers(),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as {
+          configured: boolean;
+          source: "env" | "header" | "none";
+        };
+        setShip24Status(data);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     const localAi = loadAiConfig();
     if (localAi.apiKey) setAiKeyInput(localAi.apiKey);
     if (localAi.model) setAiModel(localAi.model);
+    const localShip24 = loadShip24Key();
+    if (localShip24) setShip24KeyInput(localShip24);
     void refreshGmailStatus();
     void refreshAiStatus();
-  }, [refreshGmailStatus, refreshAiStatus]);
+    void refreshShip24Status();
+  }, [refreshGmailStatus, refreshAiStatus, refreshShip24Status]);
 
   const handleSaveProfile = () => {
     onUpdateProfile(formData);
@@ -766,6 +798,49 @@ export const ParametresModule: React.FC<ParametresModuleProps> = ({
               <p>
                 Ajoutez <code>DEEPSEEK_API_KEY=sk-...</code> dans votre fichier <code>.env.local</code> (puis redémarrez le serveur) ou dans <strong>Vercel → Settings → Environment Variables</strong>.
               </p>
+            </div>
+
+            {/* Ship24 Tracking API */}
+            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="font-bold text-slate-900">
+                  Suivi Colis Multi-Transporteurs (Ship24 — optionnel)
+                </span>
+                <span
+                  className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                    ship24Status?.configured
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                      : "bg-slate-100 text-slate-600 border-slate-200"
+                  }`}
+                >
+                  {ship24Status?.configured
+                    ? `Prêt (${ship24Status.source === "env" ? "serveur .env" : "clé navigateur"})`
+                    : "Non configuré"}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Permet de récupérer l'historique d'acheminement en direct (Colissimo, La Poste, DHL, UPS…). Plan gratuit 100 colis/mois sur <strong>ship24.com</strong> (variable Vercel : <code>SHIP24_API_KEY</code>).
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  value={ship24KeyInput}
+                  onChange={(e) => setShip24KeyInput(e.target.value)}
+                  placeholder="apik_..."
+                  className="flex-1 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-900 font-mono text-[11px]"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    saveShip24Key(ship24KeyInput);
+                    await refreshShip24Status();
+                    onNotify("Clé Ship24 enregistrée localement.");
+                  }}
+                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold"
+                >
+                  Enregistrer
+                </button>
+              </div>
             </div>
           </div>
         </div>

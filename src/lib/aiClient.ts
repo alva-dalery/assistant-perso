@@ -6,6 +6,32 @@ export interface ClientAiConfig {
 }
 
 const AI_CONFIG_KEY = "assistantPerso.aiConfig.v1";
+const SHIP24_KEY = "assistantPerso.ship24Key.v1";
+
+export function loadShip24Key(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return (window.localStorage.getItem(SHIP24_KEY) ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
+export function saveShip24Key(key: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const trimmed = key.trim();
+    if (trimmed) window.localStorage.setItem(SHIP24_KEY, trimmed);
+    else window.localStorage.removeItem(SHIP24_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function getShip24Headers(): Record<string, string> {
+  const key = loadShip24Key();
+  return key ? { "x-ship24-api-key": key } : {};
+}
 
 export function loadAiConfig(): ClientAiConfig {
   if (typeof window === "undefined") return {};

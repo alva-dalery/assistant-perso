@@ -31,6 +31,7 @@ import type {
 } from "@/types";
 import { loadParcels, removeParcel, TRACKING_EVENT, updateParcel } from "@/lib/trackingMemory";
 import type { SavedParcel } from "@/lib/trackingMemory";
+import { getShip24Headers } from "@/lib/aiClient";
 import { todayDateString } from "@/lib/storage";
 
 function formatDay(iso: string): string {
@@ -87,6 +88,8 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
   const [editingParcelUid, setEditingParcelUid] = useState<number | null>(null);
   const [editParcelNumber, setEditParcelNumber] = useState("");
   const [editParcelCarrier, setEditParcelCarrier] = useState("");
+  const [refreshingParcelUid, setRefreshingParcelUid] = useState<number | null>(null);
+  const [parcelErrors, setParcelErrors] = useState<Record<number, string>>({});
 
   // Calendrier réel dynamique (hydraté côté client pour éviter toute divergence UTC SSR / navigateur)
   const [todayStr, setTodayStr] = useState<string>("");
@@ -108,6 +111,64 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
   const [newRemNote, setNewRemNote] = useState("");
 
   const refreshParcels = useCallback(() => setParcels(loadParcels()), []);
+
+  const handleRefreshParcelHistory = async (parcel: SavedParcel) => {
+    const trackingNumber = parcel.numbers[0];
+    if (!trackingNumber || refreshingParcelUid !== null) return;
+    setRefreshingParcelUid(parcel.uid);
+    setParcelErrors((prev) => {
+      const next = { ...prev };
+      delete next[parcel.uid];
+      return next;
+    });
+    try {
+      const res = await fetch("/api/gmail/tracking-history", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getShip24Headers(),
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({ trackingNumber }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        status?: string | null;
+        history?: string[];
+        note?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        setParcelErrors((prev) => ({
+          ...prev,
+          [parcel.uid]: data.error || "Impossible de charger l'historique.",
+        }));
+        setOpenParcel(parcel.uid);
+        return;
+      }
+      const nextHistory =
+        Array.isArray(data.history) && data.history.length > 0
+          ? data.history
+          : parcel.history;
+      const updated = updateParcel(parcel.uid, {
+        status: data.status || parcel.status,
+        history: nextHistory,
+      });
+      setParcels(updated);
+      setOpenParcel(parcel.uid);
+      if (data.note && nextHistory.length === 0) {
+        setParcelErrors((prev) => ({ ...prev, [parcel.uid]: data.note! }));
+      }
+    } catch {
+      setParcelErrors((prev) => ({
+        ...prev,
+        [parcel.uid]: "Erreur réseau lors de la récupération Ship24.",
+      }));
+      setOpenParcel(parcel.uid);
+    } finally {
+      setRefreshingParcelUid(null);
+    }
+  };
 
   useEffect(() => {
     refreshParcels();
@@ -534,6 +595,20 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                         />
                         <span>Historique</span>
                       </button>
+                      {number && (
+                        <button
+                          onClick={() => void handleRefreshParcelHistory(parcel)}
+                          disabled={refreshingParcelUid === parcel.uid}
+                          title="Actualiser l'historique en direct (Ship24)"
+                          className="h-8 w-8 flex items-center justify-center rounded-xl text-slate-500 hover:text-violet-700 hover:bg-violet-50 disabled:opacity-40 transition-all"
+                        >
+                          <RefreshCw
+                            className={`h-3.5 w-3.5 ${
+                              refreshingParcelUid === parcel.uid ? "animate-spin" : ""
+                            }`}
+                          />
+                        </button>
+                      )}
                       <button
                         onClick={() => {
                           if (editingParcelUid === parcel.uid) {
@@ -607,6 +682,11 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
 
                     {open && (
                       <div className="pt-2 border-t border-slate-100 space-y-2">
+                        {parcelErrors[parcel.uid] && (
+                          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-2.5 py-1.5">
+                            {parcelErrors[parcel.uid]}
+                          </p>
+                        )}
                         {parcel.history.length > 0 ? (
                           <ol className="space-y-1.5 text-[11px] text-slate-600">
                             {parcel.history.map((event, index) => (

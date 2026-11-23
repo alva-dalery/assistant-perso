@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/styleMemory";
 import { addParcel } from "@/lib/trackingMemory";
-import { getAiHeaders } from "@/lib/aiClient";
+import { getAiHeaders, getShip24Headers } from "@/lib/aiClient";
 import {
     coverSrc,
     loadCoverOverrides,
@@ -694,6 +694,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [draftInstruction, setDraftInstruction] = useState("");
     const [drafting, setDrafting] = useState(false);
     const [resolvingTracking, setResolvingTracking] = useState(false);
+    const [fetchingHistory, setFetchingHistory] = useState(false);
     const [trackingResolveNote, setTrackingResolveNote] = useState<string | null>(null);
     const [editingTracking, setEditingTracking] = useState(false);
     const [manualTrackingNumber, setManualTrackingNumber] = useState("");
@@ -1108,6 +1109,53 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         });
         setEditingTracking(false);
         setTrackingResolveNote(null);
+    }
+
+    async function fetchTrackingHistory(uid: number, trackingNumber: string) {
+        if (!trackingNumber || fetchingHistory) return;
+        setFetchingHistory(true);
+        setTrackingResolveNote(null);
+        try {
+            const res = await fetch("/api/gmail/tracking-history", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...getShip24Headers(),
+                },
+                credentials: "same-origin",
+                body: JSON.stringify({ trackingNumber }),
+            });
+            const data = (await res.json()) as {
+                ok?: boolean;
+                status?: string | null;
+                history?: string[];
+                note?: string;
+                error?: string;
+            };
+            if (!res.ok) {
+                setTrackingResolveNote(data.error || "Impossible de récupérer l'historique Ship24.");
+                return;
+            }
+            if (Array.isArray(data.history) && data.history.length > 0) {
+                setDetail((prev) => {
+                    if (!prev || prev.uid !== uid || !prev.tracking) return prev;
+                    return {
+                        ...prev,
+                        tracking: {
+                            ...prev.tracking,
+                            status: data.status || prev.tracking.status,
+                            history: data.history!,
+                        },
+                    };
+                });
+            } else if (data.note) {
+                setTrackingResolveNote(data.note);
+            }
+        } catch {
+            setTrackingResolveNote("Erreur réseau lors de l'appel à Ship24.");
+        } finally {
+            setFetchingHistory(false);
+        }
     }
 
     async function generateDraft(target: MessageDetail | null = detail) {
@@ -2384,6 +2432,30 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                 >
                                                     <Copy className="h-3.5 w-3.5" />
                                                     <span>Copier le numéro</span>
+                                                </button>
+                                            )}
+                                            {detail.tracking.numbers.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        void fetchTrackingHistory(
+                                                            detail.uid,
+                                                            detail.tracking!.numbers[0]
+                                                        )
+                                                    }
+                                                    disabled={fetchingHistory}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-violet-200 text-violet-700 text-[11px] font-bold hover:bg-violet-50 disabled:opacity-50 transition-all"
+                                                >
+                                                    {fetchingHistory ? (
+                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                    ) : (
+                                                        <Package className="h-3.5 w-3.5" />
+                                                    )}
+                                                    <span>
+                                                        {fetchingHistory
+                                                            ? "Chargement..."
+                                                            : "Historique (Ship24)"}
+                                                    </span>
                                                 </button>
                                             )}
                                             {detail.tracking.url && (
