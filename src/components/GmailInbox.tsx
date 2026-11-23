@@ -1493,7 +1493,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
 
             setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
             setTotal((previous) => Math.max(0, previous - 1));
-            setDetail(null);
+            openNextOldestOrClear(target.uid);
             setFeedback("Facture téléchargée et email supprimé.");
         } catch (error) {
             setInvoiceError(
@@ -1712,6 +1712,27 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setFeedback(url ? "Lien de l'image enregistré." : "Couverture automatique rétablie.");
     }
 
+    /** Ouvre automatiquement l'email le plus ancien restant dans la liste active. */
+    function openNextOldestOrClear(excludeUid: number) {
+        const remainingVisible = visibleMessages.filter((item) => item.uid !== excludeUid);
+        const oldestNext = remainingVisible.reduce<(typeof remainingVisible)[number] | null>(
+            (oldest, item) => {
+                if (!oldest) return item;
+                const tOldest = Date.parse(oldest.date);
+                const tItem = Date.parse(item.date);
+                if (Number.isNaN(tItem)) return oldest;
+                if (Number.isNaN(tOldest)) return item;
+                return tItem < tOldest ? item : oldest;
+            },
+            null
+        );
+        if (oldestNext) {
+            void openMessage(oldestNext.uid);
+        } else {
+            setDetail(null);
+        }
+    }
+
     /** Valide un suivi : met à jour immédiatement l'interface puis range l'email en arrière-plan. */
     function validateCommand() {
         const target = detail;
@@ -1762,26 +1783,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             { replaceImages: Boolean(tracking.images && tracking.images.length > 0) }
         );
 
-        const remainingVisible = visibleMessages.filter((item) => item.uid !== target.uid);
-        const oldestNext = remainingVisible.reduce<(typeof remainingVisible)[number] | null>(
-            (oldest, item) => {
-                if (!oldest) return item;
-                const tOldest = Date.parse(oldest.date);
-                const tItem = Date.parse(item.date);
-                if (Number.isNaN(tItem)) return oldest;
-                if (Number.isNaN(tOldest)) return item;
-                return tItem < tOldest ? item : oldest;
-            },
-            null
-        );
-
         setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
         setTotal((previous) => Math.max(0, previous - 1));
-        if (oldestNext) {
-            void openMessage(oldestNext.uid);
-        } else {
-            setDetail(null);
-        }
+        openNextOldestOrClear(target.uid);
         setFeedback(
             alreadyTracked
                 ? `Suivi mis à jour. Rangement dans « ${label} » en cours…`
@@ -1956,7 +1960,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 folders.find((folder) => folder.path === destination)?.label ?? destination;
             setMessages((previous) => previous.filter((item) => item.uid !== message.uid));
             setTotal((previous) => Math.max(0, previous - 1));
-            setDetail(null);
+            openNextOldestOrClear(message.uid);
             setFeedback(`Message déplacé vers « ${label} ».`);
         } catch {
             setFeedback("Impossible de joindre le serveur.");
@@ -1991,7 +1995,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             }
             setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
             setTotal((previous) => Math.max(0, previous - 1));
-            setDetail(null);
+            openNextOldestOrClear(target.uid);
             setFeedback("Email de facture supprimé.");
         } catch {
             setInvoiceError("Suppression impossible.");
@@ -2022,7 +2026,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             }
             setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
             setTotal((previous) => Math.max(0, previous - 1));
-            setDetail(null);
+            openNextOldestOrClear(target.uid);
             setFeedback("Message déplacé dans la corbeille Gmail.");
         } catch {
             setFeedback("Impossible de joindre le serveur.");
@@ -2078,7 +2082,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                         folderTarget;
                     setMessages((previous) => previous.filter((item) => item.uid !== detail.uid));
                     setTotal((previous) => Math.max(0, previous - 1));
-                    setDetail(null);
+                    openNextOldestOrClear(detail.uid);
                 }
             }
 
