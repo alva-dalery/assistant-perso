@@ -3451,12 +3451,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             </div>
                                         )}
 
-                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                                        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 text-[11px]">
                                             <div className="min-w-0">
                                                 <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
                                                     Numéro de suivi
                                                 </p>
-                                                <div className="flex items-center gap-1.5">
+                                                <div className="flex items-center gap-1">
                                                     <p className="font-mono text-slate-800 break-all select-all">
                                                         {detail.tracking.numbers.length > 0
                                                             ? detail.tracking.numbers.join(" · ")
