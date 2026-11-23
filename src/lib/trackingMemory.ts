@@ -191,6 +191,19 @@ function earliestIso(a?: string, b?: string): string {
     return a || b || new Date().toISOString();
 }
 
+function statusRank(status: string | null | undefined): number {
+    if (!status) return 0;
+    const s = status.toLowerCase();
+    if (/livr/.test(s) && !/en cours|retard/.test(s)) return 6;
+    if (/point relais|retrait/.test(s)) return 5;
+    if (/en cours de livraison/.test(s)) return 5;
+    if (/transit|acheminement/.test(s)) return 4;
+    if (/exp[ée]di/.test(s)) return 3;
+    if (/pris en charge|pr[ée]paration/.test(s)) return 2;
+    if (/confirm/.test(s)) return 1;
+    return 1;
+}
+
 function mergeParcelData(
     existing: SavedParcel,
     incoming: Partial<SavedParcel> & { replaceImages?: boolean }
@@ -205,6 +218,10 @@ function mergeParcelData(
         existing.orderedAt || existing.shippedAt,
         incoming.orderedAt || incoming.shippedAt
     );
+    const nextStatus =
+        statusRank(incoming.status) >= statusRank(existing.status)
+            ? incoming.status || existing.status
+            : existing.status;
     return {
         ...existing,
         store:
@@ -215,7 +232,7 @@ function mergeParcelData(
         carrier: incoming.carrier || existing.carrier,
         numbers: uniqueStrings([...incomingNumbers, ...existing.numbers], 5),
         url: incoming.url || existing.url,
-        status: incoming.status || existing.status,
+        status: nextStatus,
         orderedAt,
         shippedAt: incoming.shippedAt || existing.shippedAt,
         subject: incoming.subject || existing.subject,
@@ -226,7 +243,7 @@ function mergeParcelData(
             incoming.productTitle !== undefined
                 ? incoming.productTitle || existing.productTitle || null
                 : existing.productTitle || null,
-        history: uniqueStrings([...incomingHistory, ...existing.history], 12),
+        history: uniqueStrings([...incomingHistory, ...existing.history], 20),
         savedAt: new Date().toISOString(),
     };
 }

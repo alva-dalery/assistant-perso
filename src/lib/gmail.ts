@@ -641,6 +641,7 @@ export function extractTracking(input: {
     fromName: string;
     text: string;
     html?: string;
+    date?: Date | string | null;
 }): GmailTracking | null {
     const body = input.text ?? "";
     const sender = `${input.fromEmail} ${input.fromName}`;
@@ -660,7 +661,9 @@ export function extractTracking(input: {
         (signature ? CARRIERS.find((rule) => rule.name === signature.name) : undefined) ??
         CARRIERS.find((rule) => rule.host && allUrls.some((url) => rule.host!.test(url)));
 
-    const status = TRACKING_STATUS.find((entry) => entry.match.test(body))?.label ?? null;
+    const status =
+        TRACKING_STATUS.find((entry) => entry.match.test(`${input.subject}\n${body}`))?.label ??
+        null;
     const estimatedDelivery = body.match(DELIVERY_DATE_RE)?.[1]?.trim() ?? null;
 
     const byHost = carrier?.host ? allUrls.find((url) => carrier.host!.test(url)) : undefined;
@@ -678,6 +681,33 @@ export function extractTracking(input: {
         return null;
     }
 
+    const parsedDate = input.date ? new Date(input.date) : null;
+    const datePrefix =
+        parsedDate && !Number.isNaN(parsedDate.getTime())
+            ? new Intl.DateTimeFormat("fr-FR", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+              }).format(parsedDate)
+            : null;
+    const cleanSubject = input.subject.replace(/\s+/g, " ").trim().slice(0, 90);
+    const statusPart = status
+        ? carrier
+            ? `${status} (${carrier.name})`
+            : status
+        : carrier
+          ? `Suivi (${carrier.name})`
+          : "Mise à jour commande";
+    const emailEvent = [
+        datePrefix,
+        cleanSubject ? `${statusPart} — ${cleanSubject}` : statusPart,
+    ]
+        .filter(Boolean)
+        .join(" · ");
+
+    const bodyEvents = trackingHistory(body);
+    const history = Array.from(new Set([emailEvent, ...bodyEvents])).slice(0, 10);
+
     return {
         store: storeFromSender(input.fromName, input.fromEmail),
         orderNumber,
@@ -685,7 +715,7 @@ export function extractTracking(input: {
         numbers,
         status,
         estimatedDelivery,
-        history: trackingHistory(body),
+        history,
         url,
         images,
         productTitle,
@@ -1872,6 +1902,7 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             fromName: envelope?.from?.[0]?.name ?? "",
             text: breakdown.currentText || visibleText,
             html: html ?? rawHtml,
+            date: envelope?.date ?? message.internalDate ?? null,
         });
 
         const loans = extractBookLoans({
