@@ -375,7 +375,7 @@ const TIME_SLOT_TOKEN =
     "(?:(?:entre|de|à partir de)?\\s*\\d{1,2}(?:[:h]\\d{2}|h)\\s*(?:et|à|[-–—])\\s*\\d{1,2}(?:[:h]\\d{2}|h)|(?:avant|à)\\s*\\d{1,2}(?:[:h]\\d{2}|h))";
 
 const DELIVERY_LABEL_PREFIX =
-    "(?:date\\s+(?:pr[ée]vue|estim[ée]e|attendue|pr[ée]visionnelle)\\s+(?:de|pour\\s+la)\\s+livraison|(?:date\\s+de\\s+)?livraison\\s+(?:pr[ée]vue|estim[ée]e|pr[ée]visionnelle|attendue)|estimated\\s+delivery(?:\\s+date)?|arriv[ée]e\\s+(?:pr[ée]vue|estim[ée]e?)|sera\\s+livr[ée]|livr[ée]\\s+(?:entre|du))";
+    "(?:date\\s+(?:pr[ée]vue|estim[ée]e|attendue|pr[ée]visionnelle)\\s+(?:de|pour\\s+la)\\s+livraison|(?:date\\s+de\\s+)?livraison\\s+(?:pr[ée]vue|estim[ée]e|pr[ée]visionnelle|attendue)|estimated\\s+delivery(?:\\s+date)?|arriv[ée]e\\s+(?:pr[ée]vue|estim[ée]e?)|sera\\s+livr[ée]|livr[ée]\\s+(?:entre|du)|livraison\\s+(?=demain|aujourd))";
 
 const DELIVERY_RANGE_RE = new RegExp(
     `${DELIVERY_LABEL_PREFIX}[\\s\\S]{0,45}?(?:entre\\s+(?:le\\s+)?|du\\s+|between\\s+)?(${SINGLE_DATE_TOKEN})\\s*(?:et|au|and|[-–—])\\s*(?:le\\s+)?(${SINGLE_DATE_TOKEN})`,
@@ -383,9 +383,11 @@ const DELIVERY_RANGE_RE = new RegExp(
 );
 
 const DELIVERY_DATE_WITH_TIME_RE = new RegExp(
-    `${DELIVERY_LABEL_PREFIX}[\\s\\S]{0,30}?(?:le|:|-)?\\s*(${SINGLE_DATE_TOKEN})(?:\\s+(${TIME_SLOT_TOKEN}))?`,
+    `${DELIVERY_LABEL_PREFIX}[\\s\\S]{0,35}?(?:le|:|-)?\\s*(${SINGLE_DATE_TOKEN})(?:[,\\s]{1,10}(${TIME_SLOT_TOKEN}))?`,
     "i"
 );
+
+const TIME_SLOT_STANDALONE_RE = new RegExp(TIME_SLOT_TOKEN, "i");
 
 function extractEstimatedDelivery(text: string): string | null {
     const rangeMatch = text.match(DELIVERY_RANGE_RE);
@@ -395,7 +397,17 @@ function extractEstimatedDelivery(text: string): string | null {
     const singleMatch = text.match(DELIVERY_DATE_WITH_TIME_RE);
     if (!singleMatch?.[1]) return null;
     const datePart = singleMatch[1].trim();
-    const timePart = singleMatch[2]?.replace(/\s+/g, " ").trim();
+    let timePart = singleMatch[2]?.replace(/\s+/g, " ").trim();
+    if (!timePart && singleMatch.index !== undefined) {
+        const after = text.slice(
+            singleMatch.index + singleMatch[0].length,
+            singleMatch.index + singleMatch[0].length + 60
+        );
+        const nearbyTime = after.match(TIME_SLOT_STANDALONE_RE);
+        if (nearbyTime?.[0]) {
+            timePart = nearbyTime[0].replace(/\s+/g, " ").trim();
+        }
+    }
     return timePart ? `${datePart} (${timePart})` : datePart;
 }
 

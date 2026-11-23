@@ -34,6 +34,82 @@ import type { SavedParcel } from "@/lib/trackingMemory";
 import { getAiHeaders, getLaPosteHeaders } from "@/lib/aiClient";
 import { todayDateString } from "@/lib/storage";
 
+const FRENCH_MONTHS: Record<string, number> = {
+  janvier: 0,
+  fevrier: 1,
+  février: 1,
+  mars: 2,
+  avril: 3,
+  mai: 4,
+  juin: 5,
+  juillet: 6,
+  aout: 7,
+  août: 7,
+  septembre: 8,
+  octobre: 9,
+  novembre: 10,
+  decembre: 11,
+  décembre: 11,
+};
+
+function formatDeliveryDisplay(raw: string): { headline: string; detail: string | null } {
+  const timeMatch = raw.match(/\(([^)]+)\)\s*$/);
+  const timeSlot = timeMatch ? timeMatch[1].trim() : null;
+  const dateOnly = timeMatch ? raw.slice(0, timeMatch.index).trim() : raw.trim();
+
+  // Fourchette de dates : on l'affiche telle quelle.
+  if (/\s[–-]\s/.test(dateOnly)) {
+    return { headline: dateOnly, detail: timeSlot };
+  }
+
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let targetDate: Date | null = null;
+
+  if (/^aujourd['’]?hui$/i.test(dateOnly)) {
+    targetDate = todayMidnight;
+  } else if (/^demain$/i.test(dateOnly)) {
+    targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  } else {
+    const numMatch = dateOnly.match(/(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?/);
+    if (numMatch) {
+      const day = Number(numMatch[1]);
+      const month = Number(numMatch[2]) - 1;
+      const rawYear = numMatch[3] ? Number(numMatch[3]) : now.getFullYear();
+      const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+      targetDate = new Date(year, month, day);
+    } else {
+      const textMatch = dateOnly.match(
+        /(\d{1,2})\s+(janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)(?:\s+(20\d{2}))?/i
+      );
+      if (textMatch) {
+        const day = Number(textMatch[1]);
+        const month = FRENCH_MONTHS[textMatch[2].toLowerCase()];
+        const year = textMatch[3] ? Number(textMatch[3]) : now.getFullYear();
+        if (month !== undefined) {
+          targetDate = new Date(year, month, day);
+          if (!textMatch[3] && targetDate.getTime() - todayMidnight.getTime() < -180 * 86_400_000) {
+            targetDate = new Date(year + 1, month, day);
+          }
+        }
+      }
+    }
+  }
+
+  if (targetDate && !Number.isNaN(targetDate.getTime())) {
+    const diffDays = Math.round(
+      (targetDate.getTime() - todayMidnight.getTime()) / 86_400_000
+    );
+    const subParts = [dateOnly, timeSlot].filter(Boolean).join(" · ");
+    if (diffDays === 0) return { headline: "Aujourd'hui", detail: subParts || null };
+    if (diffDays === 1) return { headline: "Demain", detail: subParts || null };
+    if (diffDays === 2) return { headline: "Dans 2 jours", detail: subParts || null };
+    if (diffDays === 3) return { headline: "Dans 3 jours", detail: subParts || null };
+  }
+
+  return { headline: dateOnly, detail: timeSlot };
+}
+
 function formatDay(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
@@ -583,7 +659,6 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           )}
                           <p className="text-[10px] text-slate-500 truncate">
                             {parcel.carrier ?? "Transporteur non précisé"}
-                            {parcel.orderNumber ? ` · #${parcel.orderNumber}` : ""}
                           </p>
                         </div>
                       </div>
@@ -619,16 +694,26 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                           {formatDay(parcel.orderedAt ?? parcel.shippedAt)}
                         </p>
                       </div>
-                      {deliveryValue && (
-                        <div>
-                          <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
-                            {delivered ? "Livré le" : "Livraison prévue"}
-                          </p>
-                          <p className="font-semibold text-violet-700">
-                            {deliveryValue}
-                          </p>
-                        </div>
-                      )}
+                      {deliveryValue && (() => {
+                        const formatted = delivered
+                          ? { headline: deliveryValue, detail: null }
+                          : formatDeliveryDisplay(deliveryValue);
+                        return (
+                          <div>
+                            <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-0.5">
+                              {delivered ? "Livré le" : "Livraison prévue"}
+                            </p>
+                            <p className="font-semibold text-violet-700 leading-tight">
+                              {formatted.headline}
+                            </p>
+                            {formatted.detail && (
+                              <p className="text-[10px] text-slate-500 leading-tight mt-0.5">
+                                {formatted.detail}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
