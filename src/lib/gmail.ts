@@ -98,6 +98,7 @@ export type GmailCategory =
     | "important"
     | "factures"
     | "commande"
+    | "alertes"
     | "infos"
     | "newsletter"
     | "promotion";
@@ -146,9 +147,19 @@ const HEADERS_TO_FETCH = [
 const PROMO_SUBJECT =
     /(newsletter|promo|promotion|soldes|black friday|cyber monday|offre|bons? plans?|\d+\s*%|-\s*\d+\s*%|dernières (heures|chances)|webinaire|webinar|vente privée|essai gratuit|désabonner|unsubscribe|digest|récapitulatif|nouveautés|lancement)/i;
 
-/** Factures et paiements à régler. */
+/** Factures et paiements à régler (EEC, Calédonienne des eaux, OPT, Lagoon…). */
 const FACTURE_SUBJECT =
     /(facture|avis d.échéance|échéance|prélèvement|paiement|payer|régler|solde dû|rappel de paiement|remboursement|quittance)/i;
+
+const NC_INVOICE_PROVIDER =
+    /(lagoon|eec\.nc|engie\.nc|\beec\b|cal[ée]donienne des eaux|cde\.nc|helia\.nc|opt\.nc|\bopt\b)/i;
+
+/** Alertes de sécurité, partages de données de compte, connexions, codes 2FA. */
+const ALERT_SUBJECT =
+    /(alerte de s[ée]curit[ée]|security alert|alerte|suspicious|connexion (?:inhabituelle|d[ée]tect[ée]e|nouvelle|non reconnue)|nouvelle connexion|new sign-?in|tentative de connexion|mot de passe|password|code de v[ée]rification|code de s[ée]curit[ée]|2fa|double authentification|partage de donn[ée]es|donn[ée]es de compte|acc[èe]s (?:accord[ée]|partag[ée]|r[ée]voqu[ée])|autorisation|confidentialit[ée]|compte compromis|activity alert)/i;
+
+const ALERT_SENDER =
+    /(security|alert|alerts|account-security|accounts\.google\.com|security-noreply)/i;
 
 /** Administratif important : impôts, cotisations, assurances, convocations. */
 const IMPORTANT_SUBJECT =
@@ -695,6 +706,27 @@ export function classifyMessage(
             category: "commande",
             needsReply: false,
             reason: trackingReason(fromEmail),
+        };
+    }
+
+    // 1b. Factures EEC, Calédonienne des eaux, OPT et Lagoon (prioritaires sur les en-têtes techniques).
+    if (
+        FACTURE_SUBJECT.test(subject) &&
+        (NC_INVOICE_PROVIDER.test(fromEmail) || NC_INVOICE_PROVIDER.test(subject))
+    ) {
+        return {
+            category: "factures",
+            needsReply: false,
+            reason: "Facture fournisseur (EEC / Calédonienne des eaux / OPT / Lagoon)",
+        };
+    }
+
+    // 1c. Alertes de sécurité, connexions et partages de données de compte.
+    if (ALERT_SUBJECT.test(subject) || ALERT_SENDER.test(fromEmail)) {
+        return {
+            category: "alertes",
+            needsReply: false,
+            reason: "Alerte de sécurité ou partage de données de compte",
         };
     }
 

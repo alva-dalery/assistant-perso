@@ -49,6 +49,7 @@ type GmailCategory =
     | "important"
     | "factures"
     | "commande"
+    | "alertes"
     | "infos"
     | "newsletter"
     | "promotion";
@@ -108,20 +109,22 @@ interface ReplyDraftResponse {
 }
 
 const CATEGORY_LABEL: Record<GmailCategory, string> = {
-    personnel: "Répondre",
-    important: "Important",
+    personnel: "À répondre",
+    important: "À lire",
     factures: "Factures",
-    commande: "Commande",
-    infos: "Infos",
+    commande: "Commandes",
+    alertes: "Alertes",
+    infos: "À lire",
     newsletter: "Newsletter",
     promotion: "Publicité",
 };
 
 const CATEGORY_STYLE: Record<GmailCategory, string> = {
     personnel: "bg-teal-50 text-teal-700 border-teal-200",
-    important: "bg-rose-50 text-rose-700 border-rose-200",
+    important: "bg-sky-50 text-sky-700 border-sky-200",
     factures: "bg-indigo-50 text-indigo-700 border-indigo-200",
     commande: "bg-violet-50 text-violet-700 border-violet-200",
+    alertes: "bg-rose-50 text-rose-700 border-rose-200",
     infos: "bg-sky-50 text-sky-700 border-sky-200",
     newsletter: "bg-slate-100 text-slate-500 border-slate-200",
     promotion: "bg-amber-50 text-amber-700 border-amber-200",
@@ -130,10 +133,10 @@ const CATEGORY_STYLE: Record<GmailCategory, string> = {
 /** Ordre d'affichage des étiquettes modifiables. */
 const CATEGORY_ORDER: GmailCategory[] = [
     "personnel",
-    "important",
+    "infos",
     "factures",
     "commande",
-    "infos",
+    "alertes",
     "newsletter",
     "promotion",
 ];
@@ -179,12 +182,11 @@ function applyLabelOverride<T extends InboxMessage>(message: T, category?: Gmail
 }
 
 type Filter =
-    | "todo"
     | "reply"
-    | "important"
+    | "read"
     | "factures"
     | "commande"
-    | "infos"
+    | "alertes"
     | "later"
     | "all";
 
@@ -677,7 +679,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<string | null>(null);
-    const [filter, setFilter] = useState<Filter>("todo");
+    const [filter, setFilter] = useState<Filter>("reply");
 
     const [detail, setDetail] = useState<MessageDetail | null>(null);
     const [expanded, setExpanded] = useState(true);
@@ -868,18 +870,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setCommandFolder(best && score(best.label) > 0 ? best.path : "");
     }, [detail, folders, commandFolder]);
 
-    // « À traiter » = tout ce qui demande un coup d'œil : répondre, important ou infos,
-    // en excluant les newsletters/publicités et les messages déjà traités.
-    const toReview = useMemo(
+    const toReply = useMemo(() => messages.filter((message) => message.needsReply), [messages]);
+    const toRead = useMemo(
         () =>
             messages.filter(
-                (message) => !isLater(message.category) && !message.answered
+                (message) => message.category === "important" || message.category === "infos"
             ),
-        [messages]
-    );
-    const toReply = useMemo(() => messages.filter((message) => message.needsReply), [messages]);
-    const important = useMemo(
-        () => messages.filter((message) => message.category === "important"),
         [messages]
     );
     const factures = useMemo(
@@ -890,22 +886,23 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         () => messages.filter((message) => message.category === "commande"),
         [messages]
     );
-    const infos = useMemo(() => messages.filter((message) => message.category === "infos"), [messages]);
+    const alertes = useMemo(
+        () => messages.filter((message) => message.category === "alertes"),
+        [messages]
+    );
     const later = useMemo(() => messages.filter((message) => isLater(message.category)), [messages]);
 
     const visibleMessages =
-        filter === "todo"
-            ? toReview
-            : filter === "reply"
-                ? toReply
-                : filter === "important"
-                    ? important
-                    : filter === "factures"
-                        ? factures
-                        : filter === "commande"
-                            ? commandes
-                            : filter === "infos"
-                            ? infos
+        filter === "reply"
+            ? toReply
+            : filter === "read"
+                ? toRead
+                : filter === "factures"
+                    ? factures
+                    : filter === "commande"
+                        ? commandes
+                        : filter === "alertes"
+                            ? alertes
                             : filter === "later"
                                 ? later
                                 : messages;
@@ -930,18 +927,16 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
 
     const messagesForFilter = (value: Filter) => {
         switch (value) {
-            case "todo":
-                return toReview;
             case "reply":
                 return toReply;
-            case "important":
-                return important;
+            case "read":
+                return toRead;
             case "factures":
                 return factures;
             case "commande":
                 return commandes;
-            case "infos":
-                return infos;
+            case "alertes":
+                return alertes;
             case "later":
                 return later;
             default:
@@ -1938,13 +1933,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-slate-100/80 border border-slate-200/60 w-fit">
                 {(
                     [
-                        ["todo", `À traiter (${toReview.length})`],
-                        ["reply", `Répondre (${toReply.length})`],
-                        ["important", `Important (${important.length})`],
+                        ["reply", `À répondre (${toReply.length})`],
+                        ["read", `À lire (${toRead.length})`],
                         ["factures", `Factures (${factures.length})`],
                         ["commande", `Commandes (${commandes.length})`],
-                        ["infos", `Infos (${infos.length})`],
-                        ["later", `Newsletter/pubs (${later.length})`],
+                        ["alertes", `Alertes (${alertes.length})`],
+                        ["later", `Newsletter/pub (${later.length})`],
                         ["all", `Tous (${messages.length})`],
                     ] as [Filter, string][]
                 ).map(([value, label]) => (
@@ -2122,7 +2116,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 <div className={`space-y-2 ${invoiceActive ? "lg:col-span-3" : "lg:col-span-5"}`}>
                     {visibleMessages.length === 0 && !error && (
                         <p className="text-xs text-slate-500 p-4">
-                            {filter === "todo"
+                            {filter === "reply"
                                 ? "Aucun message ne nécessite de réponse parmi les emails chargés."
                                 : "Aucun message dans cette catégorie."}
                         </p>
