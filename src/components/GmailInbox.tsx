@@ -2057,6 +2057,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         });
         const alreadyTracked = Boolean(existingMatch);
         const hasExistingImages = Boolean(existingMatch?.images && existingMatch.images.length > 0);
+        if (
+            !hasExistingImages &&
+            tracking.images &&
+            tracking.images.length > 0 &&
+            selectedTrackingImages.length === 0
+        ) {
+            setFeedback("Sélectionnez d'abord au moins une image du produit.");
+            return;
+        }
         const removedSummary = messages.find((item) => item.uid === target.uid) ?? null;
 
         const finalHistoryEntry = manualHistoryEntry.trim();
@@ -2932,6 +2941,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                         matchingExisting?.images &&
                                             matchingExisting.images.length > 0
                                     );
+                                    const requiresImagePick =
+                                        !hasExistingImages &&
+                                        Boolean(
+                                            detail.tracking.images &&
+                                                detail.tracking.images.length > 0
+                                        ) &&
+                                        selectedTrackingImages.length === 0;
                                     return (
                                     <div className="mt-3 rounded-2xl bg-violet-50/70 border border-violet-200/70 p-3 space-y-2.5">
                                         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -3374,7 +3390,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                     onClick={() => void validateCommand()}
                                                     disabled={
                                                         commandSaving ||
-                                                        !(commandFolder || defaultCommandFolder)
+                                                        !(commandFolder || defaultCommandFolder) ||
+                                                        requiresImagePick
                                                     }
                                                     className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 text-white text-[11px] font-bold hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                                                 >
@@ -3390,10 +3407,16 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                     </span>
                                                 </button>
                                             </div>
-                                            <p className="text-[9px] text-slate-500">
-                                                L'email est rangé dans ce dossier et le colis rejoint le
-                                                tableau de bord (magasin, numéro, lien, statut, historique).
-                                            </p>
+                                            {requiresImagePick ? (
+                                                <p className="text-[10px] font-semibold text-amber-700">
+                                                    Sélectionnez au moins une image du produit ci-dessus pour valider cette commande.
+                                                </p>
+                                            ) : (
+                                                <p className="text-[9px] text-slate-500">
+                                                    L'email est rangé dans ce dossier et le colis rejoint le
+                                                    tableau de bord (magasin, numéro, lien, statut, historique).
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
                                     );
