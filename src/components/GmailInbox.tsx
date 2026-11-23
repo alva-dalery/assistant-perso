@@ -1059,9 +1059,20 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         const normTrack = (v: string | null | undefined) =>
             v ? v.trim().toUpperCase() : "";
         const isGenericCarrier = (name: string) =>
-            /^(?:colis|la poste|colissimo|la poste\s*\/\s*colissimo|chronopost|ups|dhl|fedex|dpd|gls|mondial\s*relay|relais\s*colis|colis\s*priv[ée])$/i.test(
+            /\b(?:la poste|colissimo|chronopost|ups|dhl|fedex|dpd|gls|mondial\s*relay|relais\s*colis|colis\s*priv[ée]|cainiao|parcellab|sendcloud)\b/i.test(
                 name.trim()
+            ) || /^colis$/i.test(name.trim());
+
+        const extractMerchantFromCarrierText = (subject: string, text: string): string | null => {
+            const combined = `${subject}\n${text.slice(0, 1200)}`;
+            const m = combined.match(
+                /(?:exp[ée]di[ée]\s+par|exp[ée]diteur\s*[:\-]|commande\s+(?:chez|sur|aupr[èe]s\s+de)|votre\s+colis\s+(?:chez|de))\s+([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ0-9&'’ -]{2,35}?)(?=\s*(?:est|a\s+[ée]t[ée]|vous|va|arrive|sera|\.|,|\n|$))/i
             );
+            const candidate = m?.[1]?.trim();
+            if (!candidate || isGenericCarrier(candidate)) return null;
+            if (/^(?:votre|mon|notre|client|colis|commande|livraison)$/i.test(candidate)) return null;
+            return candidate;
+        };
 
         // Passe 1 : recenser les marchands (non-transporteurs) et relier n° de commande / n° de suivi -> marchand
         const knownMerchants = new Set<string>();
@@ -1147,11 +1158,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     : null) ||
                 (!isGenericCarrier(msg.fromName) ? msg.fromName.trim() : null);
 
-            // Si l'email vient d'un transporteur (ex. Colissimo), vérifier si l'objet ou le corps cite un marchand connu
+            // Si l'email vient d'un transporteur (ex. Colissimo), vérifier si l'objet ou le corps cite un marchand connu ou mentionne l'expéditeur
             if (!merchantName) {
                 const haystack = `${msg.subject}\n${cached?.text ?? ""}`.toLowerCase();
                 merchantName =
                     Array.from(knownMerchants).find((m) => haystack.includes(m.toLowerCase())) ??
+                    extractMerchantFromCarrierText(msg.subject, cached?.text ?? "") ??
                     null;
             }
 
