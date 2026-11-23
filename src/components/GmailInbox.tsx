@@ -35,8 +35,12 @@ import { computeStyleProfile, loadSamples, recordReplySample } from "@/lib/style
 import {
     addParcel,
     applyLearnedHistoryLabel,
+    findLearnedOrderGroupRule,
     findMatchingParcel,
     learnHistoryLabel,
+    learnOrderGroupRule,
+    loadOrderGroupOverrides,
+    saveOrderGroupOverrides,
     syncExistingParcel,
 } from "@/lib/trackingMemory";
 import { getAiHeaders, getLaPosteHeaders } from "@/lib/aiClient";
@@ -764,6 +768,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [autoHistoryEntry, setAutoHistoryEntry] = useState("");
     const [historyEntryLearned, setHistoryEntryLearned] = useState(false);
     const [detailCacheVersion, setDetailCacheVersion] = useState(0);
+    const [orderGroupOverrides, setOrderGroupOverrides] = useState<Record<number, string>>(() =>
+        loadOrderGroupOverrides()
+    );
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(Boolean(inboxSessionCache?.messages.length));
     const autoAllRef = useRef(false);
@@ -1019,7 +1026,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             string,
             {
                 key: string;
-                title: string;
+                storeName: string;
+                productTitle: string | null;
                 orderNumber: string | null;
                 trackingNumber: string | null;
                 items: InboxMessage[];
@@ -1028,7 +1036,6 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         const trackToGroupKey = new Map<string, string>();
         const orderToGroupKey = new Map<string, string>();
         const urlToGroupKey = new Map<string, string>();
-        // Store -> ensemble des clés d'ordres distincts pour ce marchand
         const storeOrderKeys = new Map<string, Set<string>>();
 
         const normOrder = (v: string | null | undefined) =>
@@ -1100,7 +1107,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             }
         }
 
-        // Passe 2 : regrouper chaque email vers sa commande
+        // Passe 2 : regrouper chaque email vers sa commande (en tenant compte des déplacements manuels & appris)
         for (const msg of visibleMessages) {
             const cached = detailSessionCache.get(msg.uid);
             const rawOrder = cached?.tracking?.orderNumber ?? msg.orderNumber ?? null;
@@ -1124,10 +1131,27 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             });
             const candidateStore =
                 cached?.tracking?.store?.trim() || msg.fromName || msg.fromEmail || "Commande";
+            const candidateProduct =
+                matchedParcel?.productTitle || cached?.tracking?.productTitle || null;
             const sNorm = normStore(candidateStore);
 
+            const manualOverride = orderGroupOverrides[msg.uid];
+            const learnedRule = !manualOverride
+                ? findLearnedOrderGroupRule({ fromEmail: msg.fromEmail, subject: msg.subject })
+                : null;
+            const learnedOrderKey = learnedRule?.targetOrderNumber
+                ? orderToGroupKey.get(normOrder(learnedRule.targetOrderNumber))
+                : undefined;
+            const learnedTrackKey = learnedRule?.targetTrackingNumber
+                ? trackToGroupKey.get(normTrack(learnedRule.targetTrackingNumber))
+                : undefined;
+
             let key = "";
-            if (oNum && orderToGroupKey.has(oNum)) {
+            if (manualOverride) {
+                key = manualOverride;
+            } else if (learnedOrderKey || learnedTrackKey) {
+                key = (learnedOrderKey || learnedTrackKey)!;
+            } else if (oNum && orderToGroupKey.has(oNum)) {
                 key = orderToGroupKey.get(oNum)!;
             } else if (oNum) {
                 key = `order:${oNum}`;
@@ -1149,26 +1173,33 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     !isGenericCarrier(candidateStore) &&
                     storeOrderKeys.get(sNorm)?.size === 1
                 ) {
-                    // Si ce marchand n'a qu'une seule commande identifiée, rattacher les mails
-                    // de ce même marchand qui n'avaient pas répété le n° de commande.
                     key = Array.from(storeOrderKeys.get(sNorm)!)[0];
                 } else {
                     key = `uid:${msg.uid}`;
                 }
             }
 
+            const preferredStore =
+                matchedParcel?.store && !isGenericCarrier(matchedParcel.store)
+                    ? matchedParcel.store
+                    : candidateStore;
+
             const existing = groups.get(key);
             if (existing) {
                 existing.items.push(msg);
                 if (!existing.orderNumber && rawOrder) existing.orderNumber = rawOrder;
                 if (!existing.trackingNumber && tNums[0]) existing.trackingNumber = tNums[0];
-                if (isGenericCarrier(existing.title) && !isGenericCarrier(candidateStore)) {
-                    existing.title = candidateStore;
+                if (isGenericCarrier(existing.storeName) && !isGenericCarrier(preferredStore)) {
+                    existing.storeName = preferredStore;
+                }
+                if (!existing.productTitle && candidateProduct) {
+                    existing.productTitle = candidateProduct;
                 }
             } else {
                 groups.set(key, {
                     key,
-                    title: matchedParcel?.productTitle || matchedParcel?.store || candidateStore,
+                    storeName: preferredStore,
+                    productTitle: candidateProduct,
                     orderNumber: rawOrder ?? matchedParcel?.orderNumber ?? null,
                     trackingNumber: tNums[0] ?? matchedParcel?.numbers[0] ?? null,
                     items: [msg],
@@ -1177,7 +1208,27 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         }
 
         return Array.from(groups.values());
-    }, [filter, visibleMessages, detail, detailCacheVersion]);
+    }, [filter, visibleMessages, detail, detailCacheVersion, orderGroupOverrides]);
+
+    function moveMessageToOrderGroup(msg: InboxMessage, targetKey: string) {
+        const nextOverrides = { ...orderGroupOverrides, [msg.uid]: targetKey };
+        setOrderGroupOverrides(nextOverrides);
+        saveOrderGroupOverrides(nextOverrides);
+
+        const targetGroup = commandeGroups.find((g) => g.key === targetKey);
+        if (targetGroup) {
+            learnOrderGroupRule({
+                fromEmail: msg.fromEmail,
+                subject: msg.subject,
+                targetOrderNumber: targetGroup.orderNumber,
+                targetTrackingNumber: targetGroup.trackingNumber,
+                targetStore: targetGroup.storeName,
+            });
+            setFeedback(`Email déplacé vers « ${targetGroup.storeName} » (mémorisé).`);
+        } else {
+            setFeedback("Email séparé dans un nouveau groupe.");
+        }
+    }
 
     const invoiceRowList = useMemo(
         () =>
@@ -2814,17 +2865,19 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                   key={group.key}
                                   className="rounded-2xl bg-violet-50/40 border border-violet-200/70 p-2 space-y-1.5"
                               >
-                                  <div className="flex items-center justify-between gap-2 px-1.5 pt-0.5">
-                                      <div className="flex items-center gap-1.5 min-w-0">
-                                          <Package className="h-3.5 w-3.5 text-violet-600 shrink-0" />
-                                          <span className="text-[11px] font-extrabold text-slate-800 truncate">
-                                              {group.title}
-                                          </span>
-                                          {group.orderNumber && (
-                                              <span className="font-mono text-[9px] font-bold text-violet-700 bg-white px-1.5 py-0.5 rounded-md border border-violet-200/70 shrink-0">
-                                                  #{group.orderNumber}
-                                              </span>
-                                          )}
+                                  <div className="flex items-start justify-between gap-2 px-1.5 pt-0.5">
+                                      <div className="flex items-start gap-1.5 min-w-0">
+                                          <Package className="h-3.5 w-3.5 text-violet-600 shrink-0 mt-0.5" />
+                                          <div className="min-w-0">
+                                              <p className="text-[11px] font-extrabold text-slate-800 truncate">
+                                                  {group.storeName}
+                                              </p>
+                                              {group.productTitle && (
+                                                  <p className="text-[10px] font-medium text-slate-600 truncate">
+                                                      {group.productTitle}
+                                                  </p>
+                                              )}
+                                          </div>
                                       </div>
                                       <span className="text-[10px] font-bold text-violet-700 shrink-0">
                                           {group.items.length} mail{group.items.length > 1 ? "s" : ""}
@@ -2866,6 +2919,37 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                               <p className="text-[11px] font-medium text-slate-600 truncate">
                                                   {message.subject}
                                               </p>
+                                              {(commandeGroups.length > 1 || group.items.length > 1) && (
+                                                  <div
+                                                      className="mt-1.5 flex justify-end"
+                                                      onClick={(e) => e.stopPropagation()}
+                                                  >
+                                                      <select
+                                                          value={group.key}
+                                                          onChange={(e) =>
+                                                              moveMessageToOrderGroup(
+                                                                  message,
+                                                                  e.target.value
+                                                              )
+                                                          }
+                                                          aria-label="Déplacer cet email vers une autre commande"
+                                                          className="max-w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-semibold text-slate-600 hover:border-violet-300 focus:outline-none"
+                                                      >
+                                                          {commandeGroups.map((g) => (
+                                                              <option key={g.key} value={g.key}>
+                                                                  {g.key === group.key
+                                                                      ? `Groupe : ${g.storeName}${g.productTitle ? ` — ${g.productTitle}` : ""}`
+                                                                      : `Déplacer → ${g.storeName}${g.productTitle ? ` — ${g.productTitle}` : ""}`}
+                                                              </option>
+                                                          ))}
+                                                          {group.items.length > 1 && (
+                                                              <option value={`uid:${message.uid}`}>
+                                                                  + Séparer dans un nouveau groupe
+                                                              </option>
+                                                          )}
+                                                      </select>
+                                                  </div>
+                                              )}
                                           </div>
                                       ))}
                                   </div>

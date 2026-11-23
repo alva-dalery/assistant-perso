@@ -423,6 +423,113 @@ export function applyLearnedHistoryLabel(
     };
 }
 
+// ----- Regroupement manuel et apprentissage des groupes de commandes -----
+
+const GROUP_OVERRIDES_KEY = "assistantPerso.orderGroupOverrides.v1";
+const GROUP_RULES_KEY = "assistantPerso.orderGroupRules.v1";
+const MAX_GROUP_RULES = 50;
+
+export interface OrderGroupRule {
+    fromEmail: string;
+    subjectPattern: string;
+    targetOrderNumber: string | null;
+    targetTrackingNumber: string | null;
+    targetStore: string;
+    savedAt: string;
+}
+
+export function loadOrderGroupOverrides(): Record<number, string> {
+    if (typeof window === "undefined") return {};
+    try {
+        const raw = window.localStorage.getItem(GROUP_OVERRIDES_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw) as unknown;
+        if (!parsed || typeof parsed !== "object") return {};
+        const out: Record<number, string> = {};
+        for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+            const uid = Number(k);
+            if (Number.isInteger(uid) && uid > 0 && typeof v === "string" && v.trim()) {
+                out[uid] = v.trim();
+            }
+        }
+        return out;
+    } catch {
+        return {};
+    }
+}
+
+export function saveOrderGroupOverrides(overrides: Record<number, string>): void {
+    if (typeof window === "undefined") return;
+    try {
+        window.localStorage.setItem(GROUP_OVERRIDES_KEY, JSON.stringify(overrides));
+    } catch {
+        // ignore storage quota errors
+    }
+}
+
+export function loadOrderGroupRules(): OrderGroupRule[] {
+    if (typeof window === "undefined") return [];
+    try {
+        const raw = window.localStorage.getItem(GROUP_RULES_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw) as unknown;
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter(
+            (item): item is OrderGroupRule =>
+                Boolean(
+                    item &&
+                        typeof item === "object" &&
+                        typeof (item as OrderGroupRule).fromEmail === "string"
+                )
+        );
+    } catch {
+        return [];
+    }
+}
+
+export function learnOrderGroupRule(input: {
+    fromEmail: string;
+    subject: string;
+    targetOrderNumber: string | null;
+    targetTrackingNumber: string | null;
+    targetStore: string;
+}): void {
+    if (typeof window === "undefined") return;
+    if (!input.targetOrderNumber && !input.targetTrackingNumber) return;
+
+    const rule: OrderGroupRule = {
+        fromEmail: input.fromEmail.trim().toLowerCase(),
+        subjectPattern: normalizeSubjectPattern(input.subject),
+        targetOrderNumber: input.targetOrderNumber,
+        targetTrackingNumber: input.targetTrackingNumber,
+        targetStore: input.targetStore,
+        savedAt: new Date().toISOString(),
+    };
+
+    const existing = loadOrderGroupRules().filter(
+        (r) => !(r.fromEmail === rule.fromEmail && r.subjectPattern === rule.subjectPattern)
+    );
+    const next = [rule, ...existing].slice(0, MAX_GROUP_RULES);
+    try {
+        window.localStorage.setItem(GROUP_RULES_KEY, JSON.stringify(next));
+    } catch {
+        // ignore storage quota errors
+    }
+}
+
+export function findLearnedOrderGroupRule(input: {
+    fromEmail: string;
+    subject: string;
+}): OrderGroupRule | null {
+    const email = input.fromEmail.trim().toLowerCase();
+    const subj = normalizeSubjectPattern(input.subject);
+    const rules = loadOrderGroupRules();
+    return (
+        rules.find((r) => r.fromEmail === email && r.subjectPattern === subj) ??
+        null
+    );
+}
+
 export function removeParcel(uid: number): SavedParcel[] {
     const next = loadParcels().filter((item) => item.uid !== uid);
     saveParcels(next);
