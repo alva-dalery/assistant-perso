@@ -505,6 +505,34 @@ async function duckDuckGoImageLookup(title: string, author: string | null): Prom
     return { title: null, authors: [], covers };
 }
 
+async function bingImageLookup(title: string, author: string | null): Promise<BookLookupResult> {
+    const query = [title, author, "livre fnac OR decitre OR babelio"].filter(Boolean).join(" ");
+    const response = await fetch(
+        `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&cc=FR&mkt=fr-FR&setlang=fr&first=1`,
+        {
+            headers: {
+                "User-Agent": BROWSER_UA,
+                "Accept-Language": "fr-FR,fr;q=0.9",
+            },
+            signal: AbortSignal.timeout(5_000),
+        }
+    );
+    if (!response.ok) return EMPTY_LOOKUP;
+
+    const html = await response.text();
+    const covers: string[] = [];
+    for (const match of html.matchAll(/murl&quot;:&quot;(https?:\/\/[^&]+?)&quot;/g)) {
+        const url = match[1];
+        if (!url) continue;
+        const lower = url.toLowerCase();
+        if (BLOCKED_IMAGE_DOMAINS.some((domain) => lower.includes(domain))) continue;
+        covers.push(url);
+        if (covers.length >= 5) break;
+    }
+
+    return { title: null, authors: [], covers: unique(covers) };
+}
+
 const SERVER_CACHE = new Map<string, BookLookupResult>();
 const MAX_CACHE_ENTRIES = 500;
 
@@ -533,52 +561,41 @@ export async function GET(request: Request) {
 
     let result = EMPTY_LOOKUP;
 
-    const attempts: Array<() => Promise<BookLookupResult>> = [];
+    const mainTitle = titleVariants[0] ?? title;
+    const altTitle = titleVariants[1];
 
-    // 1. Apple Books FR : essai avec les variantes de titre (avec puis sans auteur)
-    for (const variant of titleVariants.slice(0, 2)) {
-        if (cleanAuthor) {
-            attempts.push(() => itunesLookup(variant, title, cleanAuthor, rawAuthorNorm));
-        }
-        attempts.push(() => itunesLookup(variant, title, null, rawAuthorNorm));
+    // Phase 1 : recherche parallèle sur les catalogues (Apple Books FR, Open Library, Google Books)
+    const phase1Tasks: Array<Promise<BookLookupResult>> = [
+        itunesLookup(mainTitle, title, cleanAuthor, rawAuthorNorm),
+        openLibraryLookup(mainTitle, title, cleanAuthor, rawAuthorNorm, { generalQuery: true }),
+        googleBooksLookup(mainTitle, title, cleanAuthor),
+    ];
+    if (cleanAuthor) {
+        phase1Tasks.push(itunesLookup(mainTitle, title, null, rawAuthorNorm));
+    }
+    if (altTitle) {
+        phase1Tasks.push(itunesLookup(altTitle, title, cleanAuthor, rawAuthorNorm));
     }
 
-    // 2. Open Library : recherche par titre puis recherche libre (?q=), tolérante aux coupures
-    for (const variant of titleVariants.slice(0, 2)) {
-        if (cleanAuthor) {
-            attempts.push(() =>
-                openLibraryLookup(variant, title, cleanAuthor, rawAuthorNorm, { generalQuery: true })
-            );
+    const phase1Results = await Promise.allSettled(phase1Tasks);
+    for (const entry of phase1Results) {
+        if (entry.status === "fulfilled") {
+            result = mergeLookups(result, entry.value);
         }
-        attempts.push(() => openLibraryLookup(variant, title, null, rawAuthorNorm));
     }
 
-    // 3. Google Books (si disponible)
-    attempts.push(() => googleBooksLookup(titleVariants[0] ?? title, title, cleanAuthor));
-
-    // 4. Recherche d'images sur internet (avec le titre/auteur complets si déjà trouvés)
-    attempts.push(() =>
-        duckDuckGoImageLookup(
-            result.title ?? titleVariants[0] ?? title,
-            result.authors[0] ?? cleanAuthor
-        )
-    );
-
-    // 5. Dernier recours souple sur Open Library
-    attempts.push(() =>
-        openLibraryLookup(titleVariants[titleVariants.length - 1] ?? title, title, null, rawAuthorNorm, {
-            lenient: true,
-            generalQuery: true,
-        })
-    );
-
-    for (const attempt of attempts) {
-        if (result.covers.length >= 2 && result.title && result.authors.length > 0) break;
-        try {
-            const found = await attempt();
-            result = mergeLookups(result, found);
-        } catch {
-            // Source indisponible ou expirée : on passe à la suivante.
+    // Phase 2 : si moins de 2 couvertures, recherche d'images sur internet (DuckDuckGo + Bing FR en parallèle)
+    if (result.covers.length < 2) {
+        const searchTitle = result.title ?? mainTitle;
+        const searchAuthor = result.authors[0] ?? cleanAuthor;
+        const phase2Results = await Promise.allSettled([
+            duckDuckGoImageLookup(searchTitle, searchAuthor),
+            bingImageLookup(searchTitle, searchAuthor),
+        ]);
+        for (const entry of phase2Results) {
+            if (entry.status === "fulfilled") {
+                result = mergeLookups(result, entry.value);
+            }
         }
     }
 
