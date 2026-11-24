@@ -375,63 +375,67 @@ const LoanCard: React.FC<LoanCardProps> = ({
     const tone = dueTone(effectiveDueDate);
 
     return (
-        <div
-            className={`rounded-xl bg-white overflow-hidden flex flex-col transition-all ${
-                selected
-                    ? "border-2 border-amber-500 ring-2 ring-amber-200/70"
-                    : "border border-amber-200/70"
-            }`}
-        >
-            <div className="relative aspect-[2/3] bg-slate-100 overflow-hidden">
-                {onToggleSelect && (
-                    <button
-                        type="button"
-                        onClick={onToggleSelect}
-                        aria-label={selected ? `Désélectionner ${displayTitle}` : `Sélectionner ${displayTitle}`}
-                        className={`absolute top-1.5 left-1.5 z-10 h-5 w-5 rounded-md border flex items-center justify-center shadow-sm transition-all ${
-                            selected
-                                ? "bg-amber-600 border-amber-600 text-white"
-                                : "bg-white/90 border-slate-300 text-transparent hover:border-amber-500"
-                        }`}
-                    >
-                        <Check className="h-3 w-3" />
-                    </button>
-                )}
-                {coverUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                        src={coverUrl}
-                        alt={`Couverture de ${displayTitle}`}
-                        className="h-full w-full object-cover"
-                        onError={() => {
-                            if (!override) setCoverIndex((index) => index + 1);
-                        }}
-                    />
-                ) : (
-                    <div className="h-full w-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400 p-2 text-center">
-                        {searching ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                            <BookOpen className="h-5 w-5" />
-                        )}
-                        <span className="text-[8px] font-bold leading-tight line-clamp-3">
-                            {displayTitle}
-                        </span>
-                        {!searching && (
-                            <button
-                                type="button"
-                                onClick={() => setAttempt((value) => value + 1)}
-                                className="text-[8px] font-bold text-amber-700 underline"
-                            >
-                                Rechercher
-                            </button>
-                        )}
-                    </div>
-                )}
+        <div className="relative pt-10 flex flex-col">
+            <div
+                className={`absolute inset-x-0 top-10 bottom-0 rounded-2xl bg-white transition-all ${
+                    selected
+                        ? "border-2 border-amber-500 ring-2 ring-amber-200/70 shadow-sm"
+                        : "border border-amber-200/60 shadow-sm"
+                }`}
+            />
+
+            <div className="relative z-10 px-3 -mt-10">
+                <div className="relative aspect-[2/3] rounded-[3px] bg-slate-100 overflow-hidden shadow-[0_8px_18px_rgba(15,23,42,0.18)] ring-1 ring-black/5">
+                    {onToggleSelect && (
+                        <button
+                            type="button"
+                            onClick={onToggleSelect}
+                            aria-label={selected ? `Désélectionner ${displayTitle}` : `Sélectionner ${displayTitle}`}
+                            className={`absolute top-1.5 left-1.5 z-10 h-5 w-5 rounded-md border flex items-center justify-center shadow-sm transition-all ${
+                                selected
+                                    ? "bg-amber-600 border-amber-600 text-white"
+                                    : "bg-white/90 border-slate-300 text-transparent hover:border-amber-500"
+                            }`}
+                        >
+                            <Check className="h-3 w-3" />
+                        </button>
+                    )}
+                    {coverUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                            src={coverUrl}
+                            alt={`Couverture de ${displayTitle}`}
+                            className="h-full w-full object-cover"
+                            onError={() => {
+                                if (!override) setCoverIndex((index) => index + 1);
+                            }}
+                        />
+                    ) : (
+                        <div className="h-full w-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400 p-2 text-center">
+                            {searching ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <BookOpen className="h-5 w-5" />
+                            )}
+                            <span className="text-[8px] font-bold leading-tight line-clamp-3">
+                                {displayTitle}
+                            </span>
+                            {!searching && (
+                                <button
+                                    type="button"
+                                    onClick={() => setAttempt((value) => value + 1)}
+                                    className="text-[8px] font-bold text-amber-700 underline"
+                                >
+                                    Rechercher
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
 
-            <div className="p-2 flex-1 flex flex-col justify-between gap-1.5">
-                <div className="space-y-0.5">
+            <div className="relative z-10 p-2.5 pt-2 flex-1 flex flex-col justify-between gap-1.5">
+                <div className="space-y-0.5 text-center">
                     <p className="text-[11px] font-bold text-slate-800 leading-tight line-clamp-2">
                         {displayTitle}
                     </p>
@@ -490,7 +494,7 @@ const LoanCard: React.FC<LoanCardProps> = ({
                             onClick={() => setEditing(true)}
                             title="Modifier le titre, l'auteur ou la couverture"
                             aria-label={`Modifier ${displayTitle}`}
-                            className="p-1 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-all shrink-0"
+                            className="p-0.5 text-slate-400 hover:text-amber-700 transition-all shrink-0"
                         >
                             <PenLine className="h-3 w-3" />
                         </button>
@@ -544,7 +548,7 @@ const LoanCard: React.FC<LoanCardProps> = ({
                         );
                         setEditing(false);
                     }}
-                    className="p-2 border-t border-amber-200/70 space-y-1.5"
+                    className="relative z-10 p-2 border-t border-amber-200/70 space-y-1.5"
                 >
                     <input
                         autoFocus
@@ -599,7 +603,7 @@ const LoanCard: React.FC<LoanCardProps> = ({
                     </div>
                 </form>
             ) : !extended && effectiveDueDate && onExtend ? (
-                <div className="p-1.5 flex items-center border-t border-amber-200/70">
+                <div className="relative z-10 p-1.5 flex items-center border-t border-amber-200/70">
                     <button
                         type="button"
                         onClick={onExtend}
@@ -4360,7 +4364,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             </div>
                                         )}
 
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-3 gap-y-4">
                                             {detail.loans.map((loan, index) => {
                                                 const key = loanCoverKey(loan.title, loan.author);
                                                 const extensionKey = loanKeys[index];
