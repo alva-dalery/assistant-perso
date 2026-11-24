@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   LayoutDashboard,
   Mail,
@@ -15,8 +15,26 @@ import {
   PlusCircle,
   BookOpen,
   History,
+  Search,
+  User,
+  Bell,
+  X,
+  ArrowUpRight,
 } from "lucide-react";
-import { ModuleType, EnergyLevel } from "@/types";
+import type { ModuleType, EnergyLevel, GlobalSearchResult } from "@/types";
+
+const FILTER_TAGS = [
+  "Tous",
+  "Rappels",
+  "Projets",
+  "Litiges",
+  "Food",
+  "Dressing",
+  "Santé",
+  "Sport",
+  "Culture",
+  "Secrétariat",
+];
 
 interface SidebarProps {
   currentModule: ModuleType;
@@ -24,6 +42,7 @@ interface SidebarProps {
   pendingEmailsCount: number;
   urgentDisputesCount: number;
   undoableHistoryCount?: number;
+  searchItems?: GlobalSearchResult[];
   energy: EnergyLevel;
   onSetEnergy: (energy: EnergyLevel) => void;
   focusMode: boolean;
@@ -37,6 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   pendingEmailsCount,
   urgentDisputesCount,
   undoableHistoryCount = 0,
+  searchItems = [],
   energy,
   onSetEnergy,
   focusMode,
@@ -44,6 +64,42 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenBrainDump,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState<string>("Tous");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const filteredResults = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const byTag =
+      activeFilter === "Tous"
+        ? searchItems
+        : searchItems.filter(
+            (item) => item.moduleLabel.toLowerCase() === activeFilter.toLowerCase()
+          );
+
+    if (!q) {
+      return activeFilter === "Tous" ? [] : byTag.slice(0, 8);
+    }
+
+    return byTag
+      .filter(
+        (item) =>
+          item.title.toLowerCase().includes(q) ||
+          item.subtitle.toLowerCase().includes(q) ||
+          item.moduleLabel.toLowerCase().includes(q)
+      )
+      .slice(0, 10);
+  }, [query, activeFilter, searchItems]);
+
+  const showDropdown =
+    !collapsed && isSearchOpen && (query.trim().length > 0 || activeFilter !== "Tous");
+
+  const handleClearSearch = () => {
+    setQuery("");
+    setActiveFilter("Tous");
+    setIsSearchOpen(false);
+  };
 
   const generalLinks = [
     {
@@ -111,9 +167,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         collapsed ? "md:w-20" : "md:w-60"
       } w-full bg-[#121316] text-slate-300 rounded-[2.2rem] p-3.5 md:p-4 flex flex-col justify-between shrink-0 select-none shadow-xl relative my-3 md:ml-3 md:h-[calc(100vh-1.5rem)] transition-all duration-200`}
     >
-      {/* Brand Header + Scrollable Nav */}
+      {/* Brand Header + Quick Controls + Search + Scrollable Nav */}
       <div className="flex flex-col min-h-0 flex-1">
-        <div className="flex items-center justify-between px-2 pt-1 pb-4 border-b border-slate-800/80 relative shrink-0">
+        <div className="flex items-center justify-between px-2 pt-1 pb-3 border-b border-slate-800/80 relative shrink-0">
           {!collapsed ? (
             <div className="flex items-end gap-2">
               <span className="font-logo text-2xl font-bold tracking-wide text-white leading-[1.05]">
@@ -145,6 +201,215 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </button>
         </div>
+
+        {/* Top-right icons + Search moved into Sidebar */}
+        {!collapsed ? (
+          <div className="pt-2.5 pb-2 border-b border-slate-800/80 space-y-2 shrink-0 relative z-40">
+            {/* Quick Icons Row */}
+            <div className="flex items-center justify-between gap-1.5 px-1">
+              <button
+                type="button"
+                onClick={() => onSelectModule("parametres")}
+                className={`h-8 flex-1 rounded-xl flex items-center justify-center transition-colors ${
+                  currentModule === "parametres"
+                    ? "bg-[#f7b5d5] text-[#121316]"
+                    : "bg-slate-900/90 text-slate-300 hover:bg-white/10 hover:text-white"
+                }`}
+                title="Mon Profil"
+                aria-label="Mon Profil"
+              >
+                <User className="h-3.5 w-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onSelectModule("emails")}
+                className={`h-8 flex-1 rounded-xl flex items-center justify-center transition-colors relative ${
+                  currentModule === "emails"
+                    ? "bg-[#f7b5d5] text-[#121316]"
+                    : "bg-slate-900/90 text-slate-300 hover:bg-white/10 hover:text-white"
+                }`}
+                title="Secrétariat & Emails en attente"
+                aria-label="Secrétariat & Emails en attente"
+              >
+                <Bell className="h-3.5 w-3.5" />
+                {pendingEmailsCount > 0 && (
+                  <span className="absolute top-1.5 right-2 h-1.5 w-1.5 rounded-full bg-[#f7b5d5]" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onSelectModule("historique")}
+                className={`h-8 flex-1 rounded-xl flex items-center justify-center transition-colors relative ${
+                  currentModule === "historique"
+                    ? "bg-[#f7b5d5] text-[#121316]"
+                    : "bg-slate-900/90 text-slate-300 hover:bg-white/10 hover:text-white"
+                }`}
+                title="Historique des commandes"
+                aria-label="Historique des commandes"
+              >
+                <History className="h-3.5 w-3.5" />
+                {undoableHistoryCount > 0 && (
+                  <span className="absolute top-1.5 right-2 h-1.5 w-1.5 rounded-full bg-[#f7da64]" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onSelectModule("parametres")}
+                className="h-8 flex-1 rounded-xl bg-slate-900/90 text-slate-300 hover:bg-white/10 hover:text-white flex items-center justify-center transition-colors"
+                title="Réglages"
+                aria-label="Réglages"
+              >
+                <Settings className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {/* Search Bar */}
+            <div className="relative">
+              <div className="bg-slate-900/90 border border-slate-800 rounded-full px-2 py-1 flex items-center gap-2 focus-within:border-[#f7b5d5]/70 transition-colors">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSearchOpen(true);
+                    searchInputRef.current?.focus();
+                  }}
+                  aria-label="Rechercher"
+                  className="h-6 w-6 rounded-full bg-[#f7b5d5] text-[#121316] flex items-center justify-center shrink-0 hover:scale-105 transition-transform"
+                >
+                  <Search className="h-3 w-3 stroke-[2.5]" />
+                </button>
+
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={query}
+                  onFocus={() => setIsSearchOpen(true)}
+                  onBlur={() => {
+                    setTimeout(() => setIsSearchOpen(false), 180);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      handleClearSearch();
+                      searchInputRef.current?.blur();
+                    } else if (e.key === "Enter" && filteredResults.length > 0) {
+                      onSelectModule(filteredResults[0].module);
+                      handleClearSearch();
+                    }
+                  }}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setIsSearchOpen(true);
+                  }}
+                  placeholder="Rechercher..."
+                  className="flex-1 bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none min-w-0"
+                />
+
+                {(query || activeFilter !== "Tous") && (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={handleClearSearch}
+                    aria-label="Effacer la recherche"
+                    className="h-5 w-5 rounded-full hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center shrink-0"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Search Dropdown */}
+              {(isSearchOpen || showDropdown) && (
+                <div className="absolute left-0 md:w-72 right-0 mt-2 bg-white text-slate-900 rounded-2xl border border-slate-200 shadow-2xl p-2.5 space-y-2 z-50">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {FILTER_TAGS.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setActiveFilter(tag);
+                          setIsSearchOpen(true);
+                        }}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all ${
+                          activeFilter === tag
+                            ? "bg-[#121316] text-white"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+
+                  {showDropdown && (
+                    <div className="max-h-60 overflow-y-auto space-y-1 pt-1 border-t border-slate-100">
+                      {filteredResults.length === 0 ? (
+                        <p className="text-xs text-slate-400 px-2 py-1.5">
+                          Aucun résultat pour « {query || activeFilter} ».
+                        </p>
+                      ) : (
+                        filteredResults.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              onSelectModule(item.module);
+                              handleClearSearch();
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 rounded-xl hover:bg-slate-50 flex items-center justify-between gap-2 transition-colors"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-900 truncate">
+                                {item.title}
+                              </p>
+                              <p className="text-[10px] text-slate-500 truncate">
+                                {item.subtitle}
+                              </p>
+                            </div>
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 shrink-0 flex items-center gap-0.5">
+                              {item.moduleLabel}
+                              <ArrowUpRight className="h-2.5 w-2.5" />
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="pt-2.5 pb-2 border-b border-slate-800/80 flex flex-col items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setCollapsed(false);
+                setTimeout(() => searchInputRef.current?.focus(), 120);
+              }}
+              title="Rechercher"
+              aria-label="Rechercher"
+              className="h-8 w-8 rounded-full bg-[#f7b5d5] text-[#121316] flex items-center justify-center hover:scale-105 transition-transform"
+            >
+              <Search className="h-3.5 w-3.5 stroke-[2.5]" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectModule("emails")}
+              title="Secrétariat & Emails en attente"
+              aria-label="Secrétariat & Emails en attente"
+              className="h-8 w-8 rounded-xl bg-slate-900/90 text-slate-300 hover:bg-white/10 hover:text-white flex items-center justify-center relative"
+            >
+              <Bell className="h-3.5 w-3.5" />
+              {pendingEmailsCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[#f7b5d5]" />
+              )}
+            </button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto min-h-0">
           {/* Section 1: General */}

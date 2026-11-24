@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
-import { Header } from "@/components/Header";
 import { BrainDumpModal } from "@/components/BrainDumpModal";
 import { FocusModeView } from "@/components/FocusModeView";
 
@@ -1201,6 +1200,7 @@ export default function Home() {
         pendingEmailsCount={pendingEmailsCount}
         urgentDisputesCount={urgentDisputesCount}
         undoableHistoryCount={undoableHistoryCount}
+        searchItems={searchItems}
         energy={appState.user.energyToday}
         onSetEnergy={handleSetEnergy}
         focusMode={appState.user.focusMode}
@@ -1210,16 +1210,8 @@ export default function Home() {
 
       {/* Main Full-Width Stage */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 md:h-full overflow-hidden w-full">
-        {/* Top Bar Header */}
-        <Header
-          onSelectModule={setCurrentModule}
-          pendingEmailsCount={pendingEmailsCount}
-          undoableHistoryCount={undoableHistoryCount}
-          searchItems={searchItems}
-        />
-
         {/* Module Canvas */}
-        <main className="flex-1 min-h-0 overflow-y-auto px-4 md:px-8 pb-10 w-full">
+        <main className="flex-1 min-h-0 overflow-y-auto px-4 md:px-8 pt-4 md:pt-6 pb-10 w-full">
           {appState.user.focusMode ? (
             <FocusModeView
               onExit={() =>
