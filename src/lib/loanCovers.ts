@@ -11,8 +11,14 @@
  */
 
 const STORAGE_KEY = "assistantPerso.loanCovers.v1";
+const META_STORAGE_KEY = "assistantPerso.loanMeta.v1";
 const EXTENSIONS_STORAGE_KEY = "assistantPerso.loanExtensions.v1";
 const DUE_OVERRIDES_STORAGE_KEY = "assistantPerso.loanDueOverrides.v1";
+
+export interface LoanMetaOverride {
+    title?: string;
+    author?: string;
+}
 
 export interface BookLookup {
     /** Titre complet tel que catalogué (sous-titre inclus). */
@@ -182,6 +188,41 @@ export function saveLoanDueOverrides(overrides: Record<string, string>): void {
         window.localStorage.setItem(DUE_OVERRIDES_STORAGE_KEY, JSON.stringify(overrides));
     } catch {
         // Stockage indisponible : la date reste valable pour la session.
+    }
+}
+
+export function loadLoanMetaOverrides(): Record<string, LoanMetaOverride> {
+    if (typeof window === "undefined") return {};
+    try {
+        const raw = window.localStorage.getItem(META_STORAGE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw) as unknown;
+        if (!parsed || typeof parsed !== "object") return {};
+        const result: Record<string, LoanMetaOverride> = {};
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+            if (!value || typeof value !== "object") continue;
+            const entry = value as Record<string, unknown>;
+            const title = typeof entry.title === "string" ? entry.title.trim() : "";
+            const author = typeof entry.author === "string" ? entry.author.trim() : "";
+            if (title || author) {
+                result[key] = {
+                    ...(title ? { title } : {}),
+                    ...(author ? { author } : {}),
+                };
+            }
+        }
+        return result;
+    } catch {
+        return {};
+    }
+}
+
+export function saveLoanMetaOverrides(overrides: Record<string, LoanMetaOverride>): void {
+    if (typeof window === "undefined") return;
+    try {
+        window.localStorage.setItem(META_STORAGE_KEY, JSON.stringify(overrides));
+    } catch {
+        // Stockage indisponible : la modification reste valable pour la session.
     }
 }
 

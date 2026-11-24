@@ -54,14 +54,16 @@ import {
     loadCoverOverrides,
     loadLoanDueOverrides,
     loadLoanExtensions,
+    loadLoanMetaOverrides,
     loanCoverKey,
     lookupBook,
     saveCoverOverrides,
     saveLoanDueOverrides,
     saveLoanExtensions,
+    saveLoanMetaOverrides,
     titleCase,
 } from "@/lib/loanCovers";
-import type { BookLookup } from "@/lib/loanCovers";
+import type { BookLookup, LoanMetaOverride } from "@/lib/loanCovers";
 
 type GmailCategory =
     | "personnel"
@@ -293,6 +295,9 @@ interface LoanCardProps {
     /** Lien choisi à la main, s'il existe. */
     override?: string;
     onSaveCover: (url: string | null) => void;
+    /** Titre / auteur modifiés à la main. */
+    metaOverride?: LoanMetaOverride;
+    onSaveMeta: (meta: LoanMetaOverride | null) => void;
     /** Date de retour effective (originale, prolongée ou modifiée à la main). */
     effectiveDueDate: string | null;
     /** Indique si une date manuelle ou prolongée remplace celle du mail. */
@@ -309,6 +314,8 @@ const LoanCard: React.FC<LoanCardProps> = ({
     loan,
     override,
     onSaveCover,
+    metaOverride,
+    onSaveMeta,
     effectiveDueDate,
     hasDueOverride = false,
     onSaveDueDate,
@@ -322,6 +329,8 @@ const LoanCard: React.FC<LoanCardProps> = ({
     const [attempt, setAttempt] = useState(0);
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState(override ?? "");
+    const [titleDraft, setTitleDraft] = useState(metaOverride?.title ?? "");
+    const [authorDraft, setAuthorDraft] = useState(metaOverride?.author ?? "");
     const [editingDate, setEditingDate] = useState(false);
     const [dateDraft, setDateDraft] = useState(effectiveDueDate ?? "");
 
@@ -346,13 +355,20 @@ const LoanCard: React.FC<LoanCardProps> = ({
         setDateDraft(effectiveDueDate ?? "");
     }, [effectiveDueDate]);
 
-    const displayTitle = lookup?.title ?? titleCase(loan.title);
-    const displayAuthor =
+    const autoTitle = lookup?.title ?? titleCase(loan.title);
+    const autoAuthor =
         lookup && lookup.authors.length > 0
             ? lookup.authors.join(", ")
             : loan.author
               ? titleCase(loan.author)
               : null;
+    const displayTitle = metaOverride?.title ?? autoTitle;
+    const displayAuthor = metaOverride?.author ?? autoAuthor;
+
+    useEffect(() => {
+        setTitleDraft(metaOverride?.title ?? autoTitle);
+        setAuthorDraft(metaOverride?.author ?? autoAuthor ?? "");
+    }, [metaOverride?.title, metaOverride?.author, autoTitle, autoAuthor]);
     const rawCover = override ?? lookup?.covers[coverIndex] ?? null;
     const coverUrl = coverSrc(rawCover);
     const searching = lookup === null && !override;
@@ -505,12 +521,38 @@ const LoanCard: React.FC<LoanCardProps> = ({
                     onSubmit={(event) => {
                         event.preventDefault();
                         onSaveCover(draft.trim() ? draft.trim() : null);
+                        const nextTitle = titleDraft.trim();
+                        const nextAuthor = authorDraft.trim();
+                        const titleChanged = nextTitle && nextTitle !== autoTitle;
+                        const authorChanged = nextAuthor && nextAuthor !== (autoAuthor ?? "");
+                        onSaveMeta(
+                            titleChanged || authorChanged
+                                ? {
+                                      ...(titleChanged ? { title: nextTitle } : {}),
+                                      ...(authorChanged ? { author: nextAuthor } : {}),
+                                  }
+                                : null
+                        );
                         setEditing(false);
                     }}
-                    className="p-2 border-t border-amber-200/70 space-y-1"
+                    className="p-2 border-t border-amber-200/70 space-y-1.5"
                 >
                     <input
                         autoFocus
+                        value={titleDraft}
+                        onChange={(event) => setTitleDraft(event.target.value)}
+                        placeholder="Titre du livre"
+                        aria-label="Titre du livre"
+                        className="w-full rounded-lg border border-slate-200 px-1.5 py-1 text-[9px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                    />
+                    <input
+                        value={authorDraft}
+                        onChange={(event) => setAuthorDraft(event.target.value)}
+                        placeholder="Auteur(s)"
+                        aria-label="Auteur du livre"
+                        className="w-full rounded-lg border border-slate-200 px-1.5 py-1 text-[9px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                    />
+                    <input
                         value={draft}
                         onChange={(event) => setDraft(event.target.value)}
                         placeholder="https://…/couverture.jpg"
@@ -532,11 +574,12 @@ const LoanCard: React.FC<LoanCardProps> = ({
                         >
                             Annuler
                         </button>
-                        {override && (
+                        {(override || metaOverride) && (
                             <button
                                 type="button"
                                 onClick={() => {
                                     onSaveCover(null);
+                                    onSaveMeta(null);
                                     setEditing(false);
                                 }}
                                 className="ml-auto text-[9px] font-bold text-amber-700 hover:underline"
@@ -547,13 +590,13 @@ const LoanCard: React.FC<LoanCardProps> = ({
                     </div>
                 </form>
             ) : (
-                <div className="flex items-center border-t border-amber-200/70 divide-x divide-amber-200/70">
+                <div className="p-1.5 flex items-center gap-1.5 border-t border-amber-200/70">
                     {!extended && effectiveDueDate && onExtend && (
                         <button
                             type="button"
                             onClick={onExtend}
                             title="Prolonger de 3 semaines (+21 jours)"
-                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[9px] font-bold text-emerald-700 hover:bg-emerald-50 transition-all"
+                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-[9px] font-bold text-emerald-700 hover:bg-emerald-50 transition-all"
                         >
                             <CalendarPlus className="h-3 w-3" />
                             <span>Prolonger</span>
@@ -562,11 +605,11 @@ const LoanCard: React.FC<LoanCardProps> = ({
                     <button
                         type="button"
                         onClick={() => setEditing(true)}
-                        title="Modifier le lien de l'image"
-                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[9px] font-bold text-amber-700 hover:bg-amber-50 transition-all"
+                        title="Modifier le titre, l'auteur ou la couverture"
+                        aria-label={`Modifier ${displayTitle}`}
+                        className="ml-auto p-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 transition-all"
                     >
-                        <PenLine className="h-3 w-3" />
-                        <span>Modifier</span>
+                        <PenLine className="h-3.5 w-3.5" />
                     </button>
                 </div>
             )}
@@ -975,6 +1018,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [commandFolder, setCommandFolder] = useState("");
     const [commandSaving, setCommandSaving] = useState(false);
     const [coverOverrides, setCoverOverrides] = useState<Record<string, string>>({});
+    const [loanMetaOverrides, setLoanMetaOverrides] = useState<Record<string, LoanMetaOverride>>({});
     const [loanExtensions, setLoanExtensions] = useState<Record<string, boolean>>({});
     const [loanDueOverrides, setLoanDueOverrides] = useState<Record<string, string>>({});
     const [selectedLoans, setSelectedLoans] = useState<Record<string, boolean>>({});
@@ -1155,6 +1199,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     useEffect(() => {
         setStyleSamples(loadSamples().length);
         setCoverOverrides(loadCoverOverrides());
+        setLoanMetaOverrides(loadLoanMetaOverrides());
         setLoanExtensions(loadLoanExtensions());
         setLoanDueOverrides(loadLoanDueOverrides());
     }, []);
@@ -2450,6 +2495,18 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setCoverOverrides(next);
         saveCoverOverrides(next);
         setFeedback(url ? "Lien de l'image enregistré." : "Couverture automatique rétablie.");
+    }
+
+    /** Enregistre (ou efface) le titre / l'auteur saisis à la main pour un livre. */
+    function persistLoanMeta(key: string, meta: LoanMetaOverride | null) {
+        const next = { ...loanMetaOverrides };
+        if (meta && (meta.title || meta.author)) {
+            next[key] = meta;
+        } else {
+            delete next[key];
+        }
+        setLoanMetaOverrides(next);
+        saveLoanMetaOverrides(next);
     }
 
     /** Prolonge un emprunt de 3 semaines (+21 jours) et mémorise la prolongation. */
@@ -4317,6 +4374,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                         override={coverOverrides[key]}
                                                         onSaveCover={(url) =>
                                                             persistLoanCover(key, url)
+                                                        }
+                                                        metaOverride={loanMetaOverrides[key]}
+                                                        onSaveMeta={(meta) =>
+                                                            persistLoanMeta(key, meta)
                                                         }
                                                         effectiveDueDate={effectiveDueDate}
                                                         hasDueOverride={Boolean(loanDueOverrides[extensionKey])}
