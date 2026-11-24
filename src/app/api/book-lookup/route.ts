@@ -570,6 +570,28 @@ async function bnfLookup(
     };
 }
 
+async function bnfLookupByIsbn(isbn: string): Promise<BookLookupResult> {
+    const url = `https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&recordSchema=dublincore&query=${encodeURIComponent(`bib.isbn all "${isbn}"`)}&maximumRecords=1`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(4_000) });
+    if (!response.ok) return EMPTY_LOOKUP;
+
+    const xml = await response.text();
+    const rec = xml.split("<srw:record>")[1];
+    if (!rec) return EMPTY_LOOKUP;
+
+    const rawDcTitle = rec.match(/<dc:title>([^<]+)<\/dc:title>/)?.[1] ?? "";
+    const titlePart = rawDcTitle.split(/\s+\/\s+/)[0]?.trim() ?? "";
+    const rawCreator = rec.match(/<dc:creator>([^<]+)<\/dc:creator>/)?.[1] ?? "";
+    const cleanedCreator = rawCreator.replace(/\s*\([^)]*\).*$/, "").trim();
+    const authors = cleanedCreator ? [normalizeAuthor(cleanedCreator)].filter(Boolean) : [];
+
+    return {
+        title: titlePart ? titlePart.slice(0, 160) : null,
+        authors,
+        covers: [],
+    };
+}
+
 async function abebooksLookup(
     queryTitle: string,
     originalTitle: string,
@@ -663,6 +685,21 @@ export async function GET(request: Request) {
     for (const entry of phase1Results) {
         if (entry.status === "fulfilled") {
             result = mergeLookups(result, entry.value);
+        }
+    }
+
+    // Si un ISBN a été trouvé via les couvertures mais que l'auteur manque encore, interroger la BnF par ISBN
+    if (result.authors.length === 0) {
+        const isbnFromCover = result.covers
+            .map((c) => c.match(/(97[89]\d{10})/)?.[1])
+            .find((v): v is string => Boolean(v));
+        if (isbnFromCover) {
+            try {
+                const byIsbn = await bnfLookupByIsbn(isbnFromCover);
+                result = mergeLookups(result, byIsbn);
+            } catch {
+                // Source indisponible ou expirée.
+            }
         }
     }
 
