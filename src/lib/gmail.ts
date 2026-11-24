@@ -50,6 +50,9 @@ export function describeGmailError(error: unknown): string {
     if (/EAUTH|Invalid login|535|Username and Password not accepted/i.test(detail)) {
         return "Mot de passe refusé par Gmail. Vérifiez GMAIL_USER et GMAIL_APP_PASSWORD (mot de passe d'application de 16 caractères, double authentification activée).";
     }
+    if (/Too many simultaneous connections/i.test(detail)) {
+        return "Trop de connexions simultanées sur Gmail (limite Gmail atteinte). Réessayez dans quelques secondes.";
+    }
     if (/ENOTFOUND|ETIMEDOUT|ECONNECTION|ECONNRESET|EAI_AGAIN|socket/i.test(detail)) {
         return "Connexion aux serveurs Gmail impossible (réseau instable ou blocage du port IMAP/SMTP).";
     }
@@ -75,62 +78,39 @@ function createSmtpTransport() {
     });
 }
 
-let warmInboxClient: ImapFlow | null = null;
-let warmInboxTimer: ReturnType<typeof setTimeout> | null = null;
-
-function releaseWarmInbox(client: ImapFlow, keep: boolean) {
-    if (!keep || !client.usable || warmInboxClient !== null) {
-        void client.logout().catch(() => undefined);
-        return;
-    }
-    warmInboxClient = client;
-    if (warmInboxTimer) clearTimeout(warmInboxTimer);
-    warmInboxTimer = setTimeout(() => {
-        const stale = warmInboxClient;
-        warmInboxClient = null;
-        warmInboxTimer = null;
-        if (stale) void stale.logout().catch(() => undefined);
-    }, 20_000);
-    if (typeof warmInboxTimer.unref === "function") warmInboxTimer.unref();
-}
-
-/** Ouvre INBOX en lecture seule, réutilise une connexion chaude si disponible. */
+/**
+ * Ouvre INBOX en lecture seule, exécute `fn`, puis referme immédiatement
+ * pour ne jamais saturer la limite de connexions simultanées de Gmail.
+ * Réessaie une fois après un court délai si Gmail signale trop de connexions.
+ */
 async function withInbox<T>(
     fn: (client: ImapFlow, exists: number) => Promise<T>
 ): Promise<T> {
-    let client: ImapFlow | null = null;
-    if (warmInboxClient) {
-        const candidate = warmInboxClient;
-        warmInboxClient = null;
-        if (warmInboxTimer) {
-            clearTimeout(warmInboxTimer);
-            warmInboxTimer = null;
-        }
-        if (candidate.usable) {
-            client = candidate;
-        } else {
-            void candidate.logout().catch(() => undefined);
-        }
-    }
-
-    if (!client) {
-        client = createImapClient();
+    const runOnce = async (): Promise<T> => {
+        const client = createImapClient();
         // Une erreur réseau tardive ne doit pas faire tomber la fonction serverless.
         client.on("error", () => undefined);
         await client.connect();
-    }
+        const lock = await client.getMailboxLock("INBOX", { readOnly: true });
+        try {
+            const mailbox = client.mailbox;
+            const exists = mailbox && typeof mailbox === "object" ? mailbox.exists : 0;
+            return await fn(client, exists);
+        } finally {
+            lock.release();
+            await client.logout().catch(() => undefined);
+        }
+    };
 
-    let keep = false;
-    const lock = await client.getMailboxLock("INBOX", { readOnly: true });
     try {
-        const mailbox = client.mailbox;
-        const exists = mailbox && typeof mailbox === "object" ? mailbox.exists : 0;
-        const result = await fn(client, exists);
-        keep = true;
-        return result;
-    } finally {
-        lock.release();
-        releaseWarmInbox(client, keep);
+        return await runOnce();
+    } catch (error) {
+        const msg = describeGmailError(error);
+        if (/Trop de connexions simultanées/i.test(msg)) {
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            return await runOnce();
+        }
+        throw error;
     }
 }
 

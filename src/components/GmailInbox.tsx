@@ -938,11 +938,6 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     if (oldestTarget) {
                         autoOpenedRef.current = true;
                         void openMessage(oldestTarget.uid);
-                        const nextOldestToNewest = activePool
-                            .slice(Math.max(0, activePool.length - 3), activePool.length - 1)
-                            .reverse()
-                            .map((m) => m.uid);
-                        void prefetchUids(nextOldestToNewest);
                     }
                 }
             } catch {
@@ -1467,15 +1462,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         await Promise.all(workers);
     }
 
-    function prefetchNextMessages(currentUid: number) {
-        const idx = visibleMessages.findIndex((item) => item.uid === currentUid);
-        if (idx < 0) return;
-        const ahead: number[] = [];
-        const prev = visibleMessages[idx - 1];
-        const next = visibleMessages[idx + 1];
-        if (prev) ahead.push(prev.uid);
-        if (next) ahead.push(next.uid);
-        void prefetchUids(ahead, 1);
+    function prefetchNextMessages(_currentUid: number) {
+        // Désactivé pour éviter de multiplier les connexions IMAP simultanées vers Gmail.
     }
 
     async function openMessage(uid: number) {
