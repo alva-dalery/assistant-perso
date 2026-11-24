@@ -483,37 +483,46 @@ const LoanCard: React.FC<LoanCardProps> = ({
                             )}
                         </div>
                     </form>
-                ) : effectiveDueDate ? (
-                    <div className="flex justify-end">
+                ) : (
+                    <div className="flex items-center justify-between gap-1">
                         <button
                             type="button"
-                            onClick={() => onSaveDueDate && setEditingDate(true)}
-                            title="Modifier la date de retour"
-                            className={`inline-flex items-center gap-1 text-right text-[9px] font-bold hover:underline ${
-                                tone === "overdue"
-                                    ? "text-rose-600"
-                                    : tone === "soon"
-                                      ? "text-amber-700"
-                                      : "text-slate-500"
-                            }`}
+                            onClick={() => setEditing(true)}
+                            title="Modifier le titre, l'auteur ou la couverture"
+                            aria-label={`Modifier ${displayTitle}`}
+                            className="p-1 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-all shrink-0"
                         >
-                            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
-                            <span>{formatShortDate(effectiveDueDate)}</span>
+                            <PenLine className="h-3 w-3" />
                         </button>
+                        {effectiveDueDate ? (
+                            <button
+                                type="button"
+                                onClick={() => onSaveDueDate && setEditingDate(true)}
+                                title="Modifier la date de retour"
+                                className={`inline-flex items-center gap-1 text-right text-[9px] font-bold hover:underline ${
+                                    tone === "overdue"
+                                        ? "text-rose-600"
+                                        : tone === "soon"
+                                          ? "text-amber-700"
+                                          : "text-slate-500"
+                                }`}
+                            >
+                                <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+                                <span>{formatShortDate(effectiveDueDate)}</span>
+                            </button>
+                        ) : loan.dueLabel ? (
+                            <button
+                                type="button"
+                                onClick={() => onSaveDueDate && setEditingDate(true)}
+                                title="Définir une date de retour"
+                                className="inline-flex items-center gap-1 text-right text-[9px] font-bold text-slate-500 hover:underline"
+                            >
+                                <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+                                <span>{loan.dueLabel}</span>
+                            </button>
+                        ) : null}
                     </div>
-                ) : loan.dueLabel ? (
-                    <div className="flex justify-end">
-                        <button
-                            type="button"
-                            onClick={() => onSaveDueDate && setEditingDate(true)}
-                            title="Définir une date de retour"
-                            className="inline-flex items-center gap-1 text-right text-[9px] font-bold text-slate-500 hover:underline"
-                        >
-                            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
-                            <span>{loan.dueLabel}</span>
-                        </button>
-                    </div>
-                ) : null}
+                )}
             </div>
 
             {editing ? (
@@ -589,30 +598,19 @@ const LoanCard: React.FC<LoanCardProps> = ({
                         )}
                     </div>
                 </form>
-            ) : (
-                <div className="p-1.5 flex items-center gap-1.5 border-t border-amber-200/70">
-                    {!extended && effectiveDueDate && onExtend && (
-                        <button
-                            type="button"
-                            onClick={onExtend}
-                            title="Prolonger de 3 semaines (+21 jours)"
-                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-[9px] font-bold text-emerald-700 hover:bg-emerald-50 transition-all"
-                        >
-                            <CalendarPlus className="h-3 w-3" />
-                            <span>Prolonger</span>
-                        </button>
-                    )}
+            ) : !extended && effectiveDueDate && onExtend ? (
+                <div className="p-1.5 flex items-center border-t border-amber-200/70">
                     <button
                         type="button"
-                        onClick={() => setEditing(true)}
-                        title="Modifier le titre, l'auteur ou la couverture"
-                        aria-label={`Modifier ${displayTitle}`}
-                        className="ml-auto p-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 transition-all"
+                        onClick={onExtend}
+                        title="Prolonger de 3 semaines (+21 jours)"
+                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-[9px] font-bold text-emerald-700 hover:bg-emerald-50 transition-all"
                     >
-                        <PenLine className="h-3.5 w-3.5" />
+                        <CalendarPlus className="h-3 w-3" />
+                        <span>Prolonger</span>
                     </button>
                 </div>
-            )}
+            ) : null}
         </div>
     );
 };
