@@ -16,6 +16,9 @@ import {
   X,
   Edit3,
   MapPin,
+  Moon,
+  Footprints,
+  Activity,
 } from "lucide-react";
 import type {
   DisputeCase,
@@ -514,56 +517,6 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
             </div>
           </div>
 
-          {/* Card 2: Biomarqueurs Santé */}
-          <div
-            onClick={() => onNavigate("sante")}
-            className="bg-[#f7b5d5] rounded-[2rem] p-5 text-slate-900 relative overflow-hidden flex flex-col justify-between h-52 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-          >
-            <div className="absolute top-2 right-3 text-white/35 text-6xl select-none pointer-events-none">
-              ♥
-            </div>
-
-            <div>
-              <span className="text-sm font-extrabold tracking-tight block mb-2">
-                Santé & Énergie :
-              </span>
-              <div className="grid grid-cols-3 gap-1 text-[11px] font-bold">
-                <div>
-                  <span className="text-sm block">{health.sleepScore}/100</span>
-                  <span className="text-[10px] text-slate-700 uppercase font-semibold">
-                    Sommeil
-                  </span>
-                </div>
-                <div>
-                  <span className="text-sm block">{health.sleepHours} h</span>
-                  <span className="text-[10px] text-slate-700 uppercase font-semibold">
-                    Durée nuit
-                  </span>
-                </div>
-                <div>
-                  <span className="text-sm block">{health.hrv} ms</span>
-                  <span className="text-[10px] text-slate-700 uppercase font-semibold">
-                    VFC
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white/45 rounded-2xl p-3 text-xs flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-bold uppercase text-slate-700 block">
-                  Compléments pris aujourd'hui
-                </span>
-                <p className="font-bold text-slate-900">
-                  {health.supplements.filter((s) => s.taken).length}/{health.supplements.length} validés
-                </p>
-              </div>
-              <span className="text-[11px] font-mono font-bold bg-slate-900 text-white px-2.5 py-1 rounded-full">
-                {health.restingHr} bpm
-              </span>
-            </div>
-          </div>
-
           {/* Card 3: Nutrition Frigo */}
           <div className="bg-[#a8bf6f] rounded-[2rem] p-5 text-slate-900 relative overflow-hidden flex flex-col justify-between h-44 shadow-sm">
             <div className="absolute -bottom-4 right-0 w-24 h-24 bg-white/20 -rotate-12 rounded-2xl pointer-events-none" />
@@ -656,6 +609,191 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
             </div>
           </div>
         </div>
+
+        {/* 3 CARTES GRAPHIQUES WITHINGS : SOMMEIL, PAS DU JOUR, ACTIVITÉS */}
+        {(() => {
+          const wd = health.withingsDetails;
+          const sleepWholeHours = Math.floor(health.sleepHours);
+          const sleepRemMin = Math.round((health.sleepHours - sleepWholeHours) * 60);
+          const sleepLabel = `${sleepWholeHours}h ${String(sleepRemMin).padStart(2, "0")}`;
+
+          const deep = wd?.deepSleepMin ?? 0;
+          const rem = wd?.remSleepMin ?? 0;
+          const light = wd?.lightSleepMin ?? 0;
+          const awake = wd?.awakeSleepMin ?? 0;
+          const totalPhases = deep + rem + light + awake;
+
+          const sleepScoreColor =
+            health.sleepScore >= 80
+              ? "text-emerald-600 border-emerald-500 bg-emerald-50"
+              : health.sleepScore >= 60
+                ? "text-amber-600 border-amber-400 bg-amber-50"
+                : "text-rose-600 border-rose-400 bg-rose-50";
+
+          const stepsGoal = 10000;
+          const stepsPct = Math.min(100, Math.round((health.steps / stepsGoal) * 100));
+          const radius = 38;
+          const circumference = 2 * Math.PI * radius;
+          const dashOffset = circumference * (1 - stepsPct / 100);
+          const arcColor = stepsPct >= 100 ? "#10b981" : "#818cf8";
+
+          const now = new Date();
+          const todayYmd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+          const todaysWorkouts = (wd?.workouts ?? []).filter((w) => w.date === todayYmd);
+
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Sommeil (sans 2e graphique) */}
+              <div
+                onClick={() => onNavigate("sante")}
+                className="p-4 rounded-[2rem] bg-white border border-slate-200/80 shadow-sm space-y-3 cursor-pointer hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    <Moon className="h-4 w-4 text-indigo-500" />
+                    <span>Sommeil</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-2xl font-extrabold text-slate-900 font-mono">{sleepLabel}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {wd?.sleepEfficiency ? `Efficacité ${wd.sleepEfficiency}%` : "Dernière nuit"}
+                    </p>
+                  </div>
+                  <div
+                    className={`h-14 w-14 rounded-full border-4 flex flex-col items-center justify-center shrink-0 ${sleepScoreColor}`}
+                  >
+                    <span className="text-base font-extrabold font-mono leading-none">
+                      {health.sleepScore}
+                    </span>
+                    <span className="text-[8px] font-bold uppercase opacity-80">/100</span>
+                  </div>
+                </div>
+
+                {totalPhases > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="h-2 w-full rounded-full overflow-hidden flex bg-slate-100">
+                      {deep > 0 && (
+                        <div style={{ width: `${(deep / totalPhases) * 100}%` }} className="bg-indigo-700" />
+                      )}
+                      {rem > 0 && (
+                        <div style={{ width: `${(rem / totalPhases) * 100}%` }} className="bg-sky-500" />
+                      )}
+                      {light > 0 && (
+                        <div style={{ width: `${(light / totalPhases) * 100}%` }} className="bg-indigo-300" />
+                      )}
+                      {awake > 0 && (
+                        <div style={{ width: `${(awake / totalPhases) * 100}%` }} className="bg-amber-400" />
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 text-[9px] text-slate-500 font-medium">
+                      <span>Prof. {Math.floor(deep / 60)}h{String(deep % 60).padStart(2, "0")}</span>
+                      <span>REM {Math.floor(rem / 60)}h{String(rem % 60).padStart(2, "0")}</span>
+                      <span>Lég. {Math.floor(light / 60)}h{String(light % 60).padStart(2, "0")}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Pas du jour (jauge circulaire uniquement) */}
+              <div
+                onClick={() => onNavigate("sante")}
+                className="p-4 rounded-[2rem] bg-white border border-slate-200/80 shadow-sm flex items-center justify-between gap-3 cursor-pointer hover:shadow-md transition-shadow"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    <Footprints className="h-4 w-4 text-indigo-500" />
+                    <span>Pas du jour</span>
+                  </div>
+                  <p className="text-2xl font-extrabold text-slate-900 font-mono pt-1">
+                    {health.steps.toLocaleString("fr-FR")}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {wd?.distanceKm !== undefined ? `${wd.distanceKm} km` : "pas aujourd'hui"}
+                    {wd?.calories !== undefined ? ` · ${wd.calories} kcal` : ""}
+                  </p>
+                </div>
+
+                <div className="relative h-24 w-24 shrink-0 flex items-center justify-center">
+                  <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
+                    <circle cx={50} cy={50} r={radius} fill="none" stroke="#e2e8f0" strokeWidth="2" />
+                    {stepsPct > 0 && (
+                      <circle
+                        cx={50}
+                        cy={50}
+                        r={radius}
+                        fill="none"
+                        stroke={arcColor}
+                        strokeWidth="7"
+                        strokeLinecap="round"
+                        strokeDasharray={circumference}
+                        strokeDashoffset={dashOffset}
+                      />
+                    )}
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-base font-extrabold text-slate-900 font-mono leading-none">
+                      {stepsPct}%
+                    </span>
+                    <span className="text-[9px] font-semibold text-slate-400 font-mono mt-0.5">
+                      10 000
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Activités du jour (ou proposition de marcher) */}
+              <div
+                onClick={() => onNavigate("sante")}
+                className="p-4 rounded-[2rem] bg-white border border-slate-200/80 shadow-sm flex flex-col justify-between gap-3 cursor-pointer hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    <Activity className="h-4 w-4 text-emerald-600" />
+                    <span>Activité du jour</span>
+                  </div>
+                </div>
+
+                {todaysWorkouts.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {todaysWorkouts.slice(0, 2).map((w) => (
+                      <div
+                        key={w.id}
+                        className="p-2.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-900 truncate">{w.categoryLabel}</p>
+                          <p className="text-[10px] text-slate-500 font-mono">{w.startTime}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="font-mono font-bold text-emerald-700 block">
+                            {w.durationMin} min
+                          </span>
+                          {w.calories !== undefined && (
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              {w.calories} kcal
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/70 space-y-1">
+                    <p className="text-xs font-bold text-emerald-950">
+                      Aucune activité aujourd&apos;hui
+                    </p>
+                    <p className="text-[11px] text-emerald-800 leading-snug">
+                      Et si vous alliez marcher 15–20 min pour prendre l&apos;air ? 🚶‍♂️
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* COLIS EN COURS */}
         {parcels.length > 0 && (
