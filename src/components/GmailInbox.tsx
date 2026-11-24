@@ -445,9 +445,10 @@ const LoanCard: React.FC<LoanCardProps> = ({
                 <div className="flex items-center justify-between gap-1">
                     <button
                         type="button"
-                        onClick={() => setEditing(true)}
+                        onClick={() => setEditing((prev) => !prev)}
                         title="Modifier le titre, l'auteur, la date ou la couverture"
                         aria-label={`Modifier ${displayTitle}`}
+                        aria-expanded={editing}
                         className="p-0.5 text-slate-400 hover:text-amber-700 transition-all shrink-0"
                     >
                         <PenLine className="h-3 w-3" />
