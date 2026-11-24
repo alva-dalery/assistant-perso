@@ -4896,7 +4896,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                         </button>
                                     </div>
                                 </div>
-                            ) : detail.category === "commande" || detail.category === "kiosque" ? null : (
+                            ) : detail.category === "commande" || detail.category === "kiosque" || detail.category === "bibliotheque" ? null : (
                                 <div className={`p-4 border-t border-slate-100 bg-slate-50/40 flex flex-wrap items-center justify-between gap-3 ${invoiceActive ? "hidden" : ""}`}>
                                     <p className="text-[11px] text-slate-500">
                                         {detail.category === "important"
