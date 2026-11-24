@@ -414,13 +414,15 @@ const LoanCard: React.FC<LoanCardProps> = ({
                 )}
             </div>
 
-            <div className="p-2 space-y-0.5 flex-1">
-                <p className="text-[11px] font-bold text-slate-800 leading-tight line-clamp-2">
-                    {displayTitle}
-                </p>
-                {displayAuthor && (
-                    <p className="text-[9px] text-slate-500 truncate">{displayAuthor}</p>
-                )}
+            <div className="p-2 flex-1 flex flex-col justify-between gap-1.5">
+                <div className="space-y-0.5">
+                    <p className="text-[11px] font-bold text-slate-800 leading-tight line-clamp-2">
+                        {displayTitle}
+                    </p>
+                    {displayAuthor && (
+                        <p className="text-[9px] text-slate-500 truncate">{displayAuthor}</p>
+                    )}
+                </div>
                 {editingDate && onSaveDueDate ? (
                     <form
                         onSubmit={(event) => {
@@ -466,31 +468,35 @@ const LoanCard: React.FC<LoanCardProps> = ({
                         </div>
                     </form>
                 ) : effectiveDueDate ? (
-                    <button
-                        type="button"
-                        onClick={() => onSaveDueDate && setEditingDate(true)}
-                        title="Modifier la date de retour"
-                        className={`inline-flex items-center gap-1 text-left text-[9px] font-bold hover:underline ${
-                            tone === "overdue"
-                                ? "text-rose-600"
-                                : tone === "soon"
-                                  ? "text-amber-700"
-                                  : "text-slate-500"
-                        }`}
-                    >
-                        <ArrowRight className="h-2.5 w-2.5 shrink-0" />
-                        <span>{formatShortDate(effectiveDueDate)}</span>
-                    </button>
+                    <div className="flex justify-end">
+                        <button
+                            type="button"
+                            onClick={() => onSaveDueDate && setEditingDate(true)}
+                            title="Modifier la date de retour"
+                            className={`inline-flex items-center gap-1 text-right text-[9px] font-bold hover:underline ${
+                                tone === "overdue"
+                                    ? "text-rose-600"
+                                    : tone === "soon"
+                                      ? "text-amber-700"
+                                      : "text-slate-500"
+                            }`}
+                        >
+                            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+                            <span>{formatShortDate(effectiveDueDate)}</span>
+                        </button>
+                    </div>
                 ) : loan.dueLabel ? (
-                    <button
-                        type="button"
-                        onClick={() => onSaveDueDate && setEditingDate(true)}
-                        title="Définir une date de retour"
-                        className="inline-flex items-center gap-1 text-left text-[9px] font-bold text-slate-500 hover:underline"
-                    >
-                        <ArrowRight className="h-2.5 w-2.5 shrink-0" />
-                        <span>{loan.dueLabel}</span>
-                    </button>
+                    <div className="flex justify-end">
+                        <button
+                            type="button"
+                            onClick={() => onSaveDueDate && setEditingDate(true)}
+                            title="Définir une date de retour"
+                            className="inline-flex items-center gap-1 text-right text-[9px] font-bold text-slate-500 hover:underline"
+                        >
+                            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+                            <span>{loan.dueLabel}</span>
+                        </button>
+                    </div>
                 ) : null}
             </div>
 
