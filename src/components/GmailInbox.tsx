@@ -219,7 +219,7 @@ type Filter =
 const PAGE_SIZE = 80;
 const MAX_MESSAGES = 2000;
 const INBOX_CACHE_KEY = "assistantPerso.inboxCache.v1";
-const DETAIL_CACHE_KEY = "assistantPerso.detailCache.v1";
+const DETAIL_CACHE_KEY = "assistantPerso.detailCache.v2";
 const INVOICE_BATCH_CHUNK = 5;
 
 function formatDate(iso: string): string {
@@ -3122,7 +3122,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             ) : (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
                 {/* Liste */}
-                <div className={`space-y-2 ${invoiceActive || filter === "kiosque" ? "lg:col-span-3" : "lg:col-span-5"}`}>
+                <div className={`space-y-2 ${invoiceActive || filter === "kiosque" || filter === "bibliotheque" ? "lg:col-span-3" : "lg:col-span-5"}`}>
                     {visibleMessages.length === 0 && !error && (
                         <p className="text-xs text-slate-500 p-4">
                             {filter === "reply"
@@ -3350,7 +3350,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 </div>
 
                 {/* Lecture + réponse */}
-                <div className={invoiceActive ? "lg:col-span-5" : filter === "kiosque" ? "lg:col-span-9" : "lg:col-span-7"}>
+                <div className={invoiceActive ? "lg:col-span-5" : filter === "kiosque" || filter === "bibliotheque" ? "lg:col-span-9" : "lg:col-span-7"}>
                     {loadingDetail && (
                         <div className="h-full min-h-[220px] rounded-2xl bg-white border border-slate-200/70 flex items-center justify-center text-xs text-slate-500">
                             <Loader2 className="h-4 w-4 animate-spin text-teal-600 mr-2" />
@@ -4016,7 +4016,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             </span>
                                         </div>
 
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                                             {detail.loans.map((loan, index) => {
                                                 const key = loanCoverKey(loan.title, loan.author);
                                                 return (

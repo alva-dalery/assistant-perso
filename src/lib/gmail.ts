@@ -1185,6 +1185,41 @@ function loanTitle(
 }
 
 /**
+ * Nettoie les mentions de support BM Lyon (`[Livre]`, `[Liv…`, `[BD]`) et
+ * sépare l'auteur lorsqu'il suit un `/` (ex. `Découvrir l'ACT [Livre] / Christophe Dev`).
+ */
+function cleanLibraryTitleAndAuthor(
+    rawTitle: string,
+    rawAuthor: string | null
+): { title: string; author: string | null } {
+    let title = rawTitle.trim();
+    let author = rawAuthor?.trim() || null;
+
+    // Forme « Titre [Livre] / Auteur » ou « Titre [Liv » (tronqué)
+    const bracketSplit = title.match(
+        /^(.*?)\s*\[(?:livre?|bd|dvd|cd|revue|audio|doc(?:ument)?|texte|imprim[ée])[^\]]*(?:\](?:\s*\/\s*(.+))?|$)/i
+    );
+    if (bracketSplit && bracketSplit[1].trim().length >= 3) {
+        title = bracketSplit[1].trim();
+        if (!author && bracketSplit[2]?.trim()) {
+            author = bracketSplit[2].trim();
+        }
+    } else {
+        // Forme « Titre / Auteur » sans crochets
+        const slashParts = title.split(/\s+\/\s+/);
+        if (slashParts.length >= 2 && slashParts[0].trim().length >= 3) {
+            title = slashParts[0].trim();
+            if (!author && slashParts[1].trim()) {
+                author = slashParts[1].trim();
+            }
+        }
+    }
+
+    title = title.replace(/\s*\[[^\]]*$/, "").trim();
+    return { title, author };
+}
+
+/**
  * Liste des livres empruntés dans un email de bibliothèque (BM Lyon),
  * avec la date de retour de chaque ouvrage.
  */
@@ -1219,13 +1254,14 @@ export function extractBookLoans(input: {
         const picked = loanTitle(lines, index, tableOffset);
         if (!picked) continue;
 
-        const key = picked.title.toLowerCase();
+        const cleaned = cleanLibraryTitleAndAuthor(picked.title, picked.author);
+        const key = cleaned.title.toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
 
         loans.push({
-            title: picked.title.slice(0, 140),
-            author: picked.author ? picked.author.slice(0, 80) : null,
+            title: cleaned.title.slice(0, 140),
+            author: cleaned.author ? cleaned.author.slice(0, 80) : null,
             dueDate: loanIsoDate(match[1]),
             dueLabel: match[1].trim(),
         });

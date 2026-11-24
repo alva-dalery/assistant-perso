@@ -45,6 +45,35 @@ function stripTruncation(value: string): { text: string; truncated: boolean } {
     return { text, truncated };
 }
 
+function cleanLibraryInput(
+    rawTitle: string,
+    rawAuthor: string | null
+): { title: string; author: string | null } {
+    let title = rawTitle.trim();
+    let author = rawAuthor?.trim() || null;
+
+    const bracketSplit = title.match(
+        /^(.*?)\s*\[(?:livre?|bd|dvd|cd|revue|audio|doc(?:ument)?|texte|imprim[ée])[^\]]*(?:\](?:\s*\/\s*(.+))?|$)/i
+    );
+    if (bracketSplit && bracketSplit[1].trim().length >= 3) {
+        title = bracketSplit[1].trim();
+        if (!author && bracketSplit[2]?.trim()) {
+            author = bracketSplit[2].trim();
+        }
+    } else {
+        const slashParts = title.split(/\s+\/\s+/);
+        if (slashParts.length >= 2 && slashParts[0].trim().length >= 3) {
+            title = slashParts[0].trim();
+            if (!author && slashParts[1].trim()) {
+                author = slashParts[1].trim();
+            }
+        }
+    }
+
+    title = title.replace(/\s*\[[^\]]*$/, "").trim();
+    return { title, author };
+}
+
 function prepareTitleVariants(raw: string): string[] {
     const { text, truncated } = stripTruncation(raw);
     if (!text) return [];
@@ -69,7 +98,8 @@ function prepareTitleVariants(raw: string): string[] {
 
 function prepareAuthor(raw: string | null): { search: string | null; rawNorm: string } {
     if (!raw || !raw.trim()) return { search: null, rawNorm: "" };
-    const { text, truncated } = stripTruncation(raw);
+    const withoutTitle = raw.replace(/^(?:dr|pr|prof\.?|mme|m\.)\s+/i, "").trim();
+    const { text, truncated } = stripTruncation(withoutTitle);
     if (!text) return { search: null, rawNorm: "" };
 
     if (text.includes(",")) {
@@ -87,7 +117,7 @@ function prepareAuthor(raw: string | null): { search: string | null; rawNorm: st
     }
 
     const words = text.split(/\s+/).filter(Boolean);
-    if (truncated && words.length >= 2) {
+    if (words.length >= 2 && (truncated || words[words.length - 1].length <= 4)) {
         const withoutLast = words.slice(0, -1).join(" ");
         return { search: withoutLast, rawNorm: normalize(text) };
     }
@@ -109,7 +139,7 @@ function similarity(left: string, right: string): number {
     for (const word of a) {
         if (b.has(word)) common += 1;
     }
-    return common / Math.min(a.size, b.size);
+    return common / Math.max(a.size, b.size);
 }
 
 function credible(requested: string, candidate: string, lenient = false): boolean {
@@ -119,7 +149,7 @@ function credible(requested: string, candidate: string, lenient = false): boolea
     const normalizedCandidate = normalize(candidate);
     if (!normalizedRequested) return false;
     if (normalizedCandidate.startsWith(normalizedRequested)) return true;
-    if (normalizedCandidate.includes(normalizedRequested)) return true;
+    if (normalizedRequested.length >= 8 && normalizedCandidate.includes(normalizedRequested)) return true;
 
     // Gestion d'un dernier mot coupé (ex: « la horde du contrev » vs « la horde du contrevent »)
     const reqWords = normalizedRequested.split(" ").filter(Boolean);
@@ -134,7 +164,7 @@ function credible(requested: string, candidate: string, lenient = false): boolea
         }
     }
 
-    return similarity(text, candidate) >= (lenient ? 0.34 : 0.6);
+    return similarity(text, candidate) >= (lenient ? 0.55 : 0.7);
 }
 
 function authorMatches(rawAuthorNorm: string, candidateAuthors: string[]): boolean {
@@ -471,13 +501,15 @@ const MAX_CACHE_ENTRIES = 500;
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
-    const title = (searchParams.get("title") ?? "").trim();
-    const author = (searchParams.get("author") ?? "").trim() || null;
+    const rawTitle = (searchParams.get("title") ?? "").trim();
+    const rawAuthor = (searchParams.get("author") ?? "").trim() || null;
     const force = searchParams.get("force") === "1";
 
-    if (!title) {
+    if (!rawTitle) {
         return NextResponse.json(EMPTY_LOOKUP);
     }
+
+    const { title, author } = cleanLibraryInput(rawTitle, rawAuthor);
 
     const cacheKey = `${normalize(title)}|${normalize(author ?? "")}`;
     if (!force) {
@@ -541,7 +573,14 @@ export async function GET(request: Request) {
         }
     }
 
-    result = { ...result, authors: reorderAuthors(result.authors, cleanAuthor ?? author) };
+    result = {
+        ...result,
+        title: result.title ?? (title !== rawTitle ? title : null),
+        authors: reorderAuthors(
+            result.authors.length > 0 ? result.authors : author ? [author] : [],
+            cleanAuthor ?? author
+        ),
+    };
 
     if (SERVER_CACHE.size >= MAX_CACHE_ENTRIES) {
         const firstKey = SERVER_CACHE.keys().next().value;
