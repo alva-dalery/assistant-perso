@@ -2934,9 +2934,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     <button
                         key={value}
                         onClick={() => changeFilter(value)}
-                        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all ${filter === value
-                                ? "bg-white text-slate-900 shadow-sm"
-                                : "text-slate-500 hover:text-slate-800"
+                        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-[11px] transition-all ${filter === value
+                                ? "bg-white text-slate-900 shadow-sm font-bold"
+                                : count > 0
+                                    ? "font-bold text-slate-600 hover:text-slate-900"
+                                    : "font-normal text-slate-400 hover:text-slate-600"
                             }`}
                     >
                         <span>{label}</span>
