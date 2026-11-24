@@ -496,6 +496,79 @@ async function duckDuckGoImageQuery(query: string): Promise<string[]> {
     return unique(covers);
 }
 
+function isbn13To10(isbn13: string): string | null {
+    if (!/^978\d{10}$/.test(isbn13)) return null;
+    const body = isbn13.slice(3, 12);
+    let sum = 0;
+    for (let i = 0; i < 9; i += 1) {
+        sum += Number(body[i]) * (10 - i);
+    }
+    const rem = (11 - (sum % 11)) % 11;
+    return `${body}${rem === 10 ? "X" : String(rem)}`;
+}
+
+async function bnfLookup(
+    queryTitle: string,
+    originalTitle: string,
+    rawAuthorNorm: string
+): Promise<BookLookupResult> {
+    const cleanWords = normalize(queryTitle)
+        .split(" ")
+        .filter((w) => w.length > 2)
+        .slice(0, 6)
+        .join(" ");
+    if (!cleanWords) return EMPTY_LOOKUP;
+
+    const cql = `bib.title all "${cleanWords}"`;
+    const url = `https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&recordSchema=dublincore&query=${encodeURIComponent(cql)}&maximumRecords=5`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+    if (!response.ok) return EMPTY_LOOKUP;
+
+    const xml = await response.text();
+    const records = xml.split("<srw:record>").slice(1);
+    const parsed = records
+        .map((rec) => {
+            const rawDcTitle = rec.match(/<dc:title>([^<]+)<\/dc:title>/)?.[1] ?? "";
+            const titlePart = rawDcTitle.split(/\s+\/\s+/)[0]?.trim() ?? "";
+            const rawCreator = rec.match(/<dc:creator>([^<]+)<\/dc:creator>/)?.[1] ?? "";
+            const cleanedCreator = rawCreator
+                .replace(/\s*\([^)]*\).*$/, "")
+                .trim();
+            const authors = cleanedCreator ? [normalizeAuthor(cleanedCreator)].filter(Boolean) : [];
+            const isbns = Array.from(new Set([...rec.matchAll(/97[89]\d{10}/g)].map((m) => m[0])));
+            return { titlePart, authors, isbns };
+        })
+        .filter(({ titlePart }) => credible(originalTitle, titlePart));
+
+    parsed.sort(
+        (a, b) =>
+            Number(authorMatches(rawAuthorNorm, b.authors)) -
+            Number(authorMatches(rawAuthorNorm, a.authors))
+    );
+
+    const covers: string[] = [];
+    let matched: { title: string; authors: string[] } | null = null;
+
+    for (const entry of parsed) {
+        if (!matched) {
+            matched = { title: entry.titlePart.slice(0, 160), authors: entry.authors };
+        }
+        for (const isbn of entry.isbns.slice(0, 2)) {
+            const isbn10 = isbn13To10(isbn);
+            if (isbn10) {
+                covers.push(`https://images-na.ssl-images-amazon.com/images/P/${isbn10}.01.LZZZZZZZ.jpg`);
+            }
+            covers.push(`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`);
+        }
+    }
+
+    return {
+        title: matched?.title ?? null,
+        authors: matched?.authors ?? [],
+        covers: unique(covers).slice(0, 4),
+    };
+}
+
 async function duckDuckGoImageLookup(title: string, author: string | null): Promise<BookLookupResult> {
     const primaryQuery = [title, author, "livre"].filter(Boolean).join(" ");
     let covers = await duckDuckGoImageQuery(primaryQuery);
@@ -503,34 +576,6 @@ async function duckDuckGoImageLookup(title: string, author: string | null): Prom
         covers = await duckDuckGoImageQuery(`${title} livre`);
     }
     return { title: null, authors: [], covers };
-}
-
-async function bingImageLookup(title: string, author: string | null): Promise<BookLookupResult> {
-    const query = [title, author, "livre fnac OR decitre OR babelio"].filter(Boolean).join(" ");
-    const response = await fetch(
-        `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&cc=FR&mkt=fr-FR&setlang=fr&first=1`,
-        {
-            headers: {
-                "User-Agent": BROWSER_UA,
-                "Accept-Language": "fr-FR,fr;q=0.9",
-            },
-            signal: AbortSignal.timeout(5_000),
-        }
-    );
-    if (!response.ok) return EMPTY_LOOKUP;
-
-    const html = await response.text();
-    const covers: string[] = [];
-    for (const match of html.matchAll(/murl&quot;:&quot;(https?:\/\/[^&]+?)&quot;/g)) {
-        const url = match[1];
-        if (!url) continue;
-        const lower = url.toLowerCase();
-        if (BLOCKED_IMAGE_DOMAINS.some((domain) => lower.includes(domain))) continue;
-        covers.push(url);
-        if (covers.length >= 5) break;
-    }
-
-    return { title: null, authors: [], covers: unique(covers) };
 }
 
 const SERVER_CACHE = new Map<string, BookLookupResult>();
@@ -564,9 +609,10 @@ export async function GET(request: Request) {
     const mainTitle = titleVariants[0] ?? title;
     const altTitle = titleVariants[1];
 
-    // Phase 1 : recherche parallèle sur les catalogues (Apple Books FR, Open Library, Google Books)
+    // Phase 1 : recherche parallèle sur les catalogues (Apple Books FR, BnF, Open Library, Google Books)
     const phase1Tasks: Array<Promise<BookLookupResult>> = [
         itunesLookup(mainTitle, title, cleanAuthor, rawAuthorNorm),
+        bnfLookup(mainTitle, title, rawAuthorNorm),
         openLibraryLookup(mainTitle, title, cleanAuthor, rawAuthorNorm, { generalQuery: true }),
         googleBooksLookup(mainTitle, title, cleanAuthor),
     ];
@@ -584,18 +630,15 @@ export async function GET(request: Request) {
         }
     }
 
-    // Phase 2 : si moins de 2 couvertures, recherche d'images sur internet (DuckDuckGo + Bing FR en parallèle)
+    // Phase 2 : si moins de 2 couvertures, recherche d'images sur internet (DuckDuckGo Images)
     if (result.covers.length < 2) {
         const searchTitle = result.title ?? mainTitle;
         const searchAuthor = result.authors[0] ?? cleanAuthor;
-        const phase2Results = await Promise.allSettled([
-            duckDuckGoImageLookup(searchTitle, searchAuthor),
-            bingImageLookup(searchTitle, searchAuthor),
-        ]);
-        for (const entry of phase2Results) {
-            if (entry.status === "fulfilled") {
-                result = mergeLookups(result, entry.value);
-            }
+        try {
+            const ddg = await duckDuckGoImageLookup(searchTitle, searchAuthor);
+            result = mergeLookups(result, ddg);
+        } catch {
+            // Source indisponible ou expirée.
         }
     }
 
