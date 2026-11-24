@@ -784,10 +784,10 @@ const SenderLogo: React.FC<{
 
     const dims =
         size === "xs"
-            ? "h-5 w-5 text-[9px]"
+            ? "h-6 w-6 text-[10px]"
             : size === "md"
-              ? "h-9 w-9 text-xs"
-              : "h-7 w-7 text-[11px]";
+              ? "h-10 w-10 text-sm"
+              : "h-9 w-9 text-xs";
 
     if (showFavicon && domain) {
         return (
@@ -3661,39 +3661,41 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     void openMessage(message.uid);
                                 }
                             }}
-                            className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${detail?.uid === message.uid
+                            className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${detail?.uid === message.uid
                                     ? "bg-white border-teal-500 shadow-md ring-2 ring-teal-50"
                                     : "bg-white/80 border-slate-200/70 hover:bg-white hover:border-slate-300"
                                 }`}
                         >
-                            <div className="flex items-center justify-between gap-2 mb-1">
-                                <span className="flex items-center gap-1.5 min-w-0 text-xs font-bold text-slate-800">
-                                    <SenderLogo email={message.fromEmail} name={message.fromName} size="sm" />
-                                    {!message.seen && (
-                                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
-                                    )}
-                                    <span className="truncate">{message.fromName}</span>
-                                </span>
-                                <span className="text-[10px] text-slate-400 shrink-0 text-right">
-                                            {formatDate(message.date)}
-                                            <span className="block text-[9px] text-slate-400/80">
-                                                {formatRelative(message.date)}
-                                            </span>
-                                        </span>
-                            </div>
-                            <p className="text-[11px] font-medium text-slate-600 truncate">{message.subject}</p>
-                            <div className="mt-1.5 flex items-center gap-1.5">
-                                <LabelMenu
-                                    align="left"
-                                    value={message.category}
-                                    override={labelOverrides[message.uid]}
-                                    onSelect={(value) => changeMessageCategory(message.uid, value)}
-                                />
-                                {message.answered && (
-                                    <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold">
-                                        Répondu
+                            <SenderLogo email={message.fromEmail} name={message.fromName} size="md" />
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2 mb-0.5">
+                                    <span className="flex items-center gap-1.5 min-w-0 text-xs font-bold text-slate-800">
+                                        {!message.seen && (
+                                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
+                                        )}
+                                        <span className="truncate">{message.fromName}</span>
                                     </span>
-                                )}
+                                    <span className="text-[10px] text-slate-400 shrink-0 text-right">
+                                        {formatDate(message.date)}
+                                        <span className="block text-[9px] text-slate-400/80">
+                                            {formatRelative(message.date)}
+                                        </span>
+                                    </span>
+                                </div>
+                                <p className="text-[11px] font-medium text-slate-600 truncate">{message.subject}</p>
+                                <div className="mt-1.5 flex items-center gap-1.5">
+                                    <LabelMenu
+                                        align="left"
+                                        value={message.category}
+                                        override={labelOverrides[message.uid]}
+                                        onSelect={(value) => changeMessageCategory(message.uid, value)}
+                                    />
+                                    {message.answered && (
+                                        <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold">
+                                            Répondu
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     ))}
