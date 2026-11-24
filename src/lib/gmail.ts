@@ -3514,7 +3514,7 @@ export function detectInvoiceFromMessage(
     };
 }
 
-const INVOICE_ALLOWED_HOSTS = ["engie.nc", "eec.nc", "opt.nc", "lagoon.nc", "cde.nc", "helia.nc"];
+const INVOICE_ALLOWED_HOSTS = ["engie.nc", "eec.nc", "eec-engie.nc", "opt.nc", "lagoon.nc", "cde.nc", "helia.nc"];
 
 function allowedInvoiceHost(value: string): boolean {
     try {
