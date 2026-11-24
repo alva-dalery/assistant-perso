@@ -3680,19 +3680,23 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                         </span>
                                     </span>
                                 </div>
-                                <p className="text-[11px] font-medium text-slate-600 truncate">{message.subject}</p>
-                                <div className="mt-1.5 flex items-center gap-1.5">
-                                    <LabelMenu
-                                        align="left"
-                                        value={message.category}
-                                        override={labelOverrides[message.uid]}
-                                        onSelect={(value) => changeMessageCategory(message.uid, value)}
-                                    />
-                                    {message.answered && (
-                                        <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold">
-                                            Répondu
-                                        </span>
-                                    )}
+                                <div className="flex items-center justify-between gap-2">
+                                    <p className="text-[11px] font-medium text-slate-600 truncate min-w-0">
+                                        {message.subject}
+                                    </p>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {message.answered && (
+                                            <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold">
+                                                Répondu
+                                            </span>
+                                        )}
+                                        <LabelMenu
+                                            align="right"
+                                            value={message.category}
+                                            override={labelOverrides[message.uid]}
+                                            onSelect={(value) => changeMessageCategory(message.uid, value)}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>
