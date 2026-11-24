@@ -1556,9 +1556,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     void resolveTrackingFromUrl(labelled.uid, labelled.tracking.url);
                 }
             }
-            // Pas de suggestion de dossier pour une commande : le dossier de
-            // rangement est présélectionné (« Commandes et Factures »).
-            if (labelled.category !== "commande") {
+            // Pas de suggestion de dossier pour une commande (dossier présélectionné)
+            // ni pour le Kiosque (lecture seule, pas de rangement automatique).
+            if (labelled.category !== "commande" && labelled.category !== "kiosque") {
                 void suggestFolderFor(data.uid);
             }
             setInvoiceProposal(null);
@@ -4277,20 +4277,23 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                             Ranger
                                         </span>
-                                        <select
-                                            value={folderTarget}
-                                            onChange={(event) => setFolderTarget(event.target.value)}
-                                            className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[11px] text-slate-700 focus:outline-none focus:border-teal-500"
-                                        >
-                                            <option value="">Ne pas ranger automatiquement</option>
-                                            {folders
-                                                .filter((folder) => folder.kind === "label")
-                                                .map((folder) => (
-                                                    <option key={folder.path} value={folder.path}>
-                                                        {folder.label}
-                                                    </option>
-                                                ))}
-                                        </select>
+                                        <div className="relative inline-flex items-center">
+                                            <select
+                                                value={folderTarget}
+                                                onChange={(event) => setFolderTarget(event.target.value)}
+                                                className="appearance-none bg-slate-50 border border-slate-200 rounded-xl pl-3 pr-8 py-1.5 text-[11px] text-slate-700 focus:outline-none focus:border-teal-500"
+                                            >
+                                                <option value="">Ne pas ranger automatiquement</option>
+                                                {folders
+                                                    .filter((folder) => folder.kind === "label")
+                                                    .map((folder) => (
+                                                        <option key={folder.path} value={folder.path}>
+                                                            {folder.label}
+                                                        </option>
+                                                    ))}
+                                            </select>
+                                            <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-slate-500" />
+                                        </div>
                                         <button
                                             onClick={() => void moveTo(folderTarget)}
                                             disabled={moving || !folderTarget}
@@ -4325,7 +4328,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     </span>
                                 )}
                             </div>
-                            {detail && !detail.tracking && (
+                            {detail && !detail.tracking && detail.category !== "kiosque" && (
                             <div className="px-4 pb-3 bg-white text-[10px] text-slate-500 space-y-0.5">
                                 {suggesting && (
                                     <p className="flex items-center gap-1.5">
