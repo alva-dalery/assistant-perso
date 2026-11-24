@@ -35,6 +35,72 @@ function normalize(value: string): string {
         .trim();
 }
 
+function stripTruncation(value: string): { text: string; truncated: boolean } {
+    const trimmed = value.trim();
+    const truncated = /(?:\.\.\.|…|\[\.\.\.\])$/.test(trimmed);
+    const text = trimmed
+        .replace(/(?:\.\.\.|…|\[\.\.\.\])+$/g, "")
+        .replace(/[:\-–—/,;\s]+$/g, "")
+        .trim();
+    return { text, truncated };
+}
+
+function prepareTitleVariants(raw: string): string[] {
+    const { text, truncated } = stripTruncation(raw);
+    if (!text) return [];
+
+    const variants: string[] = [text];
+    const words = text.split(/\s+/).filter(Boolean);
+
+    // Si le titre est coupé (ou contient plusieurs mots), le dernier mot peut être tronqué
+    if ((truncated || words.length >= 4) && words.length >= 3) {
+        const withoutLast = words.slice(0, -1).join(" ");
+        if (withoutLast.length >= 4) variants.push(withoutLast);
+    }
+
+    // Si un sous-titre coupé suit « : », « / » ou « - », garder le titre principal
+    const main = text.split(/\s*(?::|\/| - )\s*/)[0]?.trim();
+    if (main && main !== text && main.length >= 4) {
+        variants.push(main);
+    }
+
+    return Array.from(new Set(variants));
+}
+
+function prepareAuthor(raw: string | null): { search: string | null; rawNorm: string } {
+    if (!raw || !raw.trim()) return { search: null, rawNorm: "" };
+    const { text, truncated } = stripTruncation(raw);
+    if (!text) return { search: null, rawNorm: "" };
+
+    if (text.includes(",")) {
+        const [lastRaw, firstRaw] = text.split(",").map((part) => part.trim());
+        const last = lastRaw ? titleCase(lastRaw) : "";
+        const first = firstRaw ? titleCase(firstRaw) : "";
+        // Si le prénom est tronqué (ex: « DAMASIO, Al... » ou « LALLEMAND, O. »), ne chercher que le nom
+        if (last && (!first || truncated || first.replace(/\./g, "").length <= 2)) {
+            return { search: last, rawNorm: normalize(last) };
+        }
+        if (last && first) {
+            const combined = `${first} ${last}`;
+            return { search: combined, rawNorm: normalize(combined) };
+        }
+    }
+
+    const words = text.split(/\s+/).filter(Boolean);
+    if (truncated && words.length >= 2) {
+        const withoutLast = words.slice(0, -1).join(" ");
+        return { search: withoutLast, rawNorm: normalize(text) };
+    }
+
+    // Un seul mot coupé (ex: « Damas... ») : utile pour filtrer les candidats, mais pas pour un filtre strict
+    if (truncated && words.length === 1) {
+        return { search: null, rawNorm: normalize(text) };
+    }
+
+    const formatted = text === text.toUpperCase() ? titleCase(text) : text;
+    return { search: formatted, rawNorm: normalize(formatted) };
+}
+
 function similarity(left: string, right: string): number {
     const a = new Set(normalize(left).split(" ").filter((word) => word.length > 2));
     const b = new Set(normalize(right).split(" ").filter((word) => word.length > 2));
@@ -48,12 +114,38 @@ function similarity(left: string, right: string): number {
 
 function credible(requested: string, candidate: string, lenient = false): boolean {
     if (!candidate.trim()) return false;
-    const normalizedRequested = normalize(requested);
+    const { text } = stripTruncation(requested);
+    const normalizedRequested = normalize(text);
     const normalizedCandidate = normalize(candidate);
     if (!normalizedRequested) return false;
     if (normalizedCandidate.startsWith(normalizedRequested)) return true;
     if (normalizedCandidate.includes(normalizedRequested)) return true;
-    return similarity(requested, candidate) >= (lenient ? 0.34 : 0.6);
+
+    // Gestion d'un dernier mot coupé (ex: « la horde du contrev » vs « la horde du contrevent »)
+    const reqWords = normalizedRequested.split(" ").filter(Boolean);
+    const candWords = normalizedCandidate.split(" ").filter(Boolean);
+    if (reqWords.length >= 2 && candWords.length >= reqWords.length) {
+        const lastReq = reqWords[reqWords.length - 1];
+        const prefixWords = reqWords.slice(0, -1).filter((w) => w.length > 2);
+        const allPrefixPresent = prefixWords.every((w) => candWords.includes(w));
+        const lastMatchesPrefix = candWords.some((w) => w.startsWith(lastReq));
+        if (allPrefixPresent && lastMatchesPrefix && (prefixWords.length > 0 || lastReq.length >= 3)) {
+            return true;
+        }
+    }
+
+    return similarity(text, candidate) >= (lenient ? 0.34 : 0.6);
+}
+
+function authorMatches(rawAuthorNorm: string, candidateAuthors: string[]): boolean {
+    if (!rawAuthorNorm || candidateAuthors.length === 0) return false;
+    const reqTokens = rawAuthorNorm.split(" ").filter((t) => t.length >= 2);
+    if (reqTokens.length === 0) return false;
+    return candidateAuthors.some((cand) => {
+        const candNorm = normalize(cand);
+        const candWords = candNorm.split(" ");
+        return reqTokens.some((tok) => candWords.some((cw) => cw.startsWith(tok)));
+    });
 }
 
 function titleCase(value: string): string {
@@ -109,8 +201,13 @@ function reorderAuthors(authors: string[], requested: string | null): string[] {
     return [...authors].sort((a, b) => similarity(requested, b) - similarity(requested, a));
 }
 
-async function itunesLookup(title: string, author: string | null): Promise<BookLookupResult> {
-    const term = [title, author].filter(Boolean).join(" ");
+async function itunesLookup(
+    queryTitle: string,
+    originalTitle: string,
+    author: string | null,
+    rawAuthorNorm: string
+): Promise<BookLookupResult> {
+    const term = [queryTitle, author].filter(Boolean).join(" ");
     const params = new URLSearchParams({
         term,
         country: "fr",
@@ -130,26 +227,34 @@ async function itunesLookup(title: string, author: string | null): Promise<BookL
         }>;
     };
 
+    const items = (data.results ?? [])
+        .map((item) => {
+            const candidate = (item.trackName ?? "").trim();
+            const authors = item.artistName
+                ? item.artistName
+                      .split(/[,&]/)
+                      .map(normalizeAuthor)
+                      .filter(Boolean)
+                      .slice(0, 3)
+                : [];
+            return { item, candidate, authors };
+        })
+        .filter(({ candidate }) => credible(originalTitle, candidate));
+
+    // Préférer les résultats qui correspondent aussi à l'auteur (même tronqué)
+    items.sort(
+        (a, b) =>
+            Number(authorMatches(rawAuthorNorm, b.authors)) -
+            Number(authorMatches(rawAuthorNorm, a.authors))
+    );
+
     const covers: string[] = [];
     let matched: { title: string; authors: string[] } | null = null;
 
-    for (const item of data.results ?? []) {
-        const candidate = (item.trackName ?? "").trim();
-        if (!credible(title, candidate)) continue;
-
+    for (const { item, candidate, authors } of items) {
         if (!matched) {
-            matched = {
-                title: candidate.slice(0, 160),
-                authors: item.artistName
-                    ? item.artistName
-                          .split(/[,&]/)
-                          .map(normalizeAuthor)
-                          .filter(Boolean)
-                          .slice(0, 3)
-                    : [],
-            };
+            matched = { title: candidate.slice(0, 160), authors };
         }
-
         if (item.artworkUrl100) {
             covers.push(item.artworkUrl100.replace(/\/100x100bb\./, "/600x600bb."));
         }
@@ -163,16 +268,22 @@ async function itunesLookup(title: string, author: string | null): Promise<BookL
 }
 
 async function openLibraryLookup(
-    title: string,
+    queryTitle: string,
+    originalTitle: string,
     author: string | null,
-    lenient = false
+    rawAuthorNorm: string,
+    options?: { lenient?: boolean; generalQuery?: boolean }
 ): Promise<BookLookupResult> {
     const params = new URLSearchParams({
-        title,
-        limit: "3",
+        limit: "4",
         fields: "title,subtitle,author_name,cover_i,isbn",
     });
-    if (author) params.set("author", author);
+    if (options?.generalQuery) {
+        params.set("q", [queryTitle, author].filter(Boolean).join(" "));
+    } else {
+        params.set("title", queryTitle);
+        if (author) params.set("author", author);
+    }
 
     const response = await fetch(`https://openlibrary.org/search.json?${params.toString()}`, {
         signal: AbortSignal.timeout(6_000),
@@ -189,23 +300,30 @@ async function openLibraryLookup(
         }>;
     };
 
+    const docs = (data.docs ?? [])
+        .map((doc) => {
+            const candidate = readableTitle(doc.title, doc.subtitle);
+            const authors = (doc.author_name ?? [])
+                .map(normalizeAuthor)
+                .filter(Boolean)
+                .slice(0, 3);
+            return { doc, candidate, authors };
+        })
+        .filter(({ candidate }) => credible(originalTitle, candidate, options?.lenient));
+
+    docs.sort(
+        (a, b) =>
+            Number(authorMatches(rawAuthorNorm, b.authors)) -
+            Number(authorMatches(rawAuthorNorm, a.authors))
+    );
+
     const covers: string[] = [];
     let matched: { title: string; authors: string[] } | null = null;
 
-    for (const doc of data.docs ?? []) {
-        const candidate = readableTitle(doc.title, doc.subtitle);
-        if (!credible(title, candidate, lenient)) continue;
-
+    for (const { doc, candidate, authors } of docs) {
         if (!matched) {
-            matched = {
-                title: candidate,
-                authors: (doc.author_name ?? [])
-                    .map(normalizeAuthor)
-                    .filter(Boolean)
-                    .slice(0, 3),
-            };
+            matched = { title: candidate, authors };
         }
-
         if (doc.cover_i) {
             covers.push(`https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg?default=false`);
         }
@@ -222,9 +340,13 @@ async function openLibraryLookup(
     };
 }
 
-async function googleBooksLookup(title: string, author: string | null): Promise<BookLookupResult> {
+async function googleBooksLookup(
+    queryTitle: string,
+    originalTitle: string,
+    author: string | null
+): Promise<BookLookupResult> {
     const params = new URLSearchParams({
-        q: `intitle:${title}${author ? ` inauthor:${author}` : ""}`,
+        q: `intitle:${queryTitle}${author ? ` inauthor:${author}` : ""}`,
         maxResults: "3",
         fields: "items(volumeInfo(title,subtitle,authors,imageLinks))",
     });
@@ -257,7 +379,7 @@ async function googleBooksLookup(title: string, author: string | null): Promise<
         const info = item.volumeInfo;
         if (!info) continue;
         const candidate = readableTitle(info.title, info.subtitle);
-        if (!credible(title, candidate)) continue;
+        if (!credible(originalTitle, candidate)) continue;
 
         if (!matched) {
             matched = {
@@ -365,19 +487,52 @@ export async function GET(request: Request) {
         SERVER_CACHE.delete(cacheKey);
     }
 
+    const titleVariants = prepareTitleVariants(title);
+    const { search: cleanAuthor, rawNorm: rawAuthorNorm } = prepareAuthor(author);
+
     let result = EMPTY_LOOKUP;
 
-    const attempts: Array<() => Promise<BookLookupResult>> = [
-        () => itunesLookup(title, author),
-        () => openLibraryLookup(title, author),
-        () => openLibraryLookup(title, null),
-        () => googleBooksLookup(title, author),
-        () => duckDuckGoImageLookup(title, author),
-        () => openLibraryLookup(title, null, true),
-    ];
+    const attempts: Array<() => Promise<BookLookupResult>> = [];
+
+    // 1. Apple Books FR : essai avec les variantes de titre (avec puis sans auteur)
+    for (const variant of titleVariants.slice(0, 2)) {
+        if (cleanAuthor) {
+            attempts.push(() => itunesLookup(variant, title, cleanAuthor, rawAuthorNorm));
+        }
+        attempts.push(() => itunesLookup(variant, title, null, rawAuthorNorm));
+    }
+
+    // 2. Open Library : recherche par titre puis recherche libre (?q=), tolérante aux coupures
+    for (const variant of titleVariants.slice(0, 2)) {
+        if (cleanAuthor) {
+            attempts.push(() =>
+                openLibraryLookup(variant, title, cleanAuthor, rawAuthorNorm, { generalQuery: true })
+            );
+        }
+        attempts.push(() => openLibraryLookup(variant, title, null, rawAuthorNorm));
+    }
+
+    // 3. Google Books (si disponible)
+    attempts.push(() => googleBooksLookup(titleVariants[0] ?? title, title, cleanAuthor));
+
+    // 4. Recherche d'images sur internet (avec le titre/auteur complets si déjà trouvés)
+    attempts.push(() =>
+        duckDuckGoImageLookup(
+            result.title ?? titleVariants[0] ?? title,
+            result.authors[0] ?? cleanAuthor
+        )
+    );
+
+    // 5. Dernier recours souple sur Open Library
+    attempts.push(() =>
+        openLibraryLookup(titleVariants[titleVariants.length - 1] ?? title, title, null, rawAuthorNorm, {
+            lenient: true,
+            generalQuery: true,
+        })
+    );
 
     for (const attempt of attempts) {
-        if (result.covers.length >= 3) break;
+        if (result.covers.length >= 2 && result.title && result.authors.length > 0) break;
         try {
             const found = await attempt();
             result = mergeLookups(result, found);
@@ -386,7 +541,7 @@ export async function GET(request: Request) {
         }
     }
 
-    result = { ...result, authors: reorderAuthors(result.authors, author) };
+    result = { ...result, authors: reorderAuthors(result.authors, cleanAuthor ?? author) };
 
     if (SERVER_CACHE.size >= MAX_CACHE_ENTRIES) {
         const firstKey = SERVER_CACHE.keys().next().value;
