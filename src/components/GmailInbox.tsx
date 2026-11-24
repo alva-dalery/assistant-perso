@@ -3372,7 +3372,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             override={labelOverrides[detail.uid]}
                                             onSelect={(value) => changeMessageCategory(detail.uid, value)}
                                         />
-                                        {detail.category === "kiosque" && (
+                                        {["personnel", "alertes", "kiosque", "newsletter", "promotion", "important", "infos"].includes(detail.category) && (
                                             <button
                                                 type="button"
                                                 onClick={() => void removeMessage()}
