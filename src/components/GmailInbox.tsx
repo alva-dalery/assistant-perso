@@ -3062,7 +3062,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             ) : (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
                 {/* Liste */}
-                <div className={`space-y-2 ${invoiceActive ? "lg:col-span-3" : "lg:col-span-5"}`}>
+                <div className={`space-y-2 ${invoiceActive || filter === "kiosque" ? "lg:col-span-3" : "lg:col-span-5"}`}>
                     {visibleMessages.length === 0 && !error && (
                         <p className="text-xs text-slate-500 p-4">
                             {filter === "reply"
@@ -3290,7 +3290,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 </div>
 
                 {/* Lecture + réponse */}
-                <div className={invoiceActive ? "lg:col-span-5" : "lg:col-span-7"}>
+                <div className={invoiceActive ? "lg:col-span-5" : filter === "kiosque" ? "lg:col-span-9" : "lg:col-span-7"}>
                     {loadingDetail && (
                         <div className="h-full min-h-[220px] rounded-2xl bg-white border border-slate-200/70 flex items-center justify-center text-xs text-slate-500">
                             <Loader2 className="h-4 w-4 animate-spin text-teal-600 mr-2" />
