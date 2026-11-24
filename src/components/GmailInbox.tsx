@@ -211,8 +211,9 @@ type Filter =
     | "later"
     | "all";
 
-const PAGE_SIZE = 500;
+const PAGE_SIZE = 80;
 const MAX_MESSAGES = 2000;
+const INBOX_CACHE_KEY = "assistantPerso.inboxCache.v1";
 const INVOICE_BATCH_CHUNK = 5;
 
 function formatDate(iso: string): string {
@@ -794,7 +795,6 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [dragOverGroupKey, setDragOverGroupKey] = useState<string | null>(null);
     const [sending, setSending] = useState<"draft" | "send" | null>(null);
     const autoOpenedRef = useRef(Boolean(inboxSessionCache?.messages.length));
-    const autoAllRef = useRef(false);
     const [folders, setFolders] = useState<{ path: string; label: string; kind: string }[]>(
         () => inboxSessionCache?.folders ?? []
     );
@@ -836,13 +836,41 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
 
     const load = useCallback(
         async (requestedLimit: number) => {
-            setLoading(true);
+            // Hydrate instantanément depuis le cache local si la liste est encore vide
+            if (typeof window !== "undefined") {
+                try {
+                    const cachedRaw = window.localStorage.getItem(INBOX_CACHE_KEY);
+                    if (cachedRaw) {
+                        const cached = JSON.parse(cachedRaw) as {
+                            messages?: InboxMessage[];
+                            total?: number;
+                            status?: GmailStatus;
+                        };
+                        if (cached.messages?.length && !inboxSessionCache?.messages?.length) {
+                            setMessages(cached.messages);
+                            if (typeof cached.total === "number") setTotal(cached.total);
+                            if (cached.status) setStatus(cached.status);
+                            setLoading(false);
+                        }
+                    }
+                } catch {
+                    // Cache local ignoré s'il est invalide.
+                }
+            }
+
+            setLoading((prev) => (inboxSessionCache?.messages?.length ? false : prev));
             setError(null);
             try {
-                const statusResponse = await fetch("/api/gmail/status", {
-                    cache: "no-store",
-                    credentials: "same-origin",
-                });
+                const [statusResponse, messagesResponse] = await Promise.all([
+                    fetch("/api/gmail/status", {
+                        cache: "no-store",
+                        credentials: "same-origin",
+                    }),
+                    fetch(`/api/gmail/messages?limit=${requestedLimit}`, {
+                        cache: "no-store",
+                        credentials: "same-origin",
+                    }),
+                ]);
                 const statusData = (await statusResponse.json()) as GmailStatus;
                 setStatus(statusData);
 
@@ -856,10 +884,6 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     return;
                 }
 
-                const messagesResponse = await fetch(`/api/gmail/messages?limit=${requestedLimit}`, {
-                    cache: "no-store",
-                    credentials: "same-origin",
-                });
                 const messagesData = (await messagesResponse.json()) as {
                     messages?: InboxMessage[];
                     total?: number;
@@ -888,20 +912,24 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 setLabelOverrides(overrides);
                 setMessages(labelled);
                 setTotal(totalAvailable);
-
-                // Extension automatique à toute la boîte (plafond 2000).
-                if (
-                    !autoAllRef.current &&
-                    incoming.length < totalAvailable &&
-                    totalAvailable <= MAX_MESSAGES
-                ) {
-                    autoAllRef.current = true;
-                    void load(Math.min(totalAvailable, MAX_MESSAGES));
+                if (typeof window !== "undefined") {
+                    try {
+                        window.localStorage.setItem(
+                            INBOX_CACHE_KEY,
+                            JSON.stringify({
+                                status: statusData,
+                                messages: labelled.slice(0, PAGE_SIZE),
+                                total: totalAvailable,
+                            })
+                        );
+                    } catch {
+                        // Quota dépassé : on continue sans cache disque.
+                    }
                 }
 
                 // Première ouverture : on sélectionne directement l'email le plus ancien
                 // (en bas de la liste triée du plus récent au plus ancien) et on précharge
-                // les suivants du plus ancien au plus récent.
+                // les 2 suivants sans saturer les connexions IMAP.
                 if (!autoOpenedRef.current) {
                     const replyPool = labelled.filter((message) => message.needsReply);
                     const activePool = replyPool.length > 0 ? replyPool : labelled;
@@ -910,7 +938,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                         autoOpenedRef.current = true;
                         void openMessage(oldestTarget.uid);
                         const nextOldestToNewest = activePool
-                            .slice(Math.max(0, activePool.length - 7), activePool.length - 1)
+                            .slice(Math.max(0, activePool.length - 3), activePool.length - 1)
                             .reverse()
                             .map((m) => m.uid);
                         void prefetchUids(nextOldestToNewest);

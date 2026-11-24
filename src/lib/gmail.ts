@@ -2088,7 +2088,7 @@ export async function listInbox(
             internalDate: true,
             flags: true,
             headers: HEADERS_TO_FETCH,
-            bodyParts: [{ key: "TEXT", start: 0, maxLength: 4096 }],
+            bodyParts: [{ key: "TEXT", start: 0, maxLength: 1536 }],
         })) {
             messages.push(toSummary(message));
         }
