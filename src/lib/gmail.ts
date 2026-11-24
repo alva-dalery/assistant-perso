@@ -42,13 +42,18 @@ export function describeGmailError(error: unknown): string {
         return "Gmail n'est pas configuré : ajoutez GMAIL_USER et GMAIL_APP_PASSWORD dans les variables d'environnement.";
     }
     const raw = error instanceof Error ? error.message : String(error);
-    if (/EAUTH|Invalid login|535|Username and Password not accepted/i.test(raw)) {
+    const responseText =
+        error && typeof error === "object" && "responseText" in error
+            ? String((error as { responseText?: unknown }).responseText ?? "")
+            : "";
+    const detail = responseText && responseText !== raw ? `${raw} (${responseText})` : raw;
+    if (/EAUTH|Invalid login|535|Username and Password not accepted/i.test(detail)) {
         return "Mot de passe refusé par Gmail. Vérifiez GMAIL_USER et GMAIL_APP_PASSWORD (mot de passe d'application de 16 caractères, double authentification activée).";
     }
-    if (/ENOTFOUND|ETIMEDOUT|ECONNECTION|ECONNRESET|EAI_AGAIN|socket/i.test(raw)) {
+    if (/ENOTFOUND|ETIMEDOUT|ECONNECTION|ECONNRESET|EAI_AGAIN|socket/i.test(detail)) {
         return "Connexion aux serveurs Gmail impossible (réseau instable ou blocage du port IMAP/SMTP).";
     }
-    return raw.slice(0, 300) || "Erreur inconnue lors du contact avec Gmail.";
+    return detail.slice(0, 300) || "Erreur inconnue lors du contact avec Gmail.";
 }
 
 function createImapClient(): ImapFlow {
@@ -2764,11 +2769,22 @@ export async function moveMessage(
         }
 
         lock = await client.getMailboxLock("INBOX");
-        const result = await client.messageMove(String(uid), destination, { uid: true });
-        if (result === false) {
+        let moved = false;
+        try {
+            const result = await client.messageMove(String(uid), target.path, { uid: true });
+            moved = result !== false;
+        } catch {
+            // Repli COPY + DELETE si Gmail refuse UID MOVE sur ce libellé (caractères spéciaux, etc.)
+            const copied = await client.messageCopy(String(uid), target.path, { uid: true });
+            if (copied !== false) {
+                await client.messageDelete(String(uid), { uid: true });
+                moved = true;
+            }
+        }
+        if (!moved) {
             throw new Error("Gmail a refusé le déplacement de ce message.");
         }
-        return { moved: true, destination };
+        return { moved: true, destination: target.path };
     } finally {
         lock?.release();
         await client.logout().catch(() => undefined);

@@ -4429,7 +4429,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                         .
                                     </p>
                                 )}
-                                {suggestError && <p className="text-rose-600">{suggestError}</p>}
+                                {suggestError && (
+                                    <p className="text-amber-700">
+                                        {suggestError === "Command failed"
+                                            ? "Suggestions de dossiers indisponibles pour cet email."
+                                            : suggestError}
+                                    </p>
+                                )}
                                 <p>
                                     {folderTarget
                                         ? "Ce dossier sera appliqué automatiquement dès l'envoi de la réponse."
