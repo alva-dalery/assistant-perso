@@ -23,6 +23,7 @@ const BLOCKED_IMAGE_DOMAINS = [
     "dreamstime.com",
     "123rf.com",
     "depositphotos.com",
+    "ytimg.com",
 ];
 
 function normalize(value: string): string {
@@ -447,8 +448,7 @@ async function googleBooksLookup(
     };
 }
 
-async function duckDuckGoImageLookup(title: string, author: string | null): Promise<BookLookupResult> {
-    const query = [title, author, "livre couverture"].filter(Boolean).join(" ");
+async function duckDuckGoImageQuery(query: string): Promise<string[]> {
     const pageResponse = await fetch(
         `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`,
         {
@@ -456,11 +456,11 @@ async function duckDuckGoImageLookup(title: string, author: string | null): Prom
             signal: AbortSignal.timeout(5_000),
         }
     );
-    if (!pageResponse.ok) return EMPTY_LOOKUP;
+    if (!pageResponse.ok) return [];
 
     const html = await pageResponse.text();
     const vqd = (html.match(/vqd=["']?([^"&']+)/) || html.match(/vqd=([0-9-]+)/))?.[1];
-    if (!vqd) return EMPTY_LOOKUP;
+    if (!vqd) return [];
 
     const imgResponse = await fetch(
         `https://duckduckgo.com/i.js?l=fr-fr&o=json&q=${encodeURIComponent(query)}&vqd=${encodeURIComponent(vqd)}&f=,,,,,&p=1`,
@@ -472,7 +472,7 @@ async function duckDuckGoImageLookup(title: string, author: string | null): Prom
             signal: AbortSignal.timeout(5_000),
         }
     );
-    if (!imgResponse.ok) return EMPTY_LOOKUP;
+    if (!imgResponse.ok) return [];
 
     const data = (await imgResponse.json()) as {
         results?: Array<{
@@ -493,7 +493,16 @@ async function duckDuckGoImageLookup(title: string, author: string | null): Prom
         if (covers.length >= 5) break;
     }
 
-    return { title: null, authors: [], covers: unique(covers) };
+    return unique(covers);
+}
+
+async function duckDuckGoImageLookup(title: string, author: string | null): Promise<BookLookupResult> {
+    const primaryQuery = [title, author, "livre"].filter(Boolean).join(" ");
+    let covers = await duckDuckGoImageQuery(primaryQuery);
+    if (covers.length === 0 && author) {
+        covers = await duckDuckGoImageQuery(`${title} livre`);
+    }
+    return { title: null, authors: [], covers };
 }
 
 const SERVER_CACHE = new Map<string, BookLookupResult>();
