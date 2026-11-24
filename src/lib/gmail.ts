@@ -20,7 +20,7 @@ const GMAIL_APP_PASSWORD = (process.env.GMAIL_APP_PASSWORD ?? "").replace(/\s+/g
 
 const IMAP_HOST = "imap.gmail.com";
 const SMTP_HOST = "smtp.gmail.com";
-const MAX_BODY_BYTES = 400_000;
+const MAX_BODY_BYTES = 1_500_000;
 const MAX_TEXT_LENGTH = 20_000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -1888,7 +1888,8 @@ function sanitizeEmailHtml(rawHtml: string, uid: number, parts: GmailPartInfo[])
     html = html.replace(/<a\b(?![^>]*\btarget=)([^>]*)>/gi, '<a target="_blank" rel="noreferrer noopener"$1>');
 
     const baseStyle = `<style>
-      html, body { margin: 0; padding: 12px; background: #ffffff; color: #1e293b; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; line-height: 1.5; word-break: break-word; }
+      html { margin: 0; padding: 0; }
+      body { margin: 0; padding: 0; background: #ffffff; color: #1e293b; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow-wrap: break-word; }
       img { max-width: 100% !important; height: auto !important; }
       table { max-width: 100% !important; }
       pre { white-space: pre-wrap; }
@@ -2187,26 +2188,29 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
 
         const html = rawHtml.trim() ? sanitizeEmailHtml(rawHtml, uid, attachmentParts) : undefined;
 
-        const tracking = extractTracking({
-            subject: envelope?.subject ?? "",
-            fromEmail: envelope?.from?.[0]?.address ?? "",
-            fromName: envelope?.from?.[0]?.name ?? "",
-            text: breakdown.currentText || visibleText,
-            html: html ?? rawHtml,
-            date: envelope?.date ?? message.internalDate ?? null,
-        });
+        const base = toSummary(
+            message,
+            message.headers?.toString("utf8") ?? "",
+            breakdown.currentText || fullText
+        );
+
+        const tracking =
+            base.category === "kiosque"
+                ? null
+                : extractTracking({
+                      subject: envelope?.subject ?? "",
+                      fromEmail: envelope?.from?.[0]?.address ?? "",
+                      fromName: envelope?.from?.[0]?.name ?? "",
+                      text: breakdown.currentText || visibleText,
+                      html: html ?? rawHtml,
+                      date: envelope?.date ?? message.internalDate ?? null,
+                  });
 
         const loans = extractBookLoans({
             subject: envelope?.subject ?? "",
             fromEmail: envelope?.from?.[0]?.address ?? "",
             text: breakdown.currentText || visibleText,
         });
-
-        const base = toSummary(
-            message,
-            message.headers?.toString("utf8") ?? "",
-            breakdown.currentText || fullText
-        );
         // Le corps du message peut révéler un suivi qu'un en-tête de diffusion
         // masquait (boutiques qui expédient via une régie marketing).
         const trackingUpgrade: Partial<GmailClassification> =

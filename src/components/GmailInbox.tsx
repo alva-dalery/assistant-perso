@@ -3316,6 +3316,22 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             override={labelOverrides[detail.uid]}
                                             onSelect={(value) => changeMessageCategory(detail.uid, value)}
                                         />
+                                        {detail.category === "kiosque" && (
+                                            <button
+                                                type="button"
+                                                onClick={() => void removeMessage()}
+                                                disabled={moving}
+                                                title="Supprimer (corbeille)"
+                                                aria-label="Supprimer"
+                                                className="p-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition-all"
+                                            >
+                                                {moving ? (
+                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                ) : (
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                )}
+                                            </button>
+                                        )}
                                         {detail.answered && (
                                             <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold shrink-0">
                                                 Répondu
@@ -3330,7 +3346,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     {formatDate(detail.date)} · {formatRelative(detail.date)}
                                 </p>
 
-                                {detail.tracking && (() => {
+                                {detail.category !== "kiosque" && detail.tracking && (() => {
                                     const matchingExisting = findMatchingParcel({
                                         uid: detail.uid,
                                         store:
@@ -3964,6 +3980,55 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     </span>
                                 )}
 
+                                {detail.category === "kiosque" ? (
+                                    <div className="mt-3 -mx-4 -mb-4 border-t border-slate-200/70 overflow-hidden">
+                                        {detail.html ? (
+                                            <iframe
+                                                key={detail.uid}
+                                                title={detail.subject || "Contenu de l'email"}
+                                                srcDoc={detail.html}
+                                                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                                                style={{ height: `${iframeHeight}px` }}
+                                                onLoad={(e) => {
+                                                    const frame = e.currentTarget;
+                                                    const doc = frame.contentDocument;
+                                                    if (!doc) return;
+                                                    const measure = () => {
+                                                        const h = Math.max(
+                                                            doc.documentElement?.scrollHeight ?? 0,
+                                                            doc.body?.scrollHeight ?? 0,
+                                                            320
+                                                        );
+                                                        setIframeHeight(h);
+                                                    };
+                                                    measure();
+                                                    iframeObserverRef.current?.disconnect();
+                                                    if (typeof ResizeObserver !== "undefined" && doc.body) {
+                                                        const observer = new ResizeObserver(measure);
+                                                        observer.observe(doc.body);
+                                                        iframeObserverRef.current = observer;
+                                                    }
+                                                    doc.querySelectorAll("img").forEach((img) => {
+                                                        if (!img.complete) {
+                                                            img.addEventListener("load", measure, {
+                                                                once: true,
+                                                            });
+                                                            img.addEventListener("error", measure, {
+                                                                once: true,
+                                                            });
+                                                        }
+                                                    });
+                                                }}
+                                                className="w-full bg-white block border-0"
+                                            />
+                                        ) : (
+                                            <div className="p-4 text-xs text-slate-700 whitespace-pre-wrap leading-relaxed bg-white">
+                                                {detail.text}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <>
                                 {/* Résumé + accordéon vers le message complet */}
                                 <div className={`mt-3 rounded-2xl bg-slate-50 border border-slate-200/60 overflow-hidden ${invoiceActive ? "hidden" : ""}`}>
                                     <button
@@ -4101,6 +4166,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     </div>
                                     )}
                                 </div>
+                                    </>
+                                )}
                             </div>
 
                             {(invoiceLoading || invoiceProposal || invoiceError) && (
@@ -4435,7 +4502,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                         </button>
                                     </div>
                                 </div>
-                            ) : detail.category === "commande" ? null : (
+                            ) : detail.category === "commande" || detail.category === "kiosque" ? null : (
                                 <div className={`p-4 border-t border-slate-100 bg-slate-50/40 flex flex-wrap items-center justify-between gap-3 ${invoiceActive ? "hidden" : ""}`}>
                                     <p className="text-[11px] text-slate-500">
                                         {detail.category === "important"
