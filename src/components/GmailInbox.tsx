@@ -4218,6 +4218,17 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                         const effDue = loanDueOverrides[k] ?? loan.dueDate;
                                         return selectedLoans[k] && !loanExtensions[k] && Boolean(effDue);
                                     }).length;
+                                    const firstSelectedDue =
+                                        detail.loans
+                                            .map((loan, idx) =>
+                                                selectedLoans[loanKeys[idx]]
+                                                    ? (loanDueOverrides[loanKeys[idx]] ?? loan.dueDate)
+                                                    : null
+                                            )
+                                            .find((d): d is string => Boolean(d)) ??
+                                        new Date().toISOString().slice(0, 10);
+                                    const suggestedBulkDueDate = addDaysIso(firstSelectedDue, 21) ?? "";
+                                    const effectiveBulkDueDate = bulkDueDate || suggestedBulkDueDate;
 
                                     return (
                                     <div className="mt-3 rounded-2xl bg-amber-50/60 border border-amber-200/70 p-3 space-y-2">
@@ -4261,22 +4272,22 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                 <form
                                                     onSubmit={(event) => {
                                                         event.preventDefault();
-                                                        if (bulkDueDate) {
-                                                            setSelectedLoansDueDate(detail.loans ?? [], bulkDueDate);
+                                                        if (effectiveBulkDueDate) {
+                                                            setSelectedLoansDueDate(detail.loans ?? [], effectiveBulkDueDate);
                                                         }
                                                     }}
                                                     className="flex items-center gap-1.5 ml-auto"
                                                 >
                                                     <input
                                                         type="date"
-                                                        value={bulkDueDate}
+                                                        value={effectiveBulkDueDate}
                                                         onChange={(event) => setBulkDueDate(event.target.value)}
                                                         aria-label="Date de retour pour la sélection"
                                                         className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200"
                                                     />
                                                     <button
                                                         type="submit"
-                                                        disabled={!bulkDueDate}
+                                                        disabled={!effectiveBulkDueDate}
                                                         className="px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[10px] font-bold hover:bg-amber-700 disabled:opacity-40 transition-all"
                                                     >
                                                         Appliquer date
