@@ -3670,10 +3670,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-2 mb-0.5">
                                     <span className="flex items-center gap-1.5 min-w-0 text-xs font-bold text-slate-800">
+                                        <span className="truncate">{message.fromName}</span>
                                         {!message.seen && (
                                             <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
                                         )}
-                                        <span className="truncate">{message.fromName}</span>
                                     </span>
                                     <span className="text-[10px] text-slate-400 shrink-0 text-right">
                                         {formatDate(message.date)}
@@ -3720,45 +3720,47 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     {!loadingDetail && detail && (
                         <div className="rounded-2xl bg-white border border-slate-200/70 shadow-sm">
                             <div className="p-4 border-b border-slate-100">
-                                <div className="flex items-start justify-between gap-3 mb-1">
-                                    <p className="text-sm font-extrabold text-slate-900">{detail.subject}</p>
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                        <LabelMenu
-                                            value={detail.category}
-                                            override={labelOverrides[detail.uid]}
-                                            onSelect={(value) => changeMessageCategory(detail.uid, value)}
-                                        />
-                                        {["personnel", "alertes", "kiosque", "bibliotheque", "newsletter", "promotion", "important", "infos"].includes(detail.category) && (
-                                            <button
-                                                type="button"
-                                                onClick={() => void removeMessage()}
-                                                disabled={moving}
-                                                title="Supprimer (corbeille)"
-                                                aria-label="Supprimer"
-                                                className="p-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition-all"
-                                            >
-                                                {moving ? (
-                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                                ) : (
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                )}
-                                            </button>
-                                        )}
-                                        {detail.answered && (
-                                            <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold shrink-0">
-                                                Répondu
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                                <div className="flex items-start gap-3">
                                     <SenderLogo email={detail.fromEmail} name={detail.fromName} size="md" />
-                                    <p className="min-w-0 truncate">
-                                        De <span className="font-semibold text-slate-700">{detail.fromName}</span>
-                                        {detail.fromEmail && ` <${detail.fromEmail}>`}
-                                        {" · "}
-                                        {formatDate(detail.date)} · {formatRelative(detail.date)}
-                                    </p>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-start justify-between gap-3 mb-1">
+                                            <p className="text-sm font-extrabold text-slate-900">{detail.subject}</p>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                <LabelMenu
+                                                    value={detail.category}
+                                                    override={labelOverrides[detail.uid]}
+                                                    onSelect={(value) => changeMessageCategory(detail.uid, value)}
+                                                />
+                                                {["personnel", "alertes", "kiosque", "bibliotheque", "newsletter", "promotion", "important", "infos"].includes(detail.category) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void removeMessage()}
+                                                        disabled={moving}
+                                                        title="Supprimer (corbeille)"
+                                                        aria-label="Supprimer"
+                                                        className="p-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition-all"
+                                                    >
+                                                        {moving ? (
+                                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                        ) : (
+                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                        )}
+                                                    </button>
+                                                )}
+                                                {detail.answered && (
+                                                    <span className="text-[9px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold shrink-0">
+                                                        Répondu
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 truncate">
+                                            De <span className="font-semibold text-slate-700">{detail.fromName}</span>
+                                            {detail.fromEmail && ` <${detail.fromEmail}>`}
+                                            {" · "}
+                                            {formatDate(detail.date)} · {formatRelative(detail.date)}
+                                        </p>
+                                    </div>
                                 </div>
 
                                 {detail.category !== "kiosque" && detail.tracking && (() => {
