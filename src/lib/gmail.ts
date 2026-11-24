@@ -1890,8 +1890,7 @@ function sanitizeEmailHtml(rawHtml: string, uid: number, parts: GmailPartInfo[])
     const baseStyle = `<style>
       html { margin: 0; padding: 0; }
       body { margin: 0; padding: 0; background: #ffffff; color: #1e293b; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow-wrap: break-word; }
-      img { max-width: 100% !important; height: auto !important; }
-      table { max-width: 100% !important; }
+      img { max-width: 100%; height: auto; }
       pre { white-space: pre-wrap; }
     </style>`;
 
