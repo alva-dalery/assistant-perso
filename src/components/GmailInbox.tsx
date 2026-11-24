@@ -784,15 +784,15 @@ const SenderLogo: React.FC<{
 
     const dims =
         size === "xs"
-            ? "h-4 w-4 text-[8px]"
+            ? "h-5 w-5 text-[9px]"
             : size === "md"
-              ? "h-7 w-7 text-[11px]"
-              : "h-5 w-5 text-[9px]";
+              ? "h-9 w-9 text-xs"
+              : "h-7 w-7 text-[11px]";
 
     if (showFavicon && domain) {
         return (
             <span
-                className={`inline-flex items-center justify-center rounded-md bg-white border border-slate-200/80 overflow-hidden shrink-0 ${dims}`}
+                className={`inline-flex items-center justify-center rounded-lg bg-white border border-slate-200/80 overflow-hidden shrink-0 ${dims}`}
                 title={domain}
             >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -800,7 +800,7 @@ const SenderLogo: React.FC<{
                     src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`}
                     alt={cleanName || domain}
                     referrerPolicy="no-referrer"
-                    className="h-3/4 w-3/4 object-contain"
+                    className="h-4/5 w-4/5 object-contain"
                     onError={() => setFailed(true)}
                 />
             </span>
@@ -812,7 +812,7 @@ const SenderLogo: React.FC<{
     return (
         <span
             aria-hidden="true"
-            className={`inline-flex items-center justify-center rounded-md font-bold shrink-0 ${tone} ${dims}`}
+            className={`inline-flex items-center justify-center rounded-lg font-bold shrink-0 ${tone} ${dims}`}
         >
             {initials}
         </span>
