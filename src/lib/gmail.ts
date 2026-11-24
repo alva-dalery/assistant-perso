@@ -100,6 +100,7 @@ export type GmailCategory =
     | "commande"
     | "alertes"
     | "infos"
+    | "kiosque"
     | "newsletter"
     | "promotion";
 
@@ -172,6 +173,10 @@ const ALERT_SUBJECT =
 
 const ALERT_SENDER =
     /(security|alert|alerts|account-security|accounts\.google\.com|security-noreply)/i;
+
+/** Newsletters de presse regroupées dans l'onglet Kiosque (Le Monde, Mediapart). */
+const KIOSQUE_LE_MONDE = /(?:@|\.)lemonde\.fr\b/i;
+const KIOSQUE_MEDIAPART = /(?:@|\.)mediapart\.fr\b/i;
 
 /** Emails de bienvenue / création de compte (à lire, jamais à répondre). */
 const WELCOME_SUBJECT =
@@ -1365,6 +1370,23 @@ export function classifyMessage(
             category: "infos",
             needsReply: false,
             reason: "Confirmation transactionnelle ou information produit (à lire)",
+        };
+    }
+
+    // 5c. Kiosque : newsletters de presse (Le Monde, Mediapart).
+    const listId = headerValue(headers, "list-id");
+    if (KIOSQUE_LE_MONDE.test(fromEmail) || KIOSQUE_LE_MONDE.test(listId)) {
+        return {
+            category: "kiosque",
+            needsReply: false,
+            reason: "Newsletter presse — Le Monde",
+        };
+    }
+    if (KIOSQUE_MEDIAPART.test(fromEmail) || KIOSQUE_MEDIAPART.test(listId)) {
+        return {
+            category: "kiosque",
+            needsReply: false,
+            reason: "Newsletter presse — Mediapart",
         };
     }
 
