@@ -5,6 +5,7 @@ import {
     AlertTriangle,
     ArrowLeft,
     BookOpen,
+    CalendarPlus,
     CheckCircle2,
     Check,
     ChevronDown,
@@ -50,9 +51,11 @@ import { getAiHeaders, getLaPosteHeaders } from "@/lib/aiClient";
 import {
     coverSrc,
     loadCoverOverrides,
+    loadLoanExtensions,
     loanCoverKey,
     lookupBook,
     saveCoverOverrides,
+    saveLoanExtensions,
     titleCase,
 } from "@/lib/loanCovers";
 import type { BookLookup } from "@/lib/loanCovers";
@@ -270,14 +273,35 @@ function dueTone(iso: string | null): "overdue" | "soon" | "normal" {
     return "normal";
 }
 
+function addDaysIso(iso: string | null, days: number): string | null {
+    if (!iso) return null;
+    const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    date.setDate(date.getDate() + days);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+}
+
 interface LoanCardProps {
     loan: BookLoan;
     /** Lien choisi à la main, s'il existe. */
     override?: string;
     onSaveCover: (url: string | null) => void;
+    /** Indique si le prêt a déjà été prolongé de 3 semaines. */
+    extended?: boolean;
+    onExtend?: () => void;
 }
 
-const LoanCard: React.FC<LoanCardProps> = ({ loan, override, onSaveCover }) => {
+const LoanCard: React.FC<LoanCardProps> = ({
+    loan,
+    override,
+    onSaveCover,
+    extended = false,
+    onExtend,
+}) => {
     const [lookup, setLookup] = useState<BookLookup | null>(null);
     const [coverIndex, setCoverIndex] = useState(0);
     const [attempt, setAttempt] = useState(0);
@@ -311,7 +335,8 @@ const LoanCard: React.FC<LoanCardProps> = ({ loan, override, onSaveCover }) => {
     const rawCover = override ?? lookup?.covers[coverIndex] ?? null;
     const coverUrl = coverSrc(rawCover);
     const searching = lookup === null && !override;
-    const tone = dueTone(loan.dueDate);
+    const effectiveDueDate = extended ? addDaysIso(loan.dueDate, 21) : loan.dueDate;
+    const tone = dueTone(effectiveDueDate);
 
     return (
         <div className="rounded-xl bg-white border border-amber-200/70 overflow-hidden flex flex-col">
@@ -356,7 +381,7 @@ const LoanCard: React.FC<LoanCardProps> = ({ loan, override, onSaveCover }) => {
                 {displayAuthor && (
                     <p className="text-[9px] text-slate-500 truncate">{displayAuthor}</p>
                 )}
-                {loan.dueDate ? (
+                {effectiveDueDate ? (
                     <p
                         className={`text-[9px] font-bold ${
                             tone === "overdue"
@@ -366,7 +391,7 @@ const LoanCard: React.FC<LoanCardProps> = ({ loan, override, onSaveCover }) => {
                                   : "text-slate-500"
                         }`}
                     >
-                        À rendre le {formatShortDate(loan.dueDate)}
+                        À rendre le {formatShortDate(effectiveDueDate)}
                     </p>
                 ) : loan.dueLabel ? (
                     <p className="text-[9px] font-bold text-slate-500">Retour : {loan.dueLabel}</p>
@@ -420,15 +445,28 @@ const LoanCard: React.FC<LoanCardProps> = ({ loan, override, onSaveCover }) => {
                     </div>
                 </form>
             ) : (
-                <button
-                    type="button"
-                    onClick={() => setEditing(true)}
-                    title="Modifier le lien de l'image"
-                    className="flex items-center justify-center gap-1 px-2 py-1 border-t border-amber-200/70 text-[9px] font-bold text-amber-700 hover:bg-amber-50 transition-all"
-                >
-                    <PenLine className="h-3 w-3" />
-                    <span>Modifier</span>
-                </button>
+                <div className="flex items-center border-t border-amber-200/70 divide-x divide-amber-200/70">
+                    {!extended && loan.dueDate && onExtend && (
+                        <button
+                            type="button"
+                            onClick={onExtend}
+                            title="Prolonger de 3 semaines (+21 jours)"
+                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[9px] font-bold text-emerald-700 hover:bg-emerald-50 transition-all"
+                        >
+                            <CalendarPlus className="h-3 w-3" />
+                            <span>Prolonger</span>
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => setEditing(true)}
+                        title="Modifier le lien de l'image"
+                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[9px] font-bold text-amber-700 hover:bg-amber-50 transition-all"
+                    >
+                        <PenLine className="h-3 w-3" />
+                        <span>Modifier</span>
+                    </button>
+                </div>
             )}
         </div>
     );
@@ -835,6 +873,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [commandFolder, setCommandFolder] = useState("");
     const [commandSaving, setCommandSaving] = useState(false);
     const [coverOverrides, setCoverOverrides] = useState<Record<string, string>>({});
+    const [loanExtensions, setLoanExtensions] = useState<Record<string, boolean>>({});
     /** Étiquettes renvoyées par le serveur, pour pouvoir revenir en « Automatique ». */
     const rawLabelsRef = useRef<
         Record<number, { category: GmailCategory; needsReply: boolean; reason: string }>
@@ -1011,6 +1050,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     useEffect(() => {
         setStyleSamples(loadSamples().length);
         setCoverOverrides(loadCoverOverrides());
+        setLoanExtensions(loadLoanExtensions());
     }, []);
 
     // Dossier proposé pour ranger une commande : « Commandes et factures » ou « Commandes/factures » en priorité.
@@ -2304,6 +2344,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setCoverOverrides(next);
         saveCoverOverrides(next);
         setFeedback(url ? "Lien de l'image enregistré." : "Couverture automatique rétablie.");
+    }
+
+    /** Prolonge un emprunt de 3 semaines (+21 jours) et mémorise la prolongation. */
+    function extendLoan(extensionKey: string) {
+        const next = { ...loanExtensions, [extensionKey]: true };
+        setLoanExtensions(next);
+        saveLoanExtensions(next);
     }
 
     /**
@@ -4016,9 +4063,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             </span>
                                         </div>
 
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                                             {detail.loans.map((loan, index) => {
                                                 const key = loanCoverKey(loan.title, loan.author);
+                                                const extensionKey = `${key}|${loan.dueDate ?? ""}`;
                                                 return (
                                                     <LoanCard
                                                         key={`${key}-${index}`}
@@ -4027,6 +4075,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                         onSaveCover={(url) =>
                                                             persistLoanCover(key, url)
                                                         }
+                                                        extended={Boolean(loanExtensions[extensionKey])}
+                                                        onExtend={() => extendLoan(extensionKey)}
                                                     />
                                                 );
                                             })}
