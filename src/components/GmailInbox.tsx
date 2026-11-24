@@ -331,7 +331,6 @@ const LoanCard: React.FC<LoanCardProps> = ({
     const [draft, setDraft] = useState(override ?? "");
     const [titleDraft, setTitleDraft] = useState(metaOverride?.title ?? "");
     const [authorDraft, setAuthorDraft] = useState(metaOverride?.author ?? "");
-    const [editingDate, setEditingDate] = useState(false);
     const [dateDraft, setDateDraft] = useState(effectiveDueDate ?? "");
 
     useEffect(() => {
@@ -443,90 +442,36 @@ const LoanCard: React.FC<LoanCardProps> = ({
                         <p className="text-[9px] text-slate-500 truncate">{displayAuthor}</p>
                     )}
                 </div>
-                {editingDate && onSaveDueDate ? (
-                    <form
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            if (dateDraft) onSaveDueDate(dateDraft);
-                            setEditingDate(false);
-                        }}
-                        className="pt-1 space-y-1"
+                <div className="flex items-center justify-between gap-1">
+                    <button
+                        type="button"
+                        onClick={() => setEditing(true)}
+                        title="Modifier le titre, l'auteur, la date ou la couverture"
+                        aria-label={`Modifier ${displayTitle}`}
+                        className="p-0.5 text-slate-400 hover:text-amber-700 transition-all shrink-0"
                     >
-                        <input
-                            type="date"
-                            value={dateDraft}
-                            onChange={(event) => setDateDraft(event.target.value)}
-                            aria-label={`Date de retour de ${displayTitle}`}
-                            className="w-full rounded border border-slate-200 px-1 py-0.5 text-[9px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-300"
-                        />
-                        <div className="flex items-center gap-1">
-                            <button
-                                type="submit"
-                                className="px-1.5 py-0.5 rounded bg-amber-600 text-white text-[8px] font-bold hover:bg-amber-700"
-                            >
-                                OK
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setEditingDate(false)}
-                                className="px-1.5 py-0.5 rounded text-slate-500 text-[8px] font-bold hover:bg-slate-100"
-                            >
-                                Annuler
-                            </button>
-                            {hasDueOverride && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        onSaveDueDate(null);
-                                        setEditingDate(false);
-                                    }}
-                                    className="ml-auto text-[8px] font-bold text-amber-700 hover:underline"
-                                >
-                                    Auto
-                                </button>
-                            )}
-                        </div>
-                    </form>
-                ) : (
-                    <div className="flex items-center justify-between gap-1">
-                        <button
-                            type="button"
-                            onClick={() => setEditing(true)}
-                            title="Modifier le titre, l'auteur ou la couverture"
-                            aria-label={`Modifier ${displayTitle}`}
-                            className="p-0.5 text-slate-400 hover:text-amber-700 transition-all shrink-0"
+                        <PenLine className="h-3 w-3" />
+                    </button>
+                    {effectiveDueDate ? (
+                        <span
+                            className={`inline-flex items-center gap-1 text-right text-[9px] font-bold ${
+                                tone === "overdue"
+                                    ? "text-rose-600"
+                                    : tone === "soon"
+                                      ? "text-amber-700"
+                                      : "text-slate-500"
+                            }`}
                         >
-                            <PenLine className="h-3 w-3" />
-                        </button>
-                        {effectiveDueDate ? (
-                            <button
-                                type="button"
-                                onClick={() => onSaveDueDate && setEditingDate(true)}
-                                title="Modifier la date de retour"
-                                className={`inline-flex items-center gap-1 text-right text-[9px] font-bold hover:underline ${
-                                    tone === "overdue"
-                                        ? "text-rose-600"
-                                        : tone === "soon"
-                                          ? "text-amber-700"
-                                          : "text-slate-500"
-                                }`}
-                            >
-                                <ArrowRight className="h-2.5 w-2.5 shrink-0" />
-                                <span>{formatShortDate(effectiveDueDate)}</span>
-                            </button>
-                        ) : loan.dueLabel ? (
-                            <button
-                                type="button"
-                                onClick={() => onSaveDueDate && setEditingDate(true)}
-                                title="Définir une date de retour"
-                                className="inline-flex items-center gap-1 text-right text-[9px] font-bold text-slate-500 hover:underline"
-                            >
-                                <ArrowRight className="h-2.5 w-2.5 shrink-0" />
-                                <span>{loan.dueLabel}</span>
-                            </button>
-                        ) : null}
-                    </div>
-                )}
+                            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+                            <span>{formatShortDate(effectiveDueDate)}</span>
+                        </span>
+                    ) : loan.dueLabel ? (
+                        <span className="inline-flex items-center gap-1 text-right text-[9px] font-bold text-slate-500">
+                            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+                            <span>{loan.dueLabel}</span>
+                        </span>
+                    ) : null}
+                </div>
             </div>
 
             {editing ? (
@@ -546,6 +491,9 @@ const LoanCard: React.FC<LoanCardProps> = ({
                                   }
                                 : null
                         );
+                        if (onSaveDueDate && dateDraft && dateDraft !== (effectiveDueDate ?? "")) {
+                            onSaveDueDate(dateDraft);
+                        }
                         setEditing(false);
                     }}
                     className="relative z-10 p-2 border-t border-amber-200/70 space-y-1.5"
@@ -565,6 +513,15 @@ const LoanCard: React.FC<LoanCardProps> = ({
                         aria-label="Auteur du livre"
                         className="w-full rounded-lg border border-slate-200 px-1.5 py-1 text-[9px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-100"
                     />
+                    {onSaveDueDate && (
+                        <input
+                            type="date"
+                            value={dateDraft}
+                            onChange={(event) => setDateDraft(event.target.value)}
+                            aria-label={`Date de retour de ${displayTitle}`}
+                            className="w-full rounded-lg border border-slate-200 px-1.5 py-1 text-[9px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                        />
+                    )}
                     <input
                         value={draft}
                         onChange={(event) => setDraft(event.target.value)}
@@ -587,12 +544,13 @@ const LoanCard: React.FC<LoanCardProps> = ({
                         >
                             Annuler
                         </button>
-                        {(override || metaOverride) && (
+                        {(override || metaOverride || hasDueOverride) && (
                             <button
                                 type="button"
                                 onClick={() => {
                                     onSaveCover(null);
                                     onSaveMeta(null);
+                                    if (onSaveDueDate) onSaveDueDate(null);
                                     setEditing(false);
                                 }}
                                 className="ml-auto text-[9px] font-bold text-amber-700 hover:underline"
