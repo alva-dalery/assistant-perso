@@ -8,6 +8,7 @@ export type ModuleType =
   | "litiges"
   | "projets"
   | "culture"
+  | "historique"
   | "parametres";
 
 export type EnergyLevel = "low" | "medium" | "high";
@@ -273,4 +274,51 @@ export interface GlobalSearchResult {
   subtitle: string;
   module: ModuleType;
   moduleLabel: string;
+}
+
+export type CommandUndoPayload =
+  | { kind: "set_energy"; prevEnergy: EnergyLevel }
+  | { kind: "set_focus_mode"; prevFocusMode: boolean }
+  | { kind: "remove_reminder"; id: string }
+  | { kind: "restore_reminder"; item: ReminderItem; index: number }
+  | { kind: "set_reminder_completed"; id: string; prevCompleted: boolean }
+  | { kind: "set_supplement_taken"; id: string; prevTaken: boolean }
+  | { kind: "restore_health"; prevHealth: HealthData }
+  | { kind: "remove_supplement"; id: string }
+  | { kind: "restore_supplement"; item: HealthData["supplements"][number]; index: number }
+  | { kind: "remove_project"; id: string }
+  | { kind: "restore_project"; item: PersonalProject; index: number }
+  | { kind: "set_project_task_completed"; projectId: string; taskId: string; prevCompleted: boolean }
+  | { kind: "remove_dispute"; id: string }
+  | { kind: "restore_dispute"; item: DisputeCase; index: number }
+  | { kind: "remove_pantry_items"; ids: string[] }
+  | { kind: "restore_pantry_item"; item: PantryItem; index: number }
+  | { kind: "set_pantry_status"; id: string; prevStatus: PantryItem["status"] }
+  | { kind: "restore_recipes"; prevRecipes: RecipeItem[] }
+  | { kind: "remove_shopping_item"; id: string }
+  | { kind: "restore_shopping_items"; items: ShoppingItem[] }
+  | { kind: "set_shopping_checked"; id: string; prevChecked: boolean }
+  | { kind: "remove_clothing"; id: string }
+  | { kind: "restore_clothing"; item: ClothingItem; index: number }
+  | { kind: "restore_outfits"; prevOutfits: OutfitSuggestion[] }
+  | { kind: "restore_trip"; prevDestination: string; prevDays: number }
+  | { kind: "restore_packing_list"; prevPackingList: PackingItem[] }
+  | { kind: "set_packing_checked"; id: string; prevChecked: boolean }
+  | { kind: "remove_packing_item"; id: string }
+  | { kind: "restore_packing_item"; item: PackingItem; index: number }
+  | { kind: "remove_workout"; id: string }
+  | { kind: "remove_workout_log"; id: string }
+  | { kind: "restore_user"; prevUser: UserProfile }
+  | { kind: "restore_full_state"; prevState: AppState };
+
+export interface CommandHistoryEntry {
+  id: string;
+  timestamp: string; // ISO
+  label: string;
+  detail?: string;
+  module: ModuleType;
+  moduleLabel: string;
+  source?: "Manuel" | "Brain Dump" | "Système";
+  undoPayload: CommandUndoPayload;
+  undoneAt?: string;
 }

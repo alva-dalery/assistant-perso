@@ -1,10 +1,11 @@
 import React, { useMemo, useRef, useState } from "react";
-import { Search, User, Bell, Settings, X, ArrowUpRight } from "lucide-react";
+import { Search, User, Bell, Settings, X, ArrowUpRight, History } from "lucide-react";
 import type { GlobalSearchResult, ModuleType } from "@/types";
 
 interface HeaderProps {
   onSelectModule: (module: ModuleType) => void;
   pendingEmailsCount: number;
+  undoableHistoryCount?: number;
   searchItems?: GlobalSearchResult[];
 }
 
@@ -24,6 +25,7 @@ const FILTER_TAGS = [
 export const Header: React.FC<HeaderProps> = ({
   onSelectModule,
   pendingEmailsCount,
+  undoableHistoryCount = 0,
   searchItems = [],
 }) => {
   const [query, setQuery] = useState("");
@@ -191,6 +193,17 @@ export const Header: React.FC<HeaderProps> = ({
           <Bell className="h-4 w-4" />
           {pendingEmailsCount > 0 && (
             <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-[#f7b5d5]" />
+          )}
+        </button>
+
+        <button
+          onClick={() => onSelectModule("historique")}
+          className="h-9 w-9 rounded-full bg-[#121316] text-white flex items-center justify-center hover:bg-slate-800 transition-colors shadow-sm relative"
+          title="Historique des commandes"
+        >
+          <History className="h-4 w-4" />
+          {undoableHistoryCount > 0 && (
+            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-[#f7da64]" />
           )}
         </button>
 

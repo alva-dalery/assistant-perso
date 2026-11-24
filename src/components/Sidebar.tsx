@@ -14,6 +14,7 @@ import {
   Focus,
   PlusCircle,
   BookOpen,
+  History,
 } from "lucide-react";
 import { ModuleType, EnergyLevel } from "@/types";
 
@@ -22,6 +23,7 @@ interface SidebarProps {
   onSelectModule: (module: ModuleType) => void;
   pendingEmailsCount: number;
   urgentDisputesCount: number;
+  undoableHistoryCount?: number;
   energy: EnergyLevel;
   onSetEnergy: (energy: EnergyLevel) => void;
   focusMode: boolean;
@@ -34,6 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectModule,
   pendingEmailsCount,
   urgentDisputesCount,
+  undoableHistoryCount = 0,
   energy,
   onSetEnergy,
   focusMode,
@@ -106,11 +109,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <aside
       className={`${
         collapsed ? "md:w-20" : "md:w-60"
-      } w-full bg-[#121316] text-slate-300 rounded-[2.2rem] p-4 flex flex-col justify-between shrink-0 select-none shadow-xl relative my-3 md:ml-3 transition-all duration-200`}
+      } w-full bg-[#121316] text-slate-300 rounded-[2.2rem] p-3.5 md:p-4 flex flex-col justify-between shrink-0 select-none shadow-xl relative my-3 md:ml-3 md:h-[calc(100vh-1.5rem)] transition-all duration-200`}
     >
-      {/* Brand Header */}
-      <div>
-        <div className="flex items-center justify-between px-2 pt-2 pb-6 border-b border-slate-800/80 relative">
+      {/* Brand Header + Scrollable Nav */}
+      <div className="flex flex-col min-h-0 flex-1">
+        <div className="flex items-center justify-between px-2 pt-1 pb-4 border-b border-slate-800/80 relative shrink-0">
           {!collapsed ? (
             <div className="flex items-end gap-2">
               <span className="font-logo text-2xl font-bold tracking-wide text-white leading-[1.05]">
@@ -143,10 +146,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Section 1: General */}
-        <div className="pt-5 space-y-1">
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {/* Section 1: General */}
+        <div className="pt-3.5 space-y-0.5">
           {!collapsed && (
-            <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500 px-3 block mb-2">
+            <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500 px-3 block mb-1.5">
               Général
             </span>
           )}
@@ -161,7 +165,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 title={item.label}
                 className={`w-full flex items-center ${
                   collapsed ? "justify-center px-2" : "justify-between px-3"
-                } py-2 rounded-xl text-xs font-medium transition-all ${
+                } py-1.5 rounded-xl text-xs font-medium transition-all ${
                   isActive
                     ? "text-[#f7b5d5] font-bold bg-white/5 shadow-sm"
                     : "text-slate-400 hover:text-slate-100 hover:bg-white/5"
@@ -193,9 +197,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Section 2: Tools & Focus */}
-        <div className="pt-5 space-y-1 border-t border-slate-800/80 mt-4">
+        <div className="pt-3.5 space-y-0.5 border-t border-slate-800/80 mt-2.5">
           {!collapsed && (
-            <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500 px-3 block mb-2">
+            <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500 px-3 block mb-1.5">
               Outils & Focus
             </span>
           )}
@@ -205,7 +209,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title="Mode Focus"
             className={`w-full flex items-center ${
               collapsed ? "justify-center px-2" : "justify-between px-3"
-            } py-2 rounded-xl text-xs font-medium transition-all ${
+            } py-1.5 rounded-xl text-xs font-medium transition-all ${
               focusMode
                 ? "bg-[#f7b5d5] text-[#121316] font-bold"
                 : "text-slate-400 hover:text-slate-100 hover:bg-white/5"
@@ -223,10 +227,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title="Brain Dump"
             className={`w-full flex items-center ${
               collapsed ? "justify-center px-2" : "gap-2.5 px-3"
-            } py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-all`}
+            } py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-all`}
           >
             <PlusCircle className="h-4 w-4 text-[#f7da64] shrink-0" />
             {!collapsed && <span>Brain Dump</span>}
+          </button>
+
+          <button
+            onClick={() => onSelectModule("historique")}
+            title="Historique des commandes"
+            className={`w-full flex items-center ${
+              collapsed ? "justify-center px-2" : "justify-between px-3"
+            } py-1.5 rounded-xl text-xs font-medium transition-all ${
+              currentModule === "historique"
+                ? "text-[#f7b5d5] font-bold bg-white/5"
+                : "text-slate-400 hover:text-slate-100 hover:bg-white/5"
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <History className="h-4 w-4 shrink-0" />
+              {!collapsed && <span>Historique</span>}
+            </div>
+            {!collapsed && undoableHistoryCount > 0 && (
+              <span
+                className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
+                  currentModule === "historique"
+                    ? "bg-[#f7b5d5] text-[#121316]"
+                    : "bg-slate-800 text-slate-300"
+                }`}
+              >
+                {undoableHistoryCount}
+              </span>
+            )}
           </button>
 
           <button
@@ -234,7 +266,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title="Paramètres"
             className={`w-full flex items-center ${
               collapsed ? "justify-center px-2" : "gap-2.5 px-3"
-            } py-2 rounded-xl text-xs font-medium transition-all ${
+            } py-1.5 rounded-xl text-xs font-medium transition-all ${
               currentModule === "parametres"
                 ? "text-[#f7b5d5] font-bold bg-white/5"
                 : "text-slate-400 hover:text-slate-100 hover:bg-white/5"
@@ -244,11 +276,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {!collapsed && <span>Paramètres</span>}
           </button>
         </div>
+        </div>
       </div>
 
       {/* Footer Energy level badge */}
       {!collapsed ? (
-        <div className="p-3 bg-slate-900/90 rounded-2xl border border-slate-800/60 space-y-2 mt-4">
+        <div className="p-2.5 bg-slate-900/90 rounded-2xl border border-slate-800/60 space-y-1.5 mt-2.5 shrink-0">
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-slate-400">Énergie TDAH :</span>
             <span className="font-bold text-[#f7da64]">
