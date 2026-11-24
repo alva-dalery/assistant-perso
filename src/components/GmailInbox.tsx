@@ -3588,23 +3588,23 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                   draggingOrderUid === message.uid
                                                       ? "opacity-45 border-violet-300 bg-violet-50"
                                                       : detail?.uid === message.uid
-                                                        ? "bg-white border-teal-500 shadow-sm ring-2 ring-teal-50"
+                                                        ? "bg-slate-900 border-transparent shadow-sm"
                                                         : !message.seen
                                                           ? "bg-white border-slate-400/90 hover:border-slate-500"
                                                           : "bg-white/90 border-slate-200/70 hover:bg-white hover:border-slate-300"
                                               }`}
                                           >
                                               <div className="flex items-center justify-between gap-2 mb-0.5">
-                                                  <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-800 truncate">
-                                                      <GripVertical className="h-3 w-3 text-slate-300 shrink-0" />
+                                                  <span className={`flex items-center gap-1.5 text-[11px] font-bold truncate ${detail?.uid === message.uid ? "text-white" : "text-slate-800"}`}>
+                                                      <GripVertical className={`h-3 w-3 shrink-0 ${detail?.uid === message.uid ? "text-slate-500" : "text-slate-300"}`} />
                                                       <SenderLogo email={message.fromEmail} name={message.fromName} size="xs" />
                                                       <span className="truncate">{message.fromName}</span>
                                                   </span>
-                                                  <span className="text-[10px] text-slate-400 shrink-0">
+                                                  <span className={`text-[10px] shrink-0 ${detail?.uid === message.uid ? "text-slate-300" : "text-slate-400"}`}>
                                                       {formatDate(message.date)}
                                                   </span>
                                               </div>
-                                              <p className="text-[11px] font-medium text-slate-600 truncate pl-4">
+                                              <p className={`text-[11px] font-medium truncate pl-4 ${detail?.uid === message.uid ? "text-slate-200" : "text-slate-600"}`}>
                                                   {message.subject}
                                               </p>
                                           </div>
@@ -3648,7 +3648,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                             </div>
                         )}
                         </>
-                    ) : visibleMessages.map((message) => (
+                    ) : visibleMessages.map((message) => {
+                        const isSelected = detail?.uid === message.uid;
+                        return (
                         <div
                             key={message.uid}
                             role="button"
@@ -3660,8 +3662,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     void openMessage(message.uid);
                                 }
                             }}
-                            className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${detail?.uid === message.uid
-                                    ? "bg-white border-teal-500 shadow-md ring-2 ring-teal-50"
+                            className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
+                                isSelected
+                                    ? "bg-slate-900 border-transparent shadow-md"
                                     : !message.seen
                                       ? "bg-white border-slate-400/90 hover:border-slate-500"
                                       : "bg-white/80 border-slate-200/70 hover:bg-white hover:border-slate-300"
@@ -3670,18 +3673,18 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                             <SenderLogo email={message.fromEmail} name={message.fromName} size="md" />
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-2 mb-0.5">
-                                    <span className="flex items-center gap-1.5 min-w-0 text-xs font-bold text-slate-800">
+                                    <span className={`flex items-center gap-1.5 min-w-0 text-xs font-bold ${isSelected ? "text-white" : "text-slate-800"}`}>
                                         <span className="truncate">{message.fromName}</span>
                                     </span>
-                                    <span className="text-[10px] text-slate-400 shrink-0 text-right">
+                                    <span className={`text-[10px] shrink-0 text-right ${isSelected ? "text-slate-300" : "text-slate-400"}`}>
                                         {formatDate(message.date)}
-                                        <span className="block text-[9px] text-slate-400/80">
+                                        <span className={`block text-[9px] ${isSelected ? "text-slate-400" : "text-slate-400/80"}`}>
                                             {formatRelative(message.date)}
                                         </span>
                                     </span>
                                 </div>
                                 <div className="flex items-center justify-between gap-2">
-                                    <p className="text-[11px] font-medium text-slate-600 truncate min-w-0">
+                                    <p className={`text-[11px] font-medium truncate min-w-0 ${isSelected ? "text-slate-200" : "text-slate-600"}`}>
                                         {message.subject}
                                     </p>
                                     <div className="flex items-center gap-1 shrink-0">
@@ -3700,7 +3703,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                 </div>
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
 
                 {/* Lecture + réponse */}
