@@ -554,6 +554,7 @@ async function bnfLookup(
             matched = { title: entry.titlePart.slice(0, 160), authors: entry.authors };
         }
         for (const isbn of entry.isbns.slice(0, 2)) {
+            covers.push(`https://pictures.abebooks.com/isbn/${isbn}-fr._SL300_.jpg`);
             const isbn10 = isbn13To10(isbn);
             if (isbn10) {
                 covers.push(`https://images-na.ssl-images-amazon.com/images/P/${isbn10}.01.LZZZZZZZ.jpg`);
@@ -567,6 +568,40 @@ async function bnfLookup(
         authors: matched?.authors ?? [],
         covers: unique(covers).slice(0, 4),
     };
+}
+
+async function abebooksLookup(
+    queryTitle: string,
+    originalTitle: string,
+    author: string | null
+): Promise<BookLookupResult> {
+    const query = [queryTitle, author].filter(Boolean).join(" ");
+    const response = await fetch(
+        `https://www.abebooks.fr/servlet/SearchResults?kn=${encodeURIComponent(query)}`,
+        {
+            headers: {
+                "User-Agent": BROWSER_UA,
+                "Accept-Language": "fr-FR,fr;q=0.9",
+            },
+            signal: AbortSignal.timeout(5_000),
+        }
+    );
+    if (!response.ok) return EMPTY_LOOKUP;
+
+    const html = await response.text();
+    const covers: string[] = [];
+    const regex =
+        /(?:aria-label|alt)="([^"]+)"[^>]*>[\s\S]{0,600}?(https:\/\/pictures\.abebooks\.com\/isbn\/[0-9X]+-[a-z]{2}\._SL\d+_\.jpg)/gi;
+
+    for (const match of html.matchAll(regex)) {
+        const label = match[1] ?? "";
+        const imgUrl = match[2] ?? "";
+        if (!imgUrl || !credible(originalTitle, label)) continue;
+        covers.push(imgUrl);
+        if (covers.length >= 4) break;
+    }
+
+    return { title: null, authors: [], covers: unique(covers) };
 }
 
 async function duckDuckGoImageLookup(title: string, author: string | null): Promise<BookLookupResult> {
@@ -609,10 +644,11 @@ export async function GET(request: Request) {
     const mainTitle = titleVariants[0] ?? title;
     const altTitle = titleVariants[1];
 
-    // Phase 1 : recherche parallèle sur les catalogues (Apple Books FR, BnF, Open Library, Google Books)
+    // Phase 1 : recherche parallèle sur les catalogues (Apple Books FR, BnF, AbeBooks FR, Open Library, Google Books)
     const phase1Tasks: Array<Promise<BookLookupResult>> = [
         itunesLookup(mainTitle, title, cleanAuthor, rawAuthorNorm),
         bnfLookup(mainTitle, title, rawAuthorNorm),
+        abebooksLookup(mainTitle, title, cleanAuthor),
         openLibraryLookup(mainTitle, title, cleanAuthor, rawAuthorNorm, { generalQuery: true }),
         googleBooksLookup(mainTitle, title, cleanAuthor),
     ];
