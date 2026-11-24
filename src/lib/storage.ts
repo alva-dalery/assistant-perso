@@ -18,6 +18,7 @@ import type { AppState, PackingItem, ReminderItem, ShoppingItem } from "@/types"
 export const APP_STATE_KEY = "assistantPerso.state.v1";
 const CULTURE_KEY = "assistantPerso.culture.v1";
 const STYLE_KEY = "assistantPerso.replyStyle.v1";
+const LITIGES_SEEDED_KEY = "assistantPerso.litigesSeeded.v2";
 
 export function todayDateString(): string {
   const now = new Date();
@@ -146,6 +147,26 @@ export function loadAppState(): AppState {
     const parsed = JSON.parse(raw) as Partial<AppState>;
     if (!parsed || typeof parsed !== "object") return defaults;
 
+    const existingDisputes = Array.isArray(parsed.disputes)
+      ? parsed.disputes.filter(
+          (d) =>
+            !(
+              (d.id === "disp-1" &&
+                d.title.startsWith("Sinistre Auto — Recours")) ||
+              (d.id === "disp-2" &&
+                d.title.startsWith("Contestation Option Payante Bancaire"))
+            )
+        )
+      : defaults.disputes;
+
+    let finalDisputes = existingDisputes;
+    if (!window.localStorage.getItem(LITIGES_SEEDED_KEY)) {
+      const existingIds = new Set(existingDisputes.map((d) => d.id));
+      const missingDefaults = defaults.disputes.filter((d) => !existingIds.has(d.id));
+      finalDisputes = [...missingDefaults, ...existingDisputes];
+      window.localStorage.setItem(LITIGES_SEEDED_KEY, "1");
+    }
+
     return {
       version: 1,
       user: { ...defaults.user, ...(parsed.user ?? {}) },
@@ -163,7 +184,7 @@ export function loadAppState(): AppState {
       shoppingList: Array.isArray(parsed.shoppingList) ? parsed.shoppingList : defaults.shoppingList,
       workouts: Array.isArray(parsed.workouts) && parsed.workouts.length > 0 ? parsed.workouts : defaults.workouts,
       workoutLogs: Array.isArray(parsed.workoutLogs) ? parsed.workoutLogs : [],
-      disputes: Array.isArray(parsed.disputes) ? parsed.disputes : defaults.disputes,
+      disputes: finalDisputes,
       projects: Array.isArray(parsed.projects) ? parsed.projects : defaults.projects,
       reminders: Array.isArray(parsed.reminders) ? parsed.reminders : defaults.reminders,
       tripDestination:

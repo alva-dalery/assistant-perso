@@ -35,3 +35,10 @@ Assistant perso.app/
 
 # Vercel
 .vercel
+.env*
+
+# Dossiers personnels de litiges (restent en local uniquement)
+Accident péroné/
+Accident péroné/
+Résiliation carte BNC/
+Résiliation carte BNC/
