@@ -3588,7 +3588,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                   draggingOrderUid === message.uid
                                                       ? "opacity-45 border-violet-300 bg-violet-50"
                                                       : detail?.uid === message.uid
-                                                        ? "bg-slate-900 border-transparent shadow-sm"
+                                                        ? "bg-slate-700 border-transparent shadow-sm"
                                                         : !message.seen
                                                           ? "bg-white border-slate-400/90 hover:border-slate-500"
                                                           : "bg-white/90 border-slate-200/70 hover:bg-white hover:border-slate-300"
@@ -3664,7 +3664,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                             }}
                             className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
                                 isSelected
-                                    ? "bg-slate-900 border-transparent shadow-md"
+                                    ? "bg-slate-700 border-transparent shadow-md"
                                     : !message.seen
                                       ? "bg-white border-slate-400/90 hover:border-slate-500"
                                       : "bg-white/80 border-slate-200/70 hover:bg-white hover:border-slate-300"
@@ -3769,7 +3769,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     </div>
                                 </div>
 
-                                {detail.category !== "kiosque" && detail.tracking && (() => {
+                                {detail.category === "commande" && detail.tracking && (() => {
                                     const matchingExisting = findMatchingParcel({
                                         uid: detail.uid,
                                         store:
@@ -4493,7 +4493,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     );
                                 })()}
 
-                                {!detail.tracking && draftRegister && (
+                                {!(detail.category === "commande" && detail.tracking) && draftRegister && (
                                     <span className="inline-block mt-1.5 text-[9px] px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-600 font-bold">
                                         {draftRegister === "tutoiement" ? "Tutoiement détecté" : "Vouvoiement détecté"}
                                     </span>
@@ -4791,7 +4791,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                             {!(invoiceLoading || invoiceProposal) && (
                                 <>
                             <div className="px-4 py-3 border-t border-slate-100 bg-white flex flex-wrap items-center gap-2">
-                                {detail && !detail.tracking && (
+                                {detail && !(detail.category === "commande" && detail.tracking) && (
                                     <>
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                             Ranger
@@ -4847,7 +4847,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     </span>
                                 )}
                             </div>
-                            {detail && !detail.tracking && detail.category !== "kiosque" && (
+                            {detail && !(detail.category === "commande" && detail.tracking) && detail.category !== "kiosque" && (
                             <div className="px-4 pb-3 bg-white text-[10px] text-slate-500 space-y-0.5">
                                 {suggesting && (
                                     <p className="flex items-center gap-1.5">
