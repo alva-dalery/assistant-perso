@@ -701,6 +701,124 @@ const ProviderLogo: React.FC<{ provider: string; className?: string }> = ({
     );
 };
 
+const PERSONAL_EMAIL_DOMAINS = new Set([
+    "gmail.com",
+    "googlemail.com",
+    "outlook.com",
+    "outlook.fr",
+    "hotmail.com",
+    "hotmail.fr",
+    "live.com",
+    "live.fr",
+    "msn.com",
+    "yahoo.com",
+    "yahoo.fr",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "orange.fr",
+    "wanadoo.fr",
+    "free.fr",
+    "sfr.fr",
+    "laposte.net",
+    "bbox.fr",
+    "proton.me",
+    "protonmail.com",
+]);
+
+const AVATAR_TONES = [
+    "bg-teal-100 text-teal-700",
+    "bg-sky-100 text-sky-700",
+    "bg-indigo-100 text-indigo-700",
+    "bg-violet-100 text-violet-700",
+    "bg-amber-100 text-amber-800",
+    "bg-rose-100 text-rose-700",
+    "bg-emerald-100 text-emerald-700",
+];
+
+function senderRootDomain(email: string | undefined): string | null {
+    if (!email) return null;
+    const at = email.lastIndexOf("@");
+    if (at < 0) return null;
+    const raw = email.slice(at + 1).trim().toLowerCase();
+    if (!raw || !raw.includes(".")) return null;
+    const parts = raw.split(".").filter(Boolean);
+    if (parts.length >= 3 && parts[parts.length - 1].length === 2 && parts[parts.length - 2].length <= 3) {
+        // Ex. co.uk, com.au, gouv.fr, asso.fr
+        return parts.slice(-3).join(".");
+    }
+    return parts.slice(-2).join(".");
+}
+
+function senderInitials(name: string, email: string): string {
+    const clean = (name || email.split("@")[0] || "?").replace(/["'<>]/g, "").trim();
+    const words = clean.split(/\s+/).filter(Boolean);
+    if (words.length >= 2) {
+        return `${words[0][0] ?? ""}${words[1][0] ?? ""}`.toUpperCase();
+    }
+    return clean.slice(0, 2).toUpperCase() || "?";
+}
+
+function senderTone(seed: string): string {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i += 1) {
+        hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    }
+    return AVATAR_TONES[hash % AVATAR_TONES.length];
+}
+
+const SenderLogo: React.FC<{
+    email?: string | null;
+    name?: string | null;
+    size?: "xs" | "sm" | "md";
+}> = ({ email, name, size = "sm" }) => {
+    const [failed, setFailed] = useState(false);
+    const cleanEmail = email?.trim() ?? "";
+    const cleanName = name?.trim() ?? "";
+    const domain = senderRootDomain(cleanEmail);
+    const showFavicon = Boolean(domain && !PERSONAL_EMAIL_DOMAINS.has(domain) && !failed);
+
+    useEffect(() => {
+        setFailed(false);
+    }, [cleanEmail]);
+
+    const dims =
+        size === "xs"
+            ? "h-4 w-4 text-[8px]"
+            : size === "md"
+              ? "h-7 w-7 text-[11px]"
+              : "h-5 w-5 text-[9px]";
+
+    if (showFavicon && domain) {
+        return (
+            <span
+                className={`inline-flex items-center justify-center rounded-md bg-white border border-slate-200/80 overflow-hidden shrink-0 ${dims}`}
+                title={domain}
+            >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                    src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`}
+                    alt={cleanName || domain}
+                    referrerPolicy="no-referrer"
+                    className="h-3/4 w-3/4 object-contain"
+                    onError={() => setFailed(true)}
+                />
+            </span>
+        );
+    }
+
+    const initials = senderInitials(cleanName, cleanEmail);
+    const tone = senderTone(cleanEmail || cleanName || "?");
+    return (
+        <span
+            aria-hidden="true"
+            className={`inline-flex items-center justify-center rounded-md font-bold shrink-0 ${tone} ${dims}`}
+        >
+            {initials}
+        </span>
+    );
+};
+
 interface LabelMenuProps {
     value: GmailCategory;
     /** Étiquette choisie à la main (absente = tri automatique). */
@@ -3475,8 +3593,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                               }`}
                                           >
                                               <div className="flex items-center justify-between gap-2 mb-0.5">
-                                                  <span className="flex items-center gap-1 text-[11px] font-bold text-slate-800 truncate">
+                                                  <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-800 truncate">
                                                       <GripVertical className="h-3 w-3 text-slate-300 shrink-0" />
+                                                      <SenderLogo email={message.fromEmail} name={message.fromName} size="xs" />
                                                       {!message.seen && (
                                                           <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-500 mr-0.5 align-middle" />
                                                       )}
@@ -3548,11 +3667,12 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                 }`}
                         >
                             <div className="flex items-center justify-between gap-2 mb-1">
-                                <span className="text-xs font-bold text-slate-800 truncate">
+                                <span className="flex items-center gap-1.5 min-w-0 text-xs font-bold text-slate-800">
+                                    <SenderLogo email={message.fromEmail} name={message.fromName} size="sm" />
                                     {!message.seen && (
-                                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-500 mr-1.5 align-middle" />
+                                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
                                     )}
-                                    {message.fromName}
+                                    <span className="truncate">{message.fromName}</span>
                                 </span>
                                 <span className="text-[10px] text-slate-400 shrink-0 text-right">
                                             {formatDate(message.date)}
@@ -3629,12 +3749,15 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                         )}
                                     </div>
                                 </div>
-                                <p className="text-[11px] text-slate-500">
-                                    De <span className="font-semibold text-slate-700">{detail.fromName}</span>
-                                    {detail.fromEmail && ` <${detail.fromEmail}>`}
-                                    {" · "}
-                                    {formatDate(detail.date)} · {formatRelative(detail.date)}
-                                </p>
+                                <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                                    <SenderLogo email={detail.fromEmail} name={detail.fromName} size="md" />
+                                    <p className="min-w-0 truncate">
+                                        De <span className="font-semibold text-slate-700">{detail.fromName}</span>
+                                        {detail.fromEmail && ` <${detail.fromEmail}>`}
+                                        {" · "}
+                                        {formatDate(detail.date)} · {formatRelative(detail.date)}
+                                    </p>
+                                </div>
 
                                 {detail.category !== "kiosque" && detail.tracking && (() => {
                                     const matchingExisting = findMatchingParcel({
