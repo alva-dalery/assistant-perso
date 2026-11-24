@@ -625,7 +625,7 @@ const LabelMenu: React.FC<LabelMenuProps> = ({
                     role="menu"
                     onClick={(event) => event.stopPropagation()}
                     onMouseDown={(event) => event.stopPropagation()}
-                    className={`absolute z-40 mt-1 w-44 rounded-xl border border-slate-200 bg-white shadow-xl p-1 ${
+                    className={`absolute top-full z-40 mt-1.5 w-44 rounded-xl border border-slate-200 bg-white shadow-xl p-1 ${
                         align === "right" ? "right-0" : "left-0"
                     }`}
                 >
@@ -3362,7 +3362,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     )}
 
                     {!loadingDetail && detail && (
-                        <div className="rounded-2xl bg-white border border-slate-200/70 shadow-sm overflow-hidden">
+                        <div className="rounded-2xl bg-white border border-slate-200/70 shadow-sm">
                             <div className="p-4 border-b border-slate-100">
                                 <div className="flex items-start justify-between gap-3 mb-1">
                                     <p className="text-sm font-extrabold text-slate-900">{detail.subject}</p>
@@ -4037,7 +4037,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                 )}
 
                                 {detail.category === "kiosque" ? (
-                                    <div className="mt-3 -mx-4 -mb-4 border-t border-slate-200/70 overflow-hidden">
+                                    <div className="mt-3 -mx-4 -mb-4 border-t border-slate-200/70 overflow-hidden rounded-b-2xl">
                                         {detail.html ? (
                                             <iframe
                                                 key={detail.uid}
