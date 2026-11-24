@@ -12,6 +12,7 @@
 
 const STORAGE_KEY = "assistantPerso.loanCovers.v1";
 const EXTENSIONS_STORAGE_KEY = "assistantPerso.loanExtensions.v1";
+const DUE_OVERRIDES_STORAGE_KEY = "assistantPerso.loanDueOverrides.v1";
 
 export interface BookLookup {
     /** Titre complet tel que catalogué (sous-titre inclus). */
@@ -153,6 +154,34 @@ export function saveLoanExtensions(extensions: Record<string, boolean>): void {
         window.localStorage.setItem(EXTENSIONS_STORAGE_KEY, JSON.stringify(extensions));
     } catch {
         // Stockage indisponible : la prolongation reste valable pour la session.
+    }
+}
+
+export function loadLoanDueOverrides(): Record<string, string> {
+    if (typeof window === "undefined") return {};
+    try {
+        const raw = window.localStorage.getItem(DUE_OVERRIDES_STORAGE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw) as unknown;
+        if (!parsed || typeof parsed !== "object") return {};
+        const result: Record<string, string> = {};
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+            if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                result[key] = value;
+            }
+        }
+        return result;
+    } catch {
+        return {};
+    }
+}
+
+export function saveLoanDueOverrides(overrides: Record<string, string>): void {
+    if (typeof window === "undefined") return;
+    try {
+        window.localStorage.setItem(DUE_OVERRIDES_STORAGE_KEY, JSON.stringify(overrides));
+    } catch {
+        // Stockage indisponible : la date reste valable pour la session.
     }
 }
 

@@ -51,10 +51,12 @@ import { getAiHeaders, getLaPosteHeaders } from "@/lib/aiClient";
 import {
     coverSrc,
     loadCoverOverrides,
+    loadLoanDueOverrides,
     loadLoanExtensions,
     loanCoverKey,
     lookupBook,
     saveCoverOverrides,
+    saveLoanDueOverrides,
     saveLoanExtensions,
     titleCase,
 } from "@/lib/loanCovers";
@@ -290,23 +292,37 @@ interface LoanCardProps {
     /** Lien choisi à la main, s'il existe. */
     override?: string;
     onSaveCover: (url: string | null) => void;
+    /** Date de retour effective (originale, prolongée ou modifiée à la main). */
+    effectiveDueDate: string | null;
+    /** Indique si une date manuelle ou prolongée remplace celle du mail. */
+    hasDueOverride?: boolean;
+    onSaveDueDate?: (iso: string | null) => void;
     /** Indique si le prêt a déjà été prolongé de 3 semaines. */
     extended?: boolean;
     onExtend?: () => void;
+    selected?: boolean;
+    onToggleSelect?: () => void;
 }
 
 const LoanCard: React.FC<LoanCardProps> = ({
     loan,
     override,
     onSaveCover,
+    effectiveDueDate,
+    hasDueOverride = false,
+    onSaveDueDate,
     extended = false,
     onExtend,
+    selected = false,
+    onToggleSelect,
 }) => {
     const [lookup, setLookup] = useState<BookLookup | null>(null);
     const [coverIndex, setCoverIndex] = useState(0);
     const [attempt, setAttempt] = useState(0);
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState(override ?? "");
+    const [editingDate, setEditingDate] = useState(false);
+    const [dateDraft, setDateDraft] = useState(effectiveDueDate ?? "");
 
     useEffect(() => {
         let cancelled = false;
@@ -325,6 +341,10 @@ const LoanCard: React.FC<LoanCardProps> = ({
         setDraft(override ?? "");
     }, [override]);
 
+    useEffect(() => {
+        setDateDraft(effectiveDueDate ?? "");
+    }, [effectiveDueDate]);
+
     const displayTitle = lookup?.title ?? titleCase(loan.title);
     const displayAuthor =
         lookup && lookup.authors.length > 0
@@ -335,12 +355,31 @@ const LoanCard: React.FC<LoanCardProps> = ({
     const rawCover = override ?? lookup?.covers[coverIndex] ?? null;
     const coverUrl = coverSrc(rawCover);
     const searching = lookup === null && !override;
-    const effectiveDueDate = extended ? addDaysIso(loan.dueDate, 21) : loan.dueDate;
     const tone = dueTone(effectiveDueDate);
 
     return (
-        <div className="rounded-xl bg-white border border-amber-200/70 overflow-hidden flex flex-col">
-            <div className="aspect-[2/3] bg-slate-100 overflow-hidden">
+        <div
+            className={`rounded-xl bg-white overflow-hidden flex flex-col transition-all ${
+                selected
+                    ? "border-2 border-amber-500 ring-2 ring-amber-200/70"
+                    : "border border-amber-200/70"
+            }`}
+        >
+            <div className="relative aspect-[2/3] bg-slate-100 overflow-hidden">
+                {onToggleSelect && (
+                    <button
+                        type="button"
+                        onClick={onToggleSelect}
+                        aria-label={selected ? `Désélectionner ${displayTitle}` : `Sélectionner ${displayTitle}`}
+                        className={`absolute top-1.5 left-1.5 z-10 h-5 w-5 rounded-md border flex items-center justify-center shadow-sm transition-all ${
+                            selected
+                                ? "bg-amber-600 border-amber-600 text-white"
+                                : "bg-white/90 border-slate-300 text-transparent hover:border-amber-500"
+                        }`}
+                    >
+                        <Check className="h-3 w-3" />
+                    </button>
+                )}
                 {coverUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -381,9 +420,56 @@ const LoanCard: React.FC<LoanCardProps> = ({
                 {displayAuthor && (
                     <p className="text-[9px] text-slate-500 truncate">{displayAuthor}</p>
                 )}
-                {effectiveDueDate ? (
-                    <p
-                        className={`text-[9px] font-bold ${
+                {editingDate && onSaveDueDate ? (
+                    <form
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            if (dateDraft) onSaveDueDate(dateDraft);
+                            setEditingDate(false);
+                        }}
+                        className="pt-1 space-y-1"
+                    >
+                        <input
+                            type="date"
+                            value={dateDraft}
+                            onChange={(event) => setDateDraft(event.target.value)}
+                            aria-label={`Date de retour de ${displayTitle}`}
+                            className="w-full rounded border border-slate-200 px-1 py-0.5 text-[9px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-300"
+                        />
+                        <div className="flex items-center gap-1">
+                            <button
+                                type="submit"
+                                className="px-1.5 py-0.5 rounded bg-amber-600 text-white text-[8px] font-bold hover:bg-amber-700"
+                            >
+                                OK
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setEditingDate(false)}
+                                className="px-1.5 py-0.5 rounded text-slate-500 text-[8px] font-bold hover:bg-slate-100"
+                            >
+                                Annuler
+                            </button>
+                            {hasDueOverride && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onSaveDueDate(null);
+                                        setEditingDate(false);
+                                    }}
+                                    className="ml-auto text-[8px] font-bold text-amber-700 hover:underline"
+                                >
+                                    Auto
+                                </button>
+                            )}
+                        </div>
+                    </form>
+                ) : effectiveDueDate ? (
+                    <button
+                        type="button"
+                        onClick={() => onSaveDueDate && setEditingDate(true)}
+                        title="Modifier la date de retour"
+                        className={`text-left text-[9px] font-bold hover:underline ${
                             tone === "overdue"
                                 ? "text-rose-600"
                                 : tone === "soon"
@@ -392,9 +478,16 @@ const LoanCard: React.FC<LoanCardProps> = ({
                         }`}
                     >
                         À rendre le {formatShortDate(effectiveDueDate)}
-                    </p>
+                    </button>
                 ) : loan.dueLabel ? (
-                    <p className="text-[9px] font-bold text-slate-500">Retour : {loan.dueLabel}</p>
+                    <button
+                        type="button"
+                        onClick={() => onSaveDueDate && setEditingDate(true)}
+                        title="Définir une date de retour"
+                        className="text-left text-[9px] font-bold text-slate-500 hover:underline"
+                    >
+                        Retour : {loan.dueLabel}
+                    </button>
                 ) : null}
             </div>
 
@@ -446,7 +539,7 @@ const LoanCard: React.FC<LoanCardProps> = ({
                 </form>
             ) : (
                 <div className="flex items-center border-t border-amber-200/70 divide-x divide-amber-200/70">
-                    {!extended && loan.dueDate && onExtend && (
+                    {!extended && effectiveDueDate && onExtend && (
                         <button
                             type="button"
                             onClick={onExtend}
@@ -874,6 +967,9 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     const [commandSaving, setCommandSaving] = useState(false);
     const [coverOverrides, setCoverOverrides] = useState<Record<string, string>>({});
     const [loanExtensions, setLoanExtensions] = useState<Record<string, boolean>>({});
+    const [loanDueOverrides, setLoanDueOverrides] = useState<Record<string, string>>({});
+    const [selectedLoans, setSelectedLoans] = useState<Record<string, boolean>>({});
+    const [bulkDueDate, setBulkDueDate] = useState("");
     /** Étiquettes renvoyées par le serveur, pour pouvoir revenir en « Automatique ». */
     const rawLabelsRef = useRef<
         Record<number, { category: GmailCategory; needsReply: boolean; reason: string }>
@@ -1051,6 +1147,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setStyleSamples(loadSamples().length);
         setCoverOverrides(loadCoverOverrides());
         setLoanExtensions(loadLoanExtensions());
+        setLoanDueOverrides(loadLoanDueOverrides());
     }, []);
 
     // Dossier proposé pour ranger une commande : « Commandes et factures » ou « Commandes/factures » en priorité.
@@ -2347,10 +2444,69 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     }
 
     /** Prolonge un emprunt de 3 semaines (+21 jours) et mémorise la prolongation. */
-    function extendLoan(extensionKey: string) {
-        const next = { ...loanExtensions, [extensionKey]: true };
-        setLoanExtensions(next);
-        saveLoanExtensions(next);
+    function extendLoan(extensionKey: string, currentDue: string | null) {
+        const nextDue = addDaysIso(currentDue, 21);
+        const nextExt = { ...loanExtensions, [extensionKey]: true };
+        setLoanExtensions(nextExt);
+        saveLoanExtensions(nextExt);
+        if (nextDue) {
+            const nextDates = { ...loanDueOverrides, [extensionKey]: nextDue };
+            setLoanDueOverrides(nextDates);
+            saveLoanDueOverrides(nextDates);
+        }
+    }
+
+    /** Prolonge de 3 semaines tous les livres sélectionnés non encore prolongés. */
+    function extendSelectedLoans(loans: BookLoan[]) {
+        const nextExt = { ...loanExtensions };
+        const nextDates = { ...loanDueOverrides };
+        for (const loan of loans) {
+            const extKey = `${loanCoverKey(loan.title, loan.author)}|${loan.dueDate ?? ""}`;
+            if (!selectedLoans[extKey] || nextExt[extKey]) continue;
+            const currentDue = nextDates[extKey] ?? loan.dueDate;
+            const nextDue = addDaysIso(currentDue, 21);
+            if (!nextDue) continue;
+            nextExt[extKey] = true;
+            nextDates[extKey] = nextDue;
+        }
+        setLoanExtensions(nextExt);
+        saveLoanExtensions(nextExt);
+        setLoanDueOverrides(nextDates);
+        saveLoanDueOverrides(nextDates);
+        setSelectedLoans({});
+    }
+
+    /** Modifie manuellement (ou réinitialise) la date de retour d'un livre. */
+    function setLoanDueDate(extensionKey: string, iso: string | null) {
+        const nextDates = { ...loanDueOverrides };
+        if (iso) {
+            nextDates[extensionKey] = iso;
+        } else {
+            delete nextDates[extensionKey];
+            if (loanExtensions[extensionKey]) {
+                const nextExt = { ...loanExtensions };
+                delete nextExt[extensionKey];
+                setLoanExtensions(nextExt);
+                saveLoanExtensions(nextExt);
+            }
+        }
+        setLoanDueOverrides(nextDates);
+        saveLoanDueOverrides(nextDates);
+    }
+
+    /** Modifie manuellement la date de retour pour tous les livres sélectionnés. */
+    function setSelectedLoansDueDate(loans: BookLoan[], iso: string) {
+        if (!iso) return;
+        const nextDates = { ...loanDueOverrides };
+        for (const loan of loans) {
+            const extKey = `${loanCoverKey(loan.title, loan.author)}|${loan.dueDate ?? ""}`;
+            if (!selectedLoans[extKey]) continue;
+            nextDates[extKey] = iso;
+        }
+        setLoanDueOverrides(nextDates);
+        saveLoanDueOverrides(nextDates);
+        setSelectedLoans({});
+        setBulkDueDate("");
     }
 
     /**
@@ -4051,22 +4207,89 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                     );
                                 })()}
 
-                                {detail.loans && detail.loans.length > 0 && (
+                                {detail.loans && detail.loans.length > 0 && (() => {
+                                    const loanKeys = detail.loans.map(
+                                        (loan) => `${loanCoverKey(loan.title, loan.author)}|${loan.dueDate ?? ""}`
+                                    );
+                                    const selectedCount = loanKeys.filter((k) => selectedLoans[k]).length;
+                                    const allSelected = loanKeys.length > 0 && selectedCount === loanKeys.length;
+                                    const extendableSelectedCount = detail.loans.filter((loan, idx) => {
+                                        const k = loanKeys[idx];
+                                        const effDue = loanDueOverrides[k] ?? loan.dueDate;
+                                        return selectedLoans[k] && !loanExtensions[k] && Boolean(effDue);
+                                    }).length;
+
+                                    return (
                                     <div className="mt-3 rounded-2xl bg-amber-50/60 border border-amber-200/70 p-3 space-y-2">
-                                        <div className="flex items-center justify-between gap-2">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
                                             <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">
                                                 <Library className="h-3.5 w-3.5" />
-                                                Livres empruntés
+                                                Livres empruntés ({detail.loans.length})
                                             </p>
-                                            <span className="text-[10px] font-bold text-amber-800">
-                                                {detail.loans.length}
-                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (allSelected) {
+                                                        setSelectedLoans({});
+                                                    } else {
+                                                        const next: Record<string, boolean> = {};
+                                                        for (const k of loanKeys) next[k] = true;
+                                                        setSelectedLoans(next);
+                                                    }
+                                                }}
+                                                className="px-2 py-1 rounded-lg bg-white border border-amber-200 text-[10px] font-bold text-amber-800 hover:bg-amber-100/70 transition-all"
+                                            >
+                                                {allSelected ? "Tout désélectionner" : "Tout sélectionner"}
+                                            </button>
                                         </div>
+
+                                        {selectedCount > 0 && (
+                                            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white border border-amber-200/80 px-2.5 py-2">
+                                                <span className="text-[10px] font-bold text-slate-600">
+                                                    {selectedCount} sélectionné{selectedCount > 1 ? "s" : ""}
+                                                </span>
+                                                {extendableSelectedCount > 0 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => extendSelectedLoans(detail.loans ?? [])}
+                                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-bold hover:bg-emerald-700 transition-all"
+                                                    >
+                                                        <CalendarPlus className="h-3 w-3" />
+                                                        <span>Prolonger (+3 sem.)</span>
+                                                    </button>
+                                                )}
+                                                <form
+                                                    onSubmit={(event) => {
+                                                        event.preventDefault();
+                                                        if (bulkDueDate) {
+                                                            setSelectedLoansDueDate(detail.loans ?? [], bulkDueDate);
+                                                        }
+                                                    }}
+                                                    className="flex items-center gap-1.5 ml-auto"
+                                                >
+                                                    <input
+                                                        type="date"
+                                                        value={bulkDueDate}
+                                                        onChange={(event) => setBulkDueDate(event.target.value)}
+                                                        aria-label="Date de retour pour la sélection"
+                                                        className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                                    />
+                                                    <button
+                                                        type="submit"
+                                                        disabled={!bulkDueDate}
+                                                        className="px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[10px] font-bold hover:bg-amber-700 disabled:opacity-40 transition-all"
+                                                    >
+                                                        Appliquer date
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        )}
 
                                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                                             {detail.loans.map((loan, index) => {
                                                 const key = loanCoverKey(loan.title, loan.author);
-                                                const extensionKey = `${key}|${loan.dueDate ?? ""}`;
+                                                const extensionKey = loanKeys[index];
+                                                const effectiveDueDate = loanDueOverrides[extensionKey] ?? loan.dueDate;
                                                 return (
                                                     <LoanCard
                                                         key={`${key}-${index}`}
@@ -4075,14 +4298,25 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                         onSaveCover={(url) =>
                                                             persistLoanCover(key, url)
                                                         }
+                                                        effectiveDueDate={effectiveDueDate}
+                                                        hasDueOverride={Boolean(loanDueOverrides[extensionKey])}
+                                                        onSaveDueDate={(iso) => setLoanDueDate(extensionKey, iso)}
                                                         extended={Boolean(loanExtensions[extensionKey])}
-                                                        onExtend={() => extendLoan(extensionKey)}
+                                                        onExtend={() => extendLoan(extensionKey, effectiveDueDate)}
+                                                        selected={Boolean(selectedLoans[extensionKey])}
+                                                        onToggleSelect={() =>
+                                                            setSelectedLoans((prev) => ({
+                                                                ...prev,
+                                                                [extensionKey]: !prev[extensionKey],
+                                                            }))
+                                                        }
                                                     />
                                                 );
                                             })}
                                         </div>
                                     </div>
-                                )}
+                                    );
+                                })()}
 
                                 {!detail.tracking && draftRegister && (
                                     <span className="inline-block mt-1.5 text-[9px] px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-600 font-bold">
