@@ -15,6 +15,7 @@ import {
     Eye,
     FileText,
     FolderInput,
+    FolderUp,
     GripVertical,
     KeyRound,
     Library,
@@ -68,6 +69,7 @@ type GmailCategory =
 
 interface GmailStatus {
     configured: boolean;
+    driveConfigured?: boolean;
     email: string | null;
     inboxCount: number | null;
     imap: "ok" | "error" | "unconfigured";
@@ -1909,47 +1911,83 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         }
     }
 
+    async function fileInvoiceToDrive(
+        uid: number,
+        proposal: InvoiceProposal,
+        files: Array<{ part?: string; url?: string; fileName: string }>
+    ) {
+        const response = await fetch("/api/gmail/invoice/drive", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({
+                uid,
+                provider: proposal.provider,
+                period: proposal.period,
+                files,
+            }),
+        });
+        const data = (await response.json()) as { ok?: boolean; error?: string };
+        if (!response.ok || !data.ok) {
+            throw new Error(data.error ?? "Rangement sur Google Drive impossible.");
+        }
+    }
+
     async function downloadInvoice() {
         if (!invoiceProposal || !detail) return;
         const target = detail;
         setInvoiceWorking(true);
         setInvoiceError(null);
+        const useDrive = Boolean(status?.driveConfigured);
 
         try {
-            for (const file of invoiceProposal.files) {
-                const fileName =
-                    (invoiceNames[file.part] ?? file.proposed).trim() || file.proposed;
-                const url = file.part
-                    ? `/api/gmail/attachment?uid=${target.uid}&part=${encodeURIComponent(
-                          file.part
-                      )}&type=${encodeURIComponent("application/pdf")}&name=${encodeURIComponent(
-                          fileName
-                      )}`
-                    : `/api/gmail/invoice/download?url=${encodeURIComponent(
-                          invoiceProposal.link ?? file.original
-                      )}`;
+            if (useDrive) {
+                await fileInvoiceToDrive(
+                    target.uid,
+                    invoiceProposal,
+                    invoiceProposal.files.map((file) => ({
+                        part: file.part || undefined,
+                        url: !file.part ? (invoiceProposal.link ?? file.original) : undefined,
+                        fileName:
+                            (invoiceNames[file.part] ?? file.proposed).trim() || file.proposed,
+                    }))
+                );
+            } else {
+                for (const file of invoiceProposal.files) {
+                    const fileName =
+                        (invoiceNames[file.part] ?? file.proposed).trim() || file.proposed;
+                    const url = file.part
+                        ? `/api/gmail/attachment?uid=${target.uid}&part=${encodeURIComponent(
+                              file.part
+                          )}&type=${encodeURIComponent("application/pdf")}&name=${encodeURIComponent(
+                              fileName
+                          )}`
+                        : `/api/gmail/invoice/download?url=${encodeURIComponent(
+                              invoiceProposal.link ?? file.original
+                          )}`;
 
-                const response = await fetch(url, { credentials: "same-origin" });
-                if (!response.ok) {
-                    let detail = "";
-                    try {
-                        const payload = (await response.json()) as { error?: string };
-                        detail = payload.error ?? "";
-                    } catch {
-                        detail = "";
+                    const response = await fetch(url, { credentials: "same-origin" });
+                    if (!response.ok) {
+                        let detail = "";
+                        try {
+                            const payload = (await response.json()) as { error?: string };
+                            detail = payload.error ?? "";
+                        } catch {
+                            detail = "";
+                        }
+                        throw new Error(detail || "Téléchargement du PDF impossible.");
                     }
-                    throw new Error(detail || "Téléchargement du PDF impossible.");
-                }
 
-                const blob = await response.blob();
-                const objectUrl = URL.createObjectURL(blob);
-                const anchor = document.createElement("a");
-                anchor.href = objectUrl;
-                anchor.download = fileName;
-                document.body.appendChild(anchor);
-                anchor.click();
-                anchor.remove();
-                setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+                    const blob = await response.blob();
+                    const objectUrl = URL.createObjectURL(blob);
+                    const anchor = document.createElement("a");
+                    anchor.href = objectUrl;
+                    anchor.download = fileName;
+                    document.body.appendChild(anchor);
+                    anchor.click();
+                    anchor.remove();
+                    setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+                }
             }
 
             const deletion = await fetch("/api/gmail/delete", {
@@ -1961,7 +1999,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             const deletionData = (await deletion.json()) as { error?: string };
             if (!deletion.ok) {
                 setInvoiceError(
-                    deletionData.error ?? "PDF téléchargé, mais suppression du mail impossible."
+                    deletionData.error ??
+                        (useDrive
+                            ? "Rangée sur Drive, mais suppression du mail impossible."
+                            : "PDF téléchargé, mais suppression du mail impossible.")
                 );
                 return;
             }
@@ -1969,10 +2010,18 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             setMessages((previous) => previous.filter((item) => item.uid !== target.uid));
             setTotal((previous) => Math.max(0, previous - 1));
             openNextInListOrClear(target.uid);
-            setFeedback("Facture téléchargée et email supprimé.");
+            setFeedback(
+                useDrive
+                    ? "Facture rangée sur Google Drive et email supprimé."
+                    : "Facture téléchargée et email supprimé."
+            );
         } catch (error) {
             setInvoiceError(
-                error instanceof Error ? error.message : "Téléchargement impossible."
+                error instanceof Error
+                    ? error.message
+                    : useDrive
+                      ? "Rangement sur Drive impossible."
+                      : "Téléchargement impossible."
             );
         } finally {
             setInvoiceWorking(false);
@@ -2400,10 +2449,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     async function downloadSelectedInvoices() {
         const rows = invoiceRowList.filter((row) => row.selected && row.status === "ready");
         if (rows.length === 0) {
-            setInvoiceBatchMessage("Sélectionnez au moins une facture à télécharger.");
+            setInvoiceBatchMessage("Sélectionnez au moins une facture à traiter.");
             return;
         }
 
+        const useDrive = Boolean(status?.driveConfigured);
         setInvoiceBatchWorking(true);
         setInvoiceBatchMessage(null);
         let saved = 0;
@@ -2413,40 +2463,53 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             const proposal = row.proposal;
             if (!proposal) continue;
             try {
-                for (let index = 0; index < proposal.files.length; index += 1) {
-                    const file = proposal.files[index];
-                    const wanted = index === 0 ? row.name.trim() || file.proposed : file.proposed;
-                    const url = file.part
-                        ? `/api/gmail/attachment?uid=${row.uid}&part=${encodeURIComponent(
-                              file.part
-                          )}&type=${encodeURIComponent("application/pdf")}&name=${encodeURIComponent(
-                              wanted
-                          )}`
-                        : `/api/gmail/invoice/download?dl=1&url=${encodeURIComponent(
-                              proposal.link ?? file.original
-                          )}&name=${encodeURIComponent(wanted)}`;
+                if (useDrive) {
+                    await fileInvoiceToDrive(
+                        row.uid,
+                        proposal,
+                        proposal.files.map((file, index) => ({
+                            part: file.part || undefined,
+                            url: !file.part ? (proposal.link ?? file.original) : undefined,
+                            fileName:
+                                index === 0 ? row.name.trim() || file.proposed : file.proposed,
+                        }))
+                    );
+                } else {
+                    for (let index = 0; index < proposal.files.length; index += 1) {
+                        const file = proposal.files[index];
+                        const wanted = index === 0 ? row.name.trim() || file.proposed : file.proposed;
+                        const url = file.part
+                            ? `/api/gmail/attachment?uid=${row.uid}&part=${encodeURIComponent(
+                                  file.part
+                              )}&type=${encodeURIComponent("application/pdf")}&name=${encodeURIComponent(
+                                  wanted
+                              )}`
+                            : `/api/gmail/invoice/download?dl=1&url=${encodeURIComponent(
+                                  proposal.link ?? file.original
+                              )}&name=${encodeURIComponent(wanted)}`;
 
-                    const response = await fetch(url, { credentials: "same-origin" });
-                    if (!response.ok) {
-                        let reason = "";
-                        try {
-                            const payload = (await response.json()) as { error?: string };
-                            reason = payload.error ?? "";
-                        } catch {
-                            reason = "";
+                        const response = await fetch(url, { credentials: "same-origin" });
+                        if (!response.ok) {
+                            let reason = "";
+                            try {
+                                const payload = (await response.json()) as { error?: string };
+                                reason = payload.error ?? "";
+                            } catch {
+                                reason = "";
+                            }
+                            throw new Error(reason || "Téléchargement du PDF impossible.");
                         }
-                        throw new Error(reason || "Téléchargement du PDF impossible.");
-                    }
 
-                    const blob = await response.blob();
-                    const objectUrl = URL.createObjectURL(blob);
-                    const anchor = document.createElement("a");
-                    anchor.href = objectUrl;
-                    anchor.download = wanted;
-                    document.body.appendChild(anchor);
-                    anchor.click();
-                    anchor.remove();
-                    setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+                        const blob = await response.blob();
+                        const objectUrl = URL.createObjectURL(blob);
+                        const anchor = document.createElement("a");
+                        anchor.href = objectUrl;
+                        anchor.download = wanted;
+                        document.body.appendChild(anchor);
+                        anchor.click();
+                        anchor.remove();
+                        setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+                    }
                 }
 
                 const deletion = await fetch("/api/gmail/delete", {
@@ -2471,7 +2534,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             } catch (error) {
                 failures.push(
                     `${row.fromName} : ${
-                        error instanceof Error ? error.message : "téléchargement impossible"
+                        error instanceof Error
+                            ? error.message
+                            : useDrive
+                              ? "rangement sur Drive impossible"
+                              : "téléchargement impossible"
                     }`
                 );
             }
@@ -2480,8 +2547,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         setInvoiceBatchWorking(false);
         setInvoiceBatchMessage(
             failures.length === 0
-                ? `${saved} facture${saved > 1 ? "s" : ""} téléchargée${
-                      saved > 1 ? "s" : ""
+                ? `${saved} facture${saved > 1 ? "s" : ""} ${
+                      useDrive ? "rangée" : "téléchargée"
+                  }${saved > 1 ? "s" : ""}${
+                      useDrive ? " sur Google Drive" : ""
                   } et email${saved > 1 ? "s" : ""} supprimé${saved > 1 ? "s" : ""}.`
                 : `${saved} facture(s) traitée(s). Échec(s) : ${failures.join(" · ")}`
         );
@@ -2842,13 +2911,19 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                         >
                             {invoiceBatchWorking ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : status?.driveConfigured ? (
+                                <FolderUp className="h-3.5 w-3.5" />
                             ) : (
                                 <Download className="h-3.5 w-3.5" />
                             )}
                             <span>
                                 {invoiceBatchWorking
-                                    ? "Téléchargement…"
-                                    : `Valider les noms et télécharger (${selectedInvoiceRows.length})`}
+                                    ? status?.driveConfigured
+                                        ? "Rangement sur Drive…"
+                                        : "Téléchargement…"
+                                    : status?.driveConfigured
+                                      ? `Valider les noms et ranger sur Drive (${selectedInvoiceRows.length})`
+                                      : `Valider les noms et télécharger (${selectedInvoiceRows.length})`}
                             </span>
                         </button>
                     </div>
@@ -4061,15 +4136,23 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                     >
                                                         {invoiceWorking ? (
                                                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                        ) : status?.driveConfigured ? (
+                                                            <FolderUp className="h-3.5 w-3.5" />
                                                         ) : (
                                                             <Download className="h-3.5 w-3.5" />
                                                         )}
-                                                        <span>Valider le nom et télécharger</span>
+                                                        <span>
+                                                            {status?.driveConfigured
+                                                                ? "Valider le nom et ranger sur Drive"
+                                                                : "Valider le nom et télécharger"}
+                                                        </span>
                                                     </button>
                                                 )}
                                                 {invoiceProposal.files.length > 0 && (
                                                     <span className="text-[10px] text-slate-500">
-                                                        Le mail sera supprimé automatiquement après le téléchargement.
+                                                        {status?.driveConfigured
+                                                            ? "Le PDF sera rangé dans Google Drive et le mail supprimé automatiquement."
+                                                            : "Le mail sera supprimé automatiquement après le téléchargement."}
                                                     </span>
                                                 )}
                                                 <button
