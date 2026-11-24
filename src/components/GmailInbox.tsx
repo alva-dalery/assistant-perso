@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
     AlertTriangle,
     ArrowLeft,
+    ArrowRight,
     BookOpen,
     CalendarPlus,
     CheckCircle2,
@@ -469,7 +470,7 @@ const LoanCard: React.FC<LoanCardProps> = ({
                         type="button"
                         onClick={() => onSaveDueDate && setEditingDate(true)}
                         title="Modifier la date de retour"
-                        className={`text-left text-[9px] font-bold hover:underline ${
+                        className={`inline-flex items-center gap-1 text-left text-[9px] font-bold hover:underline ${
                             tone === "overdue"
                                 ? "text-rose-600"
                                 : tone === "soon"
@@ -477,16 +478,18 @@ const LoanCard: React.FC<LoanCardProps> = ({
                                   : "text-slate-500"
                         }`}
                     >
-                        À rendre le {formatShortDate(effectiveDueDate)}
+                        <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+                        <span>{formatShortDate(effectiveDueDate)}</span>
                     </button>
                 ) : loan.dueLabel ? (
                     <button
                         type="button"
                         onClick={() => onSaveDueDate && setEditingDate(true)}
                         title="Définir une date de retour"
-                        className="text-left text-[9px] font-bold text-slate-500 hover:underline"
+                        className="inline-flex items-center gap-1 text-left text-[9px] font-bold text-slate-500 hover:underline"
                     >
-                        Retour : {loan.dueLabel}
+                        <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+                        <span>{loan.dueLabel}</span>
                     </button>
                 ) : null}
             </div>
