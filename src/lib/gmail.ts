@@ -203,6 +203,8 @@ const ALERT_SENDER =
 /** Newsletters de presse regroupées dans l'onglet Kiosque (Le Monde, Mediapart). */
 const KIOSQUE_LE_MONDE = /(?:@|\.)lemonde\.fr\b/i;
 const KIOSQUE_MEDIAPART = /(?:@|\.)mediapart\.fr\b/i;
+const KIOSQUE_GRAPHEINE = /(?:@|\.)grapheine\.com\b/i;
+const KIOSQUE_GRAPHEINE_NAME = /\bgraph[eé]ine\b/i;
 
 /** Emails de bienvenue / création de compte (à lire, jamais à répondre). */
 const WELCOME_SUBJECT =
@@ -1458,6 +1460,18 @@ export function classifyMessage(
             category: "kiosque",
             needsReply: false,
             reason: "Newsletter presse — Mediapart",
+        };
+    }
+    if (
+        KIOSQUE_GRAPHEINE.test(fromEmail) ||
+        KIOSQUE_GRAPHEINE.test(listId) ||
+        KIOSQUE_GRAPHEINE_NAME.test(headerValue(headers, "from")) ||
+        KIOSQUE_GRAPHEINE_NAME.test(listId)
+    ) {
+        return {
+            category: "kiosque",
+            needsReply: false,
+            reason: "Newsletter — Graphéine",
         };
     }
 
