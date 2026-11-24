@@ -78,19 +78,146 @@ function createSmtpTransport() {
     });
 }
 
+const INBOX_CACHE_TTL_MS = 25_000;
+const FOLDERS_CACHE_TTL_MS = 60_000;
+const MESSAGE_CACHE_TTL_MS = 5 * 60_000;
+const MESSAGE_CACHE_MAX = 60;
+const IMAP_IDLE_TIMEOUT_MS = 45_000;
+
+interface GmailPoolState {
+    client: ImapFlow | null;
+    queue: Promise<unknown>;
+    idleTimer: ReturnType<typeof setTimeout> | null;
+    inboxCache: {
+        messages: GmailMessageSummary[];
+        total: number;
+        limit: number;
+        fetchedAt: number;
+    } | null;
+    foldersCache: {
+        folders: GmailFolder[];
+        fetchedAt: number;
+    } | null;
+    messageCache: Map<number, { detail: GmailMessageDetail; fetchedAt: number }>;
+}
+
+const globalForGmail = globalThis as typeof globalThis & {
+    __gmailPool?: GmailPoolState;
+};
+
+function getGmailPool(): GmailPoolState {
+    if (!globalForGmail.__gmailPool) {
+        globalForGmail.__gmailPool = {
+            client: null,
+            queue: Promise.resolve(),
+            idleTimer: null,
+            inboxCache: null,
+            foldersCache: null,
+            messageCache: new Map(),
+        };
+    }
+    return globalForGmail.__gmailPool;
+}
+
+function invalidateGmailCache(uid?: number, invalidateFolders = false): void {
+    const pool = getGmailPool();
+    pool.inboxCache = null;
+    if (typeof uid === "number") {
+        pool.messageCache.delete(uid);
+    }
+    if (invalidateFolders) {
+        pool.foldersCache = null;
+    }
+}
+
+function isRetryableImapError(error: unknown): boolean {
+    const raw = error instanceof Error ? error.message : String(error);
+    return /Connection not available|ECONNRESET|ETIMEDOUT|EPIPE|socket|closed|Too many simultaneous connections/i.test(
+        raw
+    );
+}
+
+async function resetPooledClient(): Promise<void> {
+    const pool = getGmailPool();
+    if (pool.idleTimer) {
+        clearTimeout(pool.idleTimer);
+        pool.idleTimer = null;
+    }
+    const existing = pool.client;
+    pool.client = null;
+    if (existing) {
+        await existing.logout().catch(() => undefined);
+    }
+}
+
+async function ensurePooledClient(): Promise<ImapFlow> {
+    const pool = getGmailPool();
+    if (pool.client && pool.client.usable) {
+        return pool.client;
+    }
+    await resetPooledClient();
+    const client = createImapClient();
+    client.on("error", () => {
+        if (pool.client === client) pool.client = null;
+    });
+    client.on("close", () => {
+        if (pool.client === client) pool.client = null;
+    });
+    await client.connect();
+    pool.client = client;
+    return client;
+}
+
 /**
- * Ouvre INBOX en lecture seule, exécute `fn`, puis referme immédiatement
- * pour ne jamais saturer la limite de connexions simultanées de Gmail.
- * Réessaie une fois après un court délai si Gmail signale trop de connexions.
+ * Exécute une opération IMAP sur une connexion persistante sérialisée (pool).
+ * Évite de refaire un handshake TLS + LOGIN à chaque requête et prévient
+ * l'erreur Gmail « Too many simultaneous connections ».
+ */
+async function withPooledImap<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+    const pool = getGmailPool();
+    if (pool.idleTimer) {
+        clearTimeout(pool.idleTimer);
+        pool.idleTimer = null;
+    }
+
+    const run = async (): Promise<T> => {
+        try {
+            const client = await ensurePooledClient();
+            return await fn(client);
+        } catch (error) {
+            if (isRetryableImapError(error) || !pool.client?.usable) {
+                await resetPooledClient();
+                await new Promise((resolve) => setTimeout(resolve, 250));
+                const fresh = await ensurePooledClient();
+                return await fn(fresh);
+            }
+            throw error;
+        } finally {
+            if (pool.idleTimer) clearTimeout(pool.idleTimer);
+            pool.idleTimer = setTimeout(() => {
+                void resetPooledClient();
+            }, IMAP_IDLE_TIMEOUT_MS);
+            if (typeof pool.idleTimer.unref === "function") {
+                pool.idleTimer.unref();
+            }
+        }
+    };
+
+    const next = pool.queue.then(run, run);
+    pool.queue = next.then(
+        () => undefined,
+        () => undefined
+    );
+    return next;
+}
+
+/**
+ * Ouvre INBOX en lecture seule via la connexion IMAP mutualisée.
  */
 async function withInbox<T>(
     fn: (client: ImapFlow, exists: number) => Promise<T>
 ): Promise<T> {
-    const runOnce = async (): Promise<T> => {
-        const client = createImapClient();
-        // Une erreur réseau tardive ne doit pas faire tomber la fonction serverless.
-        client.on("error", () => undefined);
-        await client.connect();
+    return withPooledImap(async (client) => {
         const lock = await client.getMailboxLock("INBOX", { readOnly: true });
         try {
             const mailbox = client.mailbox;
@@ -98,20 +225,8 @@ async function withInbox<T>(
             return await fn(client, exists);
         } finally {
             lock.release();
-            await client.logout().catch(() => undefined);
         }
-    };
-
-    try {
-        return await runOnce();
-    } catch (error) {
-        const msg = describeGmailError(error);
-        if (/Trop de connexions simultanées/i.test(msg)) {
-            await new Promise((resolve) => setTimeout(resolve, 600));
-            return await runOnce();
-        }
-        throw error;
-    }
+    });
 }
 
 /* ------------------------------------------------------------------ */
@@ -2157,13 +2272,27 @@ function htmlToText(html: string): string {
 }
 
 export async function listInbox(
-    limit = 12
+    limit = 12,
+    options?: { force?: boolean }
 ): Promise<{ messages: GmailMessageSummary[]; total: number }> {
     if (!isGmailConfigured()) {
         throw new Error("Gmail n'est pas configuré.");
     }
 
-    return withInbox(async (client, exists) => {
+    const pool = getGmailPool();
+    if (
+        !options?.force &&
+        pool.inboxCache &&
+        Date.now() - pool.inboxCache.fetchedAt < INBOX_CACHE_TTL_MS &&
+        pool.inboxCache.limit >= limit
+    ) {
+        return {
+            messages: pool.inboxCache.messages.slice(0, limit),
+            total: pool.inboxCache.total,
+        };
+    }
+
+    const result = await withInbox(async (client, exists) => {
         if (exists === 0) return { messages: [], total: 0 };
 
         const start = Math.max(1, exists - limit + 1);
@@ -2179,6 +2308,14 @@ export async function listInbox(
         messages.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
         return { messages, total: exists };
     });
+
+    pool.inboxCache = {
+        messages: result.messages,
+        total: result.total,
+        limit,
+        fetchedAt: Date.now(),
+    };
+    return result;
 }
 
 export async function getMessage(uid: number): Promise<GmailMessageDetail> {
@@ -2189,7 +2326,13 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
         throw new Error("Identifiant de message invalide.");
     }
 
-    return withInbox(async (client) => {
+    const pool = getGmailPool();
+    const cached = pool.messageCache.get(uid);
+    if (cached && Date.now() - cached.fetchedAt < MESSAGE_CACHE_TTL_MS) {
+        return cached.detail;
+    }
+
+    const detail = await withInbox(async (client) => {
         const message = await client.fetchOne(
             String(uid),
             {
@@ -2326,6 +2469,15 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
             loans,
         };
     });
+
+    if (pool.messageCache.size >= MESSAGE_CACHE_MAX) {
+        const oldestKey = pool.messageCache.keys().next().value;
+        if (typeof oldestKey === "number") {
+            pool.messageCache.delete(oldestKey);
+        }
+    }
+    pool.messageCache.set(uid, { detail, fetchedAt: Date.now() });
+    return detail;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2738,24 +2890,29 @@ export async function listFolders(): Promise<GmailFolder[]> {
         throw new Error("Gmail n'est pas configuré.");
     }
 
-    const client = createImapClient();
-    client.on("error", () => undefined);
-    await client.connect();
-    try {
+    const pool = getGmailPool();
+    if (
+        pool.foldersCache &&
+        Date.now() - pool.foldersCache.fetchedAt < FOLDERS_CACHE_TTL_MS
+    ) {
+        return pool.foldersCache.folders;
+    }
+
+    const folders = await withPooledImap(async (client) => {
         const boxes = await client.list();
-        const folders: GmailFolder[] = [];
+        const result: GmailFolder[] = [];
 
         for (const box of boxes) {
             if (box.flags?.has("\\Noselect")) continue;
 
             if (box.path === "INBOX") {
-                folders.push({ path: box.path, label: "Boîte de réception", kind: "inbox" });
+                result.push({ path: box.path, label: "Boîte de réception", kind: "inbox" });
                 continue;
             }
 
             const specialLabel = box.specialUse ? SPECIAL_FOLDER_LABELS[box.specialUse] : undefined;
             if (specialLabel) {
-                folders.push({ path: box.path, label: specialLabel, kind: "system" });
+                result.push({ path: box.path, label: specialLabel, kind: "system" });
                 continue;
             }
 
@@ -2763,22 +2920,23 @@ export async function listFolders(): Promise<GmailFolder[]> {
             // on ignore les entrées techniques pour ne garder que vos libellés.
             if (box.path.startsWith("[Gmail]/")) continue;
 
-            folders.push({ path: box.path, label: box.path, kind: "label" });
+            result.push({ path: box.path, label: box.path, kind: "label" });
         }
 
         const rank = (folder: GmailFolder): number =>
             folder.kind === "label" ? 0 : folder.kind === "inbox" ? -1 : 1;
 
-        folders.sort(
+        result.sort(
             (a, b) =>
                 rank(a) - rank(b) ||
                 a.label.localeCompare(b.label, "fr", { sensitivity: "base" })
         );
 
-        return folders;
-    } finally {
-        await client.logout().catch(() => undefined);
-    }
+        return result;
+    });
+
+    pool.foldersCache = { folders, fetchedAt: Date.now() };
+    return folders;
 }
 
 /** Déplace un message vers un dossier/libellé Gmail (ou vers les archives). */
@@ -2796,39 +2954,36 @@ export async function moveMessage(
         throw new Error("Dossier de destination manquant.");
     }
 
-    const client = createImapClient();
-    client.on("error", () => undefined);
-    await client.connect();
-
-    let lock: { release: () => void } | null = null;
-    try {
+    return withPooledImap(async (client) => {
         const boxes = await client.list();
         const target = boxes.find((box) => box.path === destination);
         if (!target) {
             throw new Error("Dossier de destination inconnu dans Gmail.");
         }
 
-        lock = await client.getMailboxLock("INBOX");
-        let moved = false;
+        const lock = await client.getMailboxLock("INBOX");
         try {
-            const result = await client.messageMove(String(uid), target.path, { uid: true });
-            moved = result !== false;
-        } catch {
-            // Repli COPY + DELETE si Gmail refuse UID MOVE sur ce libellé (caractères spéciaux, etc.)
-            const copied = await client.messageCopy(String(uid), target.path, { uid: true });
-            if (copied !== false) {
-                await client.messageDelete(String(uid), { uid: true });
-                moved = true;
+            let moved = false;
+            try {
+                const result = await client.messageMove(String(uid), target.path, { uid: true });
+                moved = result !== false;
+            } catch {
+                // Repli COPY + DELETE si Gmail refuse UID MOVE sur ce libellé (caractères spéciaux, etc.)
+                const copied = await client.messageCopy(String(uid), target.path, { uid: true });
+                if (copied !== false) {
+                    await client.messageDelete(String(uid), { uid: true });
+                    moved = true;
+                }
             }
+            if (!moved) {
+                throw new Error("Gmail a refusé le déplacement de ce message.");
+            }
+            invalidateGmailCache(uid);
+            return { moved: true, destination: target.path };
+        } finally {
+            lock.release();
         }
-        if (!moved) {
-            throw new Error("Gmail a refusé le déplacement de ce message.");
-        }
-        return { moved: true, destination: target.path };
-    } finally {
-        lock?.release();
-        await client.logout().catch(() => undefined);
-    }
+    });
 }
 
 /** Envoie un message à la corbeille Gmail. */
@@ -2838,12 +2993,7 @@ export async function deleteMessage(
     if (!isGmailConfigured()) throw new Error("Gmail n'est pas configuré.");
     if (!Number.isInteger(uid) || uid <= 0) throw new Error("Identifiant de message invalide.");
 
-    const client = createImapClient();
-    client.on("error", () => undefined);
-    await client.connect();
-
-    let lock: { release: () => void } | null = null;
-    try {
+    return withPooledImap(async (client) => {
         const boxes = await client.list();
         const trash =
             boxes.find((box) => box.specialUse === "\\Trash") ??
@@ -2851,36 +3001,37 @@ export async function deleteMessage(
 
         if (!trash) throw new Error("Corbeille Gmail introuvable.");
 
-        lock = await client.getMailboxLock("INBOX");
-        const result = await client.messageMove(String(uid), trash.path, { uid: true });
-        if (result === false) {
-            throw new Error("Gmail a refusé la suppression de ce message.");
+        const lock = await client.getMailboxLock("INBOX");
+        try {
+            const result = await client.messageMove(String(uid), trash.path, { uid: true });
+            if (result === false) {
+                throw new Error("Gmail a refusé la suppression de ce message.");
+            }
+            invalidateGmailCache(uid);
+            return { deleted: true, destination: trash.path };
+        } finally {
+            lock.release();
         }
-        return { deleted: true, destination: trash.path };
-    } finally {
-        lock?.release();
-        await client.logout().catch(() => undefined);
-    }
+    });
 }
 
 /** Marque un message comme répondu (drapeau \Answered de Gmail). */
 export async function markMessageAnswered(uid: number): Promise<boolean> {
     if (!isGmailConfigured() || !Number.isInteger(uid) || uid <= 0) return false;
 
-    const client = createImapClient();
-    client.on("error", () => undefined);
-    await client.connect();
-
-    let lock: { release: () => void } | null = null;
     try {
-        lock = await client.getMailboxLock("INBOX");
-        await client.messageFlagsAdd(String(uid), ["\\Answered"], { uid: true });
-        return true;
+        return await withPooledImap(async (client) => {
+            const lock = await client.getMailboxLock("INBOX");
+            try {
+                await client.messageFlagsAdd(String(uid), ["\\Answered"], { uid: true });
+                invalidateGmailCache(uid);
+                return true;
+            } finally {
+                lock.release();
+            }
+        });
     } catch {
         return false;
-    } finally {
-        lock?.release();
-        await client.logout().catch(() => undefined);
     }
 }
 
@@ -3225,7 +3376,15 @@ export async function checkGmailStatus(): Promise<GmailStatus> {
     let error: string | undefined;
 
     try {
-        inboxCount = await withInbox(async (_client, exists) => exists);
+        const pool = getGmailPool();
+        if (
+            pool.inboxCache &&
+            Date.now() - pool.inboxCache.fetchedAt < INBOX_CACHE_TTL_MS
+        ) {
+            inboxCount = pool.inboxCache.total;
+        } else {
+            inboxCount = await withInbox(async (_client, exists) => exists);
+        }
     } catch (e) {
         imap = "error";
         error = describeGmailError(e);

@@ -156,27 +156,17 @@ export default function Home() {
   const refreshLiveGmail = useCallback(async () => {
     setGmailLoading(true);
     try {
-      const statusRes = await fetch("/api/gmail/status", {
-        cache: "no-store",
-        credentials: "same-origin",
-      });
-      if (!statusRes.ok) {
-        setGmailConfigured(false);
-        return;
-      }
-      const statusData = (await statusRes.json()) as { configured?: boolean };
-      if (!statusData.configured) {
-        setGmailConfigured(false);
-        setLiveEmails([]);
-        return;
-      }
-      setGmailConfigured(true);
-
       const msgRes = await fetch("/api/gmail/messages?limit=8", {
         cache: "no-store",
         credentials: "same-origin",
       });
+      if (msgRes.status === 400) {
+        setGmailConfigured(false);
+        setLiveEmails([]);
+        return;
+      }
       if (msgRes.ok) {
+        setGmailConfigured(true);
         const msgData = (await msgRes.json()) as { messages?: LiveEmailSummary[] };
         setLiveEmails(Array.isArray(msgData.messages) ? msgData.messages : []);
       }

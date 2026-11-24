@@ -1241,7 +1241,13 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             inboxSessionCache?.status?.configured && inboxSessionCache.messages.length > 0
         );
         if (!hasCachedMessages) {
-            void load(limit);
+            if (limit > 25) {
+                void load(25).then(() => {
+                    void load(limit);
+                });
+            } else {
+                void load(limit);
+            }
         }
         // Le chargement initial suffit : « Rafraîchir » relance explicitement.
         // eslint-disable-next-line react-hooks/exhaustive-deps
