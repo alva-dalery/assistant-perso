@@ -2921,25 +2921,35 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
             <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-slate-100/80 border border-slate-200/60 w-fit">
                 {(
                     [
-                        ["reply", `À répondre (${toReply.length})`],
-                        ["read", `À lire (${toRead.length})`],
-                        ["factures", `Factures (${factures.length})`],
-                        ["commande", `Commandes (${commandes.length})`],
-                        ["alertes", `Alertes (${alertes.length})`],
-                        ["kiosque", `Kiosque (${kiosque.length})`],
-                        ["later", `Newsletter/pub (${later.length})`],
-                        ["all", `Tous (${messages.length})`],
-                    ] as [Filter, string][]
-                ).map(([value, label]) => (
+                        ["reply", "À répondre", toReply.length],
+                        ["read", "À lire", toRead.length],
+                        ["factures", "Factures", factures.length],
+                        ["commande", "Commandes", commandes.length],
+                        ["alertes", "Alertes", alertes.length],
+                        ["kiosque", "Kiosque", kiosque.length],
+                        ["later", "Newsletter/pub", later.length],
+                        ["all", "Tous", messages.length],
+                    ] as [Filter, string, number][]
+                ).map(([value, label, count]) => (
                     <button
                         key={value}
                         onClick={() => changeFilter(value)}
-                        className={`px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all ${filter === value
+                        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all ${filter === value
                                 ? "bg-white text-slate-900 shadow-sm"
                                 : "text-slate-500 hover:text-slate-800"
                             }`}
                     >
-                        {label}
+                        <span>{label}</span>
+                        {count > 0 && (
+                            <span
+                                className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none tabular-nums ${filter === value
+                                        ? "bg-slate-900 text-white"
+                                        : "bg-slate-200/80 text-slate-700"
+                                    }`}
+                            >
+                                {count}
+                            </span>
+                        )}
                     </button>
                 ))}
             </div>
