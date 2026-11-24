@@ -3588,7 +3588,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                                   draggingOrderUid === message.uid
                                                       ? "opacity-45 border-violet-300 bg-violet-50"
                                                       : detail?.uid === message.uid
-                                                        ? "bg-slate-700 border-transparent shadow-sm"
+                                                        ? "bg-[#324461] border-transparent shadow-sm"
                                                         : !message.seen
                                                           ? "bg-white border-slate-400/90 hover:border-slate-500"
                                                           : "bg-white/90 border-slate-200/70 hover:bg-white hover:border-slate-300"
@@ -3664,7 +3664,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                             }}
                             className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
                                 isSelected
-                                    ? "bg-slate-700 border-transparent shadow-md"
+                                    ? "bg-[#324461] border-transparent shadow-md"
                                     : !message.seen
                                       ? "bg-white border-slate-400/90 hover:border-slate-500"
                                       : "bg-white/80 border-slate-200/70 hover:bg-white hover:border-slate-300"
