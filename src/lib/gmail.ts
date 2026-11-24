@@ -70,22 +70,62 @@ function createSmtpTransport() {
     });
 }
 
-/** Ouvre INBOX en lecture seule, exécute `fn`, puis referme proprement. */
+let warmInboxClient: ImapFlow | null = null;
+let warmInboxTimer: ReturnType<typeof setTimeout> | null = null;
+
+function releaseWarmInbox(client: ImapFlow, keep: boolean) {
+    if (!keep || !client.usable || warmInboxClient !== null) {
+        void client.logout().catch(() => undefined);
+        return;
+    }
+    warmInboxClient = client;
+    if (warmInboxTimer) clearTimeout(warmInboxTimer);
+    warmInboxTimer = setTimeout(() => {
+        const stale = warmInboxClient;
+        warmInboxClient = null;
+        warmInboxTimer = null;
+        if (stale) void stale.logout().catch(() => undefined);
+    }, 20_000);
+    if (typeof warmInboxTimer.unref === "function") warmInboxTimer.unref();
+}
+
+/** Ouvre INBOX en lecture seule, réutilise une connexion chaude si disponible. */
 async function withInbox<T>(
     fn: (client: ImapFlow, exists: number) => Promise<T>
 ): Promise<T> {
-    const client = createImapClient();
-    // Une erreur réseau tardive ne doit pas faire tomber la fonction serverless.
-    client.on("error", () => undefined);
-    await client.connect();
+    let client: ImapFlow | null = null;
+    if (warmInboxClient) {
+        const candidate = warmInboxClient;
+        warmInboxClient = null;
+        if (warmInboxTimer) {
+            clearTimeout(warmInboxTimer);
+            warmInboxTimer = null;
+        }
+        if (candidate.usable) {
+            client = candidate;
+        } else {
+            void candidate.logout().catch(() => undefined);
+        }
+    }
+
+    if (!client) {
+        client = createImapClient();
+        // Une erreur réseau tardive ne doit pas faire tomber la fonction serverless.
+        client.on("error", () => undefined);
+        await client.connect();
+    }
+
+    let keep = false;
     const lock = await client.getMailboxLock("INBOX", { readOnly: true });
     try {
         const mailbox = client.mailbox;
         const exists = mailbox && typeof mailbox === "object" ? mailbox.exists : 0;
-        return await fn(client, exists);
+        const result = await fn(client, exists);
+        keep = true;
+        return result;
     } finally {
         lock.release();
-        await client.logout().catch(() => undefined);
+        releaseWarmInbox(client, keep);
     }
 }
 
@@ -2131,30 +2171,28 @@ export async function getMessage(uid: number): Promise<GmailMessageDetail> {
 
         let text = "";
         let rawHtml = "";
-        if (part) {
-            const download = await client.download(String(uid), part.part ?? "1", { uid: true });
-            if (download && download.content) {
-                const downloaded = await readLimited(download.content, MAX_BODY_BYTES);
-                if (part.type === "text/html") {
-                    rawHtml = downloaded;
-                    text = htmlToText(downloaded);
-                } else {
-                    text = downloaded;
-                }
-            }
-        }
+        const downloadPart = async (target: { part?: string }): Promise<string> => {
+            const dl = await client.download(String(uid), target.part ?? "1", { uid: true });
+            return dl && dl.content ? readLimited(dl.content, MAX_BODY_BYTES) : "";
+        };
 
-        // Récupérer également la version HTML si le message principal était text/plain
-        if (!rawHtml && htmlPart && htmlPart.part !== part?.part) {
-            try {
-                const htmlDownload = await client.download(String(uid), htmlPart.part ?? "1", {
-                    uid: true,
-                });
-                if (htmlDownload && htmlDownload.content) {
-                    rawHtml = await readLimited(htmlDownload.content, MAX_BODY_BYTES);
-                }
-            } catch {
-                // fallback sur text/plain uniquement
+        if (plainPart && htmlPart && plainPart.part !== htmlPart.part) {
+            const [plainResult, htmlResult] = await Promise.all([
+                downloadPart(plainPart).catch(() => ""),
+                downloadPart(htmlPart).catch(() => ""),
+            ]);
+            text = plainResult;
+            rawHtml = htmlResult;
+            if (!text.trim() && rawHtml) {
+                text = htmlToText(rawHtml);
+            }
+        } else if (part) {
+            const downloaded = await downloadPart(part);
+            if (part.type === "text/html") {
+                rawHtml = downloaded;
+                text = htmlToText(downloaded);
+            } else {
+                text = downloaded;
             }
         }
 

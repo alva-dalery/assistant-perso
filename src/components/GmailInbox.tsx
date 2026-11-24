@@ -214,6 +214,7 @@ type Filter =
 const PAGE_SIZE = 80;
 const MAX_MESSAGES = 2000;
 const INBOX_CACHE_KEY = "assistantPerso.inboxCache.v1";
+const DETAIL_CACHE_KEY = "assistantPerso.detailCache.v1";
 const INVOICE_BATCH_CHUNK = 5;
 
 function formatDate(iso: string): string {
@@ -1391,7 +1392,21 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
     };
 
     async function fetchMessageDetail(uid: number): Promise<MessageDetail | null> {
-        const cached = detailSessionCache.get(uid);
+        let cached = detailSessionCache.get(uid);
+        if (!cached && typeof window !== "undefined") {
+            try {
+                const raw = window.sessionStorage.getItem(DETAIL_CACHE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw) as Record<string, MessageDetail>;
+                    if (parsed[String(uid)]) {
+                        cached = parsed[String(uid)];
+                        detailSessionCache.set(uid, cached);
+                    }
+                }
+            } catch {
+                // Cache session indisponible.
+            }
+        }
         if (cached) return cached;
 
         const existingInflight = inflightDetailFetches.get(uid);
@@ -1410,6 +1425,17 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                     const oldestKey = detailSessionCache.keys().next().value;
                     if (oldestKey !== undefined) detailSessionCache.delete(oldestKey);
                 }
+                if (typeof window !== "undefined") {
+                    try {
+                        const entries = Array.from(detailSessionCache.entries()).slice(-15);
+                        window.sessionStorage.setItem(
+                            DETAIL_CACHE_KEY,
+                            JSON.stringify(Object.fromEntries(entries))
+                        );
+                    } catch {
+                        // Quota sessionStorage dépassé : on conserve le cache mémoire.
+                    }
+                }
                 setDetailCacheVersion((v) => v + 1);
                 return data;
             } catch {
@@ -1423,7 +1449,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         return promise;
     }
 
-    async function prefetchUids(uids: number[], concurrency = 2) {
+    async function prefetchUids(uids: number[], concurrency = 1) {
         const pending = uids.filter(
             (id) => !detailSessionCache.has(id) && !inflightDetailFetches.has(id)
         );
@@ -1445,19 +1471,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         const idx = visibleMessages.findIndex((item) => item.uid === currentUid);
         if (idx < 0) return;
         const ahead: number[] = [];
-        // La liste est triée du plus récent (0) au plus ancien (fin) :
-        // on précharge en priorité du plus ancien vers le plus récent (idx - 1, idx - 2…).
-        for (let offset = 1; offset <= 6; offset += 1) {
-            const olderToNewer = visibleMessages[idx - offset];
-            if (olderToNewer) ahead.push(olderToNewer.uid);
-        }
-        if (ahead.length < 3) {
-            for (let offset = 1; offset <= 4; offset += 1) {
-                const downward = visibleMessages[idx + offset];
-                if (downward) ahead.push(downward.uid);
-            }
-        }
-        void prefetchUids(ahead);
+        const prev = visibleMessages[idx - 1];
+        const next = visibleMessages[idx + 1];
+        if (prev) ahead.push(prev.uid);
+        if (next) ahead.push(next.uid);
+        void prefetchUids(ahead, 1);
     }
 
     async function openMessage(uid: number) {
