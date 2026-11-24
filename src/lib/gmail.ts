@@ -126,6 +126,7 @@ export type GmailCategory =
     | "alertes"
     | "infos"
     | "kiosque"
+    | "bibliotheque"
     | "newsletter"
     | "promotion";
 
@@ -1336,6 +1337,15 @@ export function classifyMessage(
             category: "alertes",
             needsReply: false,
             reason: "Alerte de sécurité ou partage de données de compte",
+        };
+    }
+
+    // 1b. Bibliothèque (BM Lyon).
+    if (LIBRARY_SENDER.test(fromEmail)) {
+        return {
+            category: "bibliotheque",
+            needsReply: false,
+            reason: "Bibliothèque municipale de Lyon",
         };
     }
 

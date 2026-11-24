@@ -65,6 +65,7 @@ type GmailCategory =
     | "alertes"
     | "infos"
     | "kiosque"
+    | "bibliotheque"
     | "newsletter"
     | "promotion";
 
@@ -133,6 +134,7 @@ const CATEGORY_LABEL: Record<GmailCategory, string> = {
     alertes: "Alertes",
     infos: "À lire",
     kiosque: "Kiosque",
+    bibliotheque: "Bibliothèque",
     newsletter: "Newsletter",
     promotion: "Publicité",
 };
@@ -145,6 +147,7 @@ const CATEGORY_STYLE: Record<GmailCategory, string> = {
     alertes: "bg-rose-50 text-rose-700 border-rose-200",
     infos: "bg-sky-50 text-sky-700 border-sky-200",
     kiosque: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    bibliotheque: "bg-orange-50 text-orange-700 border-orange-200",
     newsletter: "bg-slate-100 text-slate-500 border-slate-200",
     promotion: "bg-amber-50 text-amber-700 border-amber-200",
 };
@@ -157,6 +160,7 @@ const CATEGORY_ORDER: GmailCategory[] = [
     "commande",
     "alertes",
     "kiosque",
+    "bibliotheque",
     "newsletter",
     "promotion",
 ];
@@ -208,6 +212,7 @@ type Filter =
     | "commande"
     | "alertes"
     | "kiosque"
+    | "bibliotheque"
     | "later"
     | "all";
 
@@ -1066,6 +1071,10 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
         () => messages.filter((message) => message.category === "kiosque"),
         [messages]
     );
+    const bibliotheques = useMemo(
+        () => messages.filter((message) => message.category === "bibliotheque"),
+        [messages]
+    );
     const later = useMemo(() => messages.filter((message) => isLater(message.category)), [messages]);
 
     const visibleMessages =
@@ -1081,9 +1090,11 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                             ? alertes
                             : filter === "kiosque"
                                 ? kiosque
-                                : filter === "later"
-                                    ? later
-                                    : messages;
+                                : filter === "bibliotheque"
+                                    ? bibliotheques
+                                    : filter === "later"
+                                        ? later
+                                        : messages;
 
     const commandeGroups = useMemo(() => {
         if (filter !== "commande") return [];
@@ -1352,6 +1363,8 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                 return alertes;
             case "kiosque":
                 return kiosque;
+            case "bibliotheque":
+                return bibliotheques;
             case "later":
                 return later;
             default:
@@ -2915,6 +2928,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                         ["commande", "Commandes", commandes.length],
                         ["alertes", "Alertes", alertes.length],
                         ["kiosque", "Kiosque", kiosque.length],
+                        ["bibliotheque", "Bibliothèque", bibliotheques.length],
                         ["later", "Newsletter/pub", later.length],
                         ["all", "Tous", messages.length],
                     ] as [Filter, string, number][]
@@ -3362,7 +3376,7 @@ export const GmailInbox: React.FC<GmailInboxProps> = ({
                                             override={labelOverrides[detail.uid]}
                                             onSelect={(value) => changeMessageCategory(detail.uid, value)}
                                         />
-                                        {["personnel", "alertes", "kiosque", "newsletter", "promotion", "important", "infos"].includes(detail.category) && (
+                                        {["personnel", "alertes", "kiosque", "bibliotheque", "newsletter", "promotion", "important", "infos"].includes(detail.category) && (
                                             <button
                                                 type="button"
                                                 onClick={() => void removeMessage()}
